@@ -66,8 +66,9 @@ jobs:
       - name: Run migrations
         env:
           DATABASE_URL: ${{ env.DATABASE_URL }}
+        working-directory: ${{ github.workspace }}
         run: |
-          python -m alembic upgrade head
+          python -m alembic -c alembic.ini upgrade head
 
       - name: Format (ruff)
         run: |
