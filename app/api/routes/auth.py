@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import error_payload
-from app.core.security import create_access_token, get_current_user, get_password_hash, verify_password
+from app.core.security import (
+    create_access_token,
+    get_current_user,
+    get_password_hash,
+    verify_password,
+)
 from app.db.models import Tenant, User
 from app.db.session import get_db
 from app.schemas.auth import (
@@ -51,13 +56,15 @@ def register(payload: RegisterRequest, db: DbSessionDep) -> TokenResponse | JSON
         )
 
     tenant = Tenant(name=f"Tenant for {payload.email}")
+    db.add(tenant)
+    db.flush()
     user = User(
         tenant_id=tenant.id,
         email=payload.email,
         hashed_password=get_password_hash(payload.password),
         is_active=True,
     )
-    db.add_all([tenant, user])
+    db.add(user)
     db.commit()
 
     token = create_access_token(str(user.id))
