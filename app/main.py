@@ -5,6 +5,7 @@ Codex: implement the app wiring, include routers, middleware, and dependencies.
 
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
+from tenacity import RetryError
 
 from app.api.routes import auth_router, chat_router, health_router
 from app.core.config import settings
@@ -12,6 +13,7 @@ from app.core.logging import (
     configure_logging,
     http_exception_handler,
     llm_unavailable_handler,
+    retry_error_handler,
     unhandled_exception_handler,
     validation_exception_handler,
 )
@@ -30,6 +32,7 @@ app.add_exception_handler(
     validation_exception_handler,  # type: ignore[arg-type]
 )
 app.add_exception_handler(LLMUnavailable, llm_unavailable_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RetryError, retry_error_handler)  # type: ignore[arg-type]
 app.add_exception_handler(
     Exception, lambda request, exc: unhandled_exception_handler(request, exc, settings)
 )

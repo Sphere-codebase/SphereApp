@@ -36,7 +36,11 @@ class LLMClient:
             timeout=httpx.Timeout(settings.llm_timeout_seconds),
         )
 
-    @retry(wait=wait_exponential(multiplier=1, min=1, max=10), stop=stop_after_attempt(3))
+    @retry(
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        stop=stop_after_attempt(3),
+        reraise=True,
+    )
     def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             response = self._client.post("/chat/completions", json=payload)
