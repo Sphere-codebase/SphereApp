@@ -4,6 +4,7 @@
 This service is a backend for a doctor-facing claims assistant. It supports:
 - Authenticated, multi-tenant access
 - A `/chat` endpoint that uses an LLM (LM Studio) with tool calling
+- Health endpoints (`/health`, `/ready`) for liveness/readiness checks
 - Database-backed storage of patients, claims, payments
 - Full audit trail of chat sessions, messages, and tool calls/results
 
@@ -16,6 +17,7 @@ This service is a backend for a doctor-facing claims assistant. It supports:
    - validates args (Pydantic)
    - enforces tenant isolation
    - executes tool handler (DB or service)
+   - requires explicit confirmation for write tools (`confirm=true`)
    - stores tool call + result to DB
 6) Backend returns assistant answer (and optional UI actions such as form schema).
 
@@ -27,6 +29,7 @@ This service is a backend for a doctor-facing claims assistant. It supports:
 FastAPI routers and request/response wiring.
 - No business logic beyond validating inputs and calling services.
 - Auth dependency injection lives here (via `Depends`).
+- Health endpoints live here and check DB/LLM readiness.
 
 ### `app/services/`
 Orchestration and business logic.
@@ -50,6 +53,7 @@ Cross-cutting concerns.
 - `config.py`: settings via env
 - `security.py`: JWT auth helpers
 - `logging.py`: log format and request IDs
+- request/response logging middleware with latency
 
 ---
 
@@ -83,3 +87,5 @@ This provides traceability and supports audits/debugging.
 
 ## Notes
 This document is intentionally short (1–2 pages). Update as the code evolves.
+- Password hashing currently uses passlib `pbkdf2_sha256` due to bcrypt backend
+  compatibility issues in the local environment; switch to bcrypt when available.

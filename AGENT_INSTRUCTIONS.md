@@ -64,6 +64,11 @@ This repository is backend-only (FastAPI). A separate claim-scoring model/servic
 
 ### M1 — Configuration & logging
 **Tasks**
+- Mandatory: add request correlation id middleware:
+  - read `X-Request-ID` from request headers (if present)
+  - otherwise generate UUIDv4
+  - set `X-Request-ID` header on every response (success + error)
+  - include request_id in all logs
 - Implement `app/core/config.py` using Pydantic Settings.
 - Load env from `.env` (local dev) + real env in prod.
 - Add structured logging helpers in `app/core/logging.py`.
@@ -73,6 +78,10 @@ This repository is backend-only (FastAPI). A separate claim-scoring model/servic
 - Importing `app.core.config.settings` works.
 - Startup logs show environment + LM base URL (without secrets).
 - `.env.example` fully matches required variables.
+- Request ID middleware is in place (read/generate UUIDv4, echo header, log request_id).
+- Every response includes `X-Request-ID`.
+- Logs include request_id and allow correlating failures.
+
 
 ---
 

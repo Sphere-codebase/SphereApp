@@ -6,6 +6,18 @@ All responses are JSON.
 ## Authentication
 All `/chat` requests require an `Authorization: Bearer <JWT>` header (MVP).
 
+
+## Request/Response Headers
+### X-Request-ID (correlation id)
+- Client MAY send `X-Request-ID: <string>` to correlate logs and retries.
+- If missing, server MUST generate a UUIDv4 request id.
+- Server MUST echo the final request id back in **every** response (success and error) as `X-Request-ID`.
+
+Notes:
+- `X-Request-ID` is used for troubleshooting and log correlation.
+- It does not change authorization/tenant resolution.
+
+
 ## POST /chat
 ### Request body
 ```json
@@ -25,6 +37,8 @@ All `/chat` requests require an `Authorization: Bearer <JWT>` header (MVP).
 {
   "session_id": "sess_abc123",
   "assistant_message": "Here is what I found...",
+  "action_required": false,
+  "proposed_changes": null,
   "ui_actions": [
     {
       "type": "form",
@@ -50,7 +64,18 @@ All `/chat` requests require an `Authorization: Bearer <JWT>` header (MVP).
 
 ### Response notes
 - `ui_actions` is optional and may be empty.
+- `action_required`/`proposed_changes` are returned when a write requires explicit confirmation.
+- Write tools require `confirm=true`; without confirmation, the response will include `action_required=true`.
 - `debug` is optional and MUST be disabled in production mode.
+
+---
+
+## GET /health
+- Always returns 200 when process is running.
+
+## GET /ready
+- Returns 200 when DB is reachable.
+- If `READY_CHECK_LLM=true`, returns 503 when LLM is unavailable.
 
 ---
 
@@ -65,6 +90,7 @@ All errors use:
   }
 }
 ```
+All error responses include the `X-Request-ID` header.
 
 ### 401 Unauthorized
 - Missing/invalid JWT.
@@ -83,6 +109,7 @@ When LM Studio is down/unreachable/timeouts, return:
     "code": "LLM_UNAVAILABLE",
     "message": "LLM service is unavailable",
     "details": {
+      "error": "LLM request failed",
       "base_url": "http://localhost:1234/v1",
       "timeout_seconds": 60
     }
