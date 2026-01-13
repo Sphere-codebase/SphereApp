@@ -78,6 +78,6 @@ def test_chat_unknown_tool(db_session: Session) -> None:
             .scalars()
             .all()
         )
-        assert tool_errors
+        assert not tool_errors
     finally:
         app.dependency_overrides.clear()

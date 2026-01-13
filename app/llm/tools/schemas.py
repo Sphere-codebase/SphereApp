@@ -38,3 +38,11 @@ class UpdateClaimFieldsArgs(BaseModel):
     claim_id: uuid.UUID
     patch: dict[str, Any]
     confirm: bool = False
+
+
+class GetAccountArgs(BaseModel):
+    pass
+
+
+class TimeNowArgs(BaseModel):
+    tz: str = "Asia/Tbilisi"

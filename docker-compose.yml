@@ -10,6 +10,11 @@ services:
       POSTGRES_DB: claims_assistant
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d claims_assistant"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
 
 volumes:
   postgres_data:

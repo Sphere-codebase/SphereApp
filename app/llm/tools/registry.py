@@ -9,10 +9,13 @@ from typing import Any
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Claim, ClaimEvent, Patient
+from app.db.models import Claim, ClaimEvent, Patient, User
 from app.llm.tools import schemas
 
 Handler = Callable[["ToolContext", Any], dict[str, Any]]
@@ -108,6 +111,27 @@ def _list_claims(ctx: ToolContext, args: schemas.ListClaimsArgs) -> dict[str, An
 
 def _request_form(_: ToolContext, args: schemas.RequestFormArgs) -> dict[str, Any]:
     return {"type": "form", "fields": args.fields}
+
+
+def _get_account(ctx: ToolContext, _: schemas.GetAccountArgs) -> dict[str, Any]:
+    if ctx.user_id is None:
+        raise ValueError("User not found")
+    user = ctx.db.execute(
+        select(User).where(
+            User.id == ctx.user_id,
+            User.tenant_id == ctx.tenant_id,
+        )
+    ).scalar_one_or_none()
+    if user is None:
+        raise ValueError("User not found")
+    email = user.email or ""
+    return {"email": email, "user_id": str(user.id), "greeting": f"Hello, {email}!"}
+
+
+def _time_now(_: ToolContext, args: schemas.TimeNowArgs) -> dict[str, Any]:
+    tz = args.tz or "Asia/Tbilisi"
+    now = datetime.now(ZoneInfo(tz)).isoformat(timespec="seconds")
+    return {"now": now, "tz": tz}
 
 
 def _create_claim_draft(ctx: ToolContext, args: schemas.CreateClaimDraftArgs) -> dict[str, Any]:
@@ -211,6 +235,18 @@ TOOLS: dict[str, ToolDefinition] = {
         args_model=schemas.RequestFormArgs,
         handler=_request_form,
     ),
+    "get_account": ToolDefinition(
+        name="get_account",
+        description="Get the current user's account info.",
+        args_model=schemas.GetAccountArgs,
+        handler=_get_account,
+    ),
+    "time_now": ToolDefinition(
+        name="time_now",
+        description="Get current time in a timezone.",
+        args_model=schemas.TimeNowArgs,
+        handler=_time_now,
+    ),
     "create_claim_draft": ToolDefinition(
         name="create_claim_draft",
         description="Create a claim draft (requires confirmation).",
@@ -229,6 +265,8 @@ TOOLS: dict[str, ToolDefinition] = {
 def list_tool_schemas() -> list[dict[str, Any]]:
     tools = []
     for definition in TOOLS.values():
+        if definition.name == "request_form":
+            continue
         tools.append(
             {
                 "type": "function",

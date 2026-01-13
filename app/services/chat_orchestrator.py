@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,6 +22,7 @@ from app.llm.tools import ToolContext, execute_tool, list_tool_schemas
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SYSTEM_RULES_PATH = ROOT_DIR / "docs" / "system_rules.md"
 DEVELOPER_POLICY_PATH = ROOT_DIR / "docs" / "developer_policy.md"
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -47,6 +49,7 @@ class ChatOrchestrator:
 
         messages = self._build_prompt(session.id, claim_id)
         tools = list_tool_schemas()
+        allowed_tools = {tool["function"]["name"] for tool in tools}
         ui_actions: list[dict[str, Any]] = []
         debug: dict[str, Any] = {"tool_steps": 0}
 
@@ -79,6 +82,9 @@ class ChatOrchestrator:
             )
             messages.append(self._assistant_tool_call_message(result))
             for tool_call in result.tool_calls:
+                if tool_call.name not in allowed_tools:
+                    logger.warning("Skipping unknown tool call: %s", tool_call.name)
+                    continue
                 self._store_tool_call(session.id, tool_call)
                 try:
                     tool_result = execute_tool(tool_call.name, tool_call.arguments, tool_context)
@@ -232,7 +238,9 @@ class ChatOrchestrator:
 
     def _store_message(
         self, session_id: uuid.UUID, role: str, content: str | None = None
-    ) -> ChatMessage:
+    ) -> ChatMessage | None:
+        if role == "assistant" and (content is None or not content.strip()):
+            return None
         message = ChatMessage(
             tenant_id=self.user.tenant_id,
             session_id=session_id,
@@ -245,6 +253,8 @@ class ChatOrchestrator:
         return message
 
     def _store_tool_call(self, session_id: uuid.UUID, call: ToolCall) -> None:
+        if not call.name:
+            return
         message = ChatMessage(
             tenant_id=self.user.tenant_id,
             session_id=session_id,
@@ -259,6 +269,8 @@ class ChatOrchestrator:
     def _store_tool_result(
         self, session_id: uuid.UUID, tool_name: str, result: dict[str, Any]
     ) -> None:
+        if not tool_name or result is None:
+            return
         message = ChatMessage(
             tenant_id=self.user.tenant_id,
             session_id=session_id,

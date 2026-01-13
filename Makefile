@@ -14,6 +14,7 @@ help:
 	@echo "  make db-up       - start postgres via docker compose"
 	@echo "  make db-down     - stop postgres"
 	@echo "  make db-logs     - follow postgres logs"
+	@echo "  make db-wait     - wait for postgres health"
 	@echo "  make db-upgrade  - apply alembic migrations"
 	@echo "  make start       - db-up + db-upgrade + run (reload)"
 	@echo "  make run         - run API (reload)"
@@ -41,7 +42,16 @@ db-down:
 db-logs:
 	docker compose logs -f postgres
 
-db-upgrade:
+db-wait:
+	@echo "Waiting for Postgres..."
+	@until docker exec claims_assistant_postgres pg_isready -U postgres -d claims_assistant >/dev/null 2>&1; do \
+		sleep 1; \
+	done
+	@echo "Postgres is ready."
+
+docker-wait: db-wait
+
+db-upgrade: db-wait
 	$(VENV)/bin/python -m alembic upgrade head
 
 # --- App run ---
@@ -52,7 +62,7 @@ run-prod:
 	$(VENV)/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 # One-button local start
-start: db-up db-upgrade run
+start: db-up docker-wait db-upgrade run
 
 test:
 	$(VENV)/bin/pytest -q
