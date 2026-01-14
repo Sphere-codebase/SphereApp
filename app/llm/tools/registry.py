@@ -264,8 +264,6 @@ TOOLS: dict[str, ToolDefinition] = {
 def list_tool_schemas() -> list[dict[str, Any]]:
     tools = []
     for definition in TOOLS.values():
-        if definition.name == "request_form":
-            continue
         tools.append(
             {
                 "type": "function",
