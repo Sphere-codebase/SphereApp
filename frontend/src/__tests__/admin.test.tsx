@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import AppRoutes from "@/routes/AppRoutes";
 import { AuthProvider } from "@/lib/auth/AuthContext";
-import type { Agency, PolicyLink, ProcedureCode } from "@/lib/api/admin";
+import type { AdminUser, Agency, PolicyLink, ProcedureCode } from "@/lib/api/admin";
 
 type JsonResponseInit = {
   status: number;
@@ -296,5 +296,176 @@ describe("admin catalog UI", () => {
         expect.objectContaining({ method: "PATCH" })
       );
     });
+  });
+
+  test("users load, create, edit, disable", async () => {
+    const agencies: Agency[] = [];
+    const users: AdminUser[] = [
+      {
+        id: "user-1",
+        email: "alpha@example.com",
+        full_name: "Alpha User",
+        tenant_id: adminUser.tenant_id,
+        is_active: true,
+        is_admin: false,
+        created_at: "2026-01-01T00:00:00",
+      },
+    ];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: adminUser }));
+      }
+      if (url.endsWith("/api/admin/agencies") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: agencies }));
+      }
+      if (url.includes("/api/admin/users") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: users }));
+      }
+      if (url.endsWith("/api/admin/users") && method === "POST") {
+        const bodyText = typeof init?.body === "string" ? init.body : "{}";
+        const parsed = JSON.parse(bodyText) as {
+          email: string;
+          full_name?: string | null;
+          is_admin: boolean;
+          is_active: boolean;
+        };
+        const created: AdminUser = {
+          id: "user-2",
+          email: parsed.email,
+          full_name: parsed.full_name ?? null,
+          tenant_id: adminUser.tenant_id,
+          is_active: parsed.is_active,
+          is_admin: parsed.is_admin,
+          created_at: "2026-01-02T00:00:00",
+        };
+        users.push(created);
+        return Promise.resolve(buildJsonResponse({ status: 201, body: created }));
+      }
+      if (url.includes("/api/admin/users/") && method === "PATCH") {
+        const userId = getIdFromUrl(url);
+        const bodyText = typeof init?.body === "string" ? init.body : "{}";
+        const parsed = JSON.parse(bodyText) as Partial<AdminUser>;
+        const existing = users.find((item) => item.id === userId);
+        if (!existing) {
+          return Promise.resolve(buildJsonResponse({ status: 404, body: { error: {} } }));
+        }
+        const updated: AdminUser = { ...existing, ...parsed };
+        users.splice(users.indexOf(existing), 1, updated);
+        return Promise.resolve(buildJsonResponse({ status: 200, body: updated }));
+      }
+      if (url.includes("/reset-password") && method === "POST") {
+        return Promise.resolve(buildJsonResponse({ status: 204, body: null }));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    renderWithProviders(["/app/admin"]);
+
+    await userEvent.click(await screen.findByRole("button", { name: /users/i }));
+    expect(await screen.findByText("alpha@example.com")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /new user/i }));
+    await userEvent.type(screen.getByLabelText("Email"), "beta@example.com");
+    await userEvent.type(screen.getByLabelText("Full name"), "Beta User");
+    await userEvent.type(screen.getByLabelText("Password"), "secret");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("beta@example.com")).toBeInTheDocument();
+
+    const editButtons = screen.getAllByRole("button", { name: "Edit user" });
+    const firstEdit = editButtons[0];
+    if (!firstEdit) {
+      throw new Error("Expected edit user button");
+    }
+    await userEvent.click(firstEdit);
+    const nameInput = screen.getByLabelText("Full name");
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, "Alpha Updated");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Alpha Updated")).toBeInTheDocument();
+
+    const alphaRow = screen.getByText("alpha@example.com").closest("tr");
+    if (!alphaRow) {
+      throw new Error("Expected user row for alpha@example.com");
+    }
+    await userEvent.click(within(alphaRow).getByRole("button", { name: "Disable" }));
+    expect(await within(alphaRow).findByText("Disabled")).toBeInTheDocument();
+  });
+
+  test("policy links show missing indicator when flagged", async () => {
+    const agencies: Agency[] = [
+      {
+        id: "agency-1",
+        name: "Alpha Health",
+        slug: "alpha",
+        is_active: true,
+        created_at: "2026-01-01T00:00:00",
+        updated_at: "2026-01-01T00:00:00",
+      },
+    ];
+    const codes: ProcedureCode[] = [
+      {
+        id: "code-1",
+        code: "99213",
+        title: "Office visit",
+        category: "Evaluation",
+        created_at: "2026-01-01T00:00:00",
+        updated_at: "2026-01-01T00:00:00",
+      },
+    ];
+    const policyLinks: PolicyLink[] = [
+      {
+        id: "link-1",
+        agency_id: "agency-1",
+        procedure_code_id: "code-1",
+        policy_url: "https://example.com/policy",
+        missing_policy_link: true,
+        effective_from: null,
+        effective_to: null,
+        status: "ACTIVE",
+        notes: null,
+        created_at: "2026-01-01T00:00:00",
+        updated_at: "2026-01-02T00:00:00",
+      },
+    ];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: adminUser }));
+      }
+      if (url.endsWith("/api/admin/agencies") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: agencies }));
+      }
+      if (url.includes("/api/admin/procedure-codes") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: codes }));
+      }
+      if (url.includes("/api/admin/policy-links") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: policyLinks }));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    renderWithProviders(["/app/admin"]);
+
+    await screen.findByRole("button", { name: /policy links/i });
+    await userEvent.click(screen.getByRole("button", { name: /policy links/i }));
+
+    expect(await screen.findByText("Missing")).toBeInTheDocument();
   });
 });

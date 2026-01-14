@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { Conversation } from "@/components/ai/conversation";
 import type { MessageProps } from "@/components/ai/message";
@@ -6,6 +7,7 @@ import { PromptInput } from "@/components/ai/prompt-input";
 import ErrorNotice from "@/components/ErrorNotice";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { useChat, ChatProvider } from "@/lib/chat/ChatContext";
 import { cn } from "@/lib/utils";
 import { CloudUpload, Moon, Plus, Sun, Trash2 } from "lucide-react";
@@ -57,6 +59,8 @@ function ChatShell() {
     sendMessage,
     clearError,
   } = useChat();
+  const { logout } = useAuth();
+  const navigate = useNavigate();
   const [draft, setDraft] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
 
@@ -109,6 +113,16 @@ function ChatShell() {
             >
               <Plus className="h-4 w-4" />
               New chat
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                logout();
+                navigate("/login");
+              }}
+            >
+              Logout
             </Button>
             <Button
               type="button"

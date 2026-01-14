@@ -14,15 +14,22 @@ import {
 } from "@/components/ui/dialog";
 import { useAuth } from "@/lib/auth/AuthContext";
 import {
+  createAdminUser,
   createAgency,
   createPolicyLink,
   deleteAgency,
   deletePolicyLink,
+  listAdminUsers,
   listAgencies,
   listPolicyLinks,
   listProcedureCodes,
+  resetAdminUserPassword,
+  updateAdminUser,
   updateAgency,
   updatePolicyLink,
+  type AdminUser,
+  type AdminUserCreateInput,
+  type AdminUserUpdateInput,
   type Agency,
   type AgencyCreateInput,
   type PolicyLink,
@@ -33,7 +40,7 @@ import { ApiError } from "@/lib/api/errors";
 import { cn } from "@/lib/utils";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 
-type TabKey = "agencies" | "policy-links";
+type TabKey = "agencies" | "policy-links" | "users";
 
 interface AgencyFormState {
   name: string;
@@ -51,6 +58,18 @@ interface PolicyFormState {
   notes: string;
 }
 
+interface UserFormState {
+  email: string;
+  full_name: string;
+  password: string;
+  is_admin: boolean;
+  is_active: boolean;
+}
+
+interface ResetPasswordState {
+  password: string;
+}
+
 const emptyAgencyForm: AgencyFormState = {
   name: "",
   slug: "",
@@ -65,6 +84,18 @@ const emptyPolicyForm: PolicyFormState = {
   effective_to: "",
   status: "ACTIVE",
   notes: "",
+};
+
+const emptyUserForm: UserFormState = {
+  email: "",
+  full_name: "",
+  password: "",
+  is_admin: false,
+  is_active: true,
+};
+
+const emptyResetForm: ResetPasswordState = {
+  password: "",
 };
 
 function formatDateInput(value?: string | null): string {
@@ -96,18 +127,32 @@ export default function AdminPage() {
   const [agencies, setAgencies] = useState<Agency[]>([]);
   const [procedureCodes, setProcedureCodes] = useState<ProcedureCode[]>([]);
   const [policyLinks, setPolicyLinks] = useState<PolicyLink[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [error, setError] = useState<unknown>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [agencyDialogOpen, setAgencyDialogOpen] = useState(false);
   const [policyDialogOpen, setPolicyDialogOpen] = useState(false);
+  const [userDialogOpen, setUserDialogOpen] = useState(false);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [editingAgency, setEditingAgency] = useState<Agency | null>(null);
   const [editingPolicy, setEditingPolicy] = useState<PolicyLink | null>(null);
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
+  const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
   const [agencyForm, setAgencyForm] = useState<AgencyFormState>(emptyAgencyForm);
   const [policyForm, setPolicyForm] = useState<PolicyFormState>(emptyPolicyForm);
+  const [userForm, setUserForm] = useState<UserFormState>(emptyUserForm);
+  const [resetForm, setResetForm] = useState<ResetPasswordState>(emptyResetForm);
+  const [userFormError, setUserFormError] = useState<string | null>(null);
+  const [resetFormError, setResetFormError] = useState<string | null>(null);
   const [filters, setFilters] = useState({
     agency_id: "",
     procedure_code_id: "",
     query: "",
+  });
+  const [userFilters, setUserFilters] = useState({
+    query: "",
+    is_active: "all",
+    is_admin: "all",
   });
 
   const agencyById = useMemo(() => {
@@ -183,6 +228,37 @@ export default function AdminPage() {
     }
   }, [filters, handleApiError]);
 
+  const loadUsers = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const isActive =
+        userFilters.is_active === "all" ? undefined : userFilters.is_active === "true";
+      const isAdmin =
+        userFilters.is_admin === "all" ? undefined : userFilters.is_admin === "true";
+      const filterPayload: {
+        query?: string;
+        is_active?: boolean;
+        is_admin?: boolean;
+      } = {};
+      if (userFilters.query) {
+        filterPayload.query = userFilters.query;
+      }
+      if (isActive !== undefined) {
+        filterPayload.is_active = isActive;
+      }
+      if (isAdmin !== undefined) {
+        filterPayload.is_admin = isAdmin;
+      }
+      const data = await listAdminUsers(filterPayload);
+      setUsers(data);
+    } catch (err) {
+      handleApiError(err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [handleApiError, userFilters]);
+
   useEffect(() => {
     if (user?.is_admin) {
       void loadAgencies();
@@ -195,6 +271,12 @@ export default function AdminPage() {
       void loadPolicyLinks();
     }
   }, [activeTab, loadPolicyLinks, loadProcedureCodes, user]);
+
+  useEffect(() => {
+    if (user?.is_admin && activeTab === "users") {
+      void loadUsers();
+    }
+  }, [activeTab, loadUsers, user]);
 
   if (!user) {
     return <Navigate to="/login" replace />;
@@ -234,6 +316,30 @@ export default function AdminPage() {
         : emptyPolicyForm
     );
     setPolicyDialogOpen(true);
+  };
+
+  const openUserDialog = (target: AdminUser | null) => {
+    setEditingUser(target);
+    setUserFormError(null);
+    setUserForm(
+      target
+        ? {
+            email: target.email,
+            full_name: target.full_name ?? "",
+            password: "",
+            is_admin: target.is_admin,
+            is_active: target.is_active,
+          }
+        : emptyUserForm
+    );
+    setUserDialogOpen(true);
+  };
+
+  const openResetDialog = (target: AdminUser) => {
+    setResetTarget(target);
+    setResetFormError(null);
+    setResetForm(emptyResetForm);
+    setResetDialogOpen(true);
   };
 
   const handleAgencySubmit = async () => {
@@ -306,6 +412,88 @@ export default function AdminPage() {
     }
   };
 
+  const handleUserSubmit = async () => {
+    setUserFormError(null);
+    setError(null);
+    const email = userForm.email.trim();
+    const fullName = userForm.full_name.trim();
+    if (!email) {
+      setUserFormError("Email is required.");
+      return;
+    }
+    if (!editingUser && !userForm.password.trim()) {
+      setUserFormError("Password is required for new users.");
+      return;
+    }
+    try {
+      if (editingUser) {
+        const payload: AdminUserUpdateInput = {
+          email,
+          full_name: fullName ? fullName : null,
+          is_admin: userForm.is_admin,
+          is_active: userForm.is_active,
+        };
+        await updateAdminUser(editingUser.id, payload);
+      } else {
+        const payload: AdminUserCreateInput = {
+          email,
+          full_name: fullName ? fullName : null,
+          password: userForm.password.trim(),
+          is_admin: userForm.is_admin,
+          is_active: userForm.is_active,
+        };
+        await createAdminUser(payload);
+      }
+      setUserDialogOpen(false);
+      setEditingUser(null);
+      setUserForm(emptyUserForm);
+      await loadUsers();
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setUserFormError(err.message);
+      } else {
+        setUserFormError("Unexpected error");
+      }
+      handleApiError(err);
+    }
+  };
+
+  const handleUserToggle = async (target: AdminUser) => {
+    setError(null);
+    try {
+      const updated = await updateAdminUser(target.id, { is_active: !target.is_active });
+      setUsers((prev) => prev.map((user) => (user.id === updated.id ? updated : user)));
+    } catch (err) {
+      handleApiError(err);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetTarget) {
+      return;
+    }
+    setResetFormError(null);
+    setError(null);
+    const password = resetForm.password.trim();
+    if (!password) {
+      setResetFormError("Password is required.");
+      return;
+    }
+    try {
+      await resetAdminUserPassword(resetTarget.id, { password });
+      setResetDialogOpen(false);
+      setResetTarget(null);
+      setResetForm(emptyResetForm);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setResetFormError(err.message);
+      } else {
+        setResetFormError("Unexpected error");
+      }
+      handleApiError(err);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-6 py-8">
@@ -318,13 +506,25 @@ export default function AdminPage() {
               Catalogs
             </h1>
           </div>
-          <Button type="button" variant="outline" onClick={() => navigate("/app/chat")}>
-            Back to chat
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" onClick={() => navigate("/app/chat")}>
+              Back to chat
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                logout();
+                navigate("/login");
+              }}
+            >
+              Logout
+            </Button>
+          </div>
         </header>
 
         <div className="flex flex-wrap gap-2">
-          {(["agencies", "policy-links"] as const).map((tab) => (
+          {(["agencies", "policy-links", "users"] as const).map((tab) => (
             <button
               key={tab}
               type="button"
@@ -336,7 +536,11 @@ export default function AdminPage() {
               )}
               onClick={() => setActiveTab(tab)}
             >
-              {tab === "agencies" ? "Agencies" : "Policy Links"}
+              {tab === "agencies"
+                ? "Agencies"
+                : tab === "policy-links"
+                  ? "Policy Links"
+                  : "Users"}
             </button>
           ))}
         </div>
@@ -457,7 +661,249 @@ export default function AdminPage() {
               </table>
             </div>
           </section>
-        ) : (
+        ) : null}
+
+        {activeTab === "users" ? (
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold">Users</h2>
+              <Dialog open={userDialogOpen} onOpenChange={setUserDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button type="button" onClick={() => openUserDialog(null)}>
+                    <Plus className="h-4 w-4" />
+                    New user
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>{editingUser ? "Edit user" : "New user"}</DialogTitle>
+                    <DialogDescription>Manage user access for this tenant.</DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-3">
+                    <label className="flex flex-col gap-1 text-sm">
+                      Email
+                      <input
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                        value={userForm.email}
+                        onChange={(event) =>
+                          setUserForm((prev) => ({ ...prev, email: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-sm">
+                      Full name
+                      <input
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                        value={userForm.full_name}
+                        onChange={(event) =>
+                          setUserForm((prev) => ({ ...prev, full_name: event.target.value }))
+                        }
+                      />
+                    </label>
+                    {!editingUser ? (
+                      <label className="flex flex-col gap-1 text-sm">
+                        Password
+                        <input
+                          type="password"
+                          className="rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                          value={userForm.password}
+                          onChange={(event) =>
+                            setUserForm((prev) => ({ ...prev, password: event.target.value }))
+                          }
+                        />
+                      </label>
+                    ) : null}
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={userForm.is_admin}
+                        onChange={(event) =>
+                          setUserForm((prev) => ({ ...prev, is_admin: event.target.checked }))
+                        }
+                      />
+                      Admin
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={userForm.is_active}
+                        onChange={(event) =>
+                          setUserForm((prev) => ({ ...prev, is_active: event.target.checked }))
+                        }
+                      />
+                      Active
+                    </label>
+                    {userFormError ? (
+                      <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                        {userFormError}
+                      </div>
+                    ) : null}
+                  </div>
+                  <DialogFooter>
+                    <Button type="button" variant="outline" onClick={() => setUserDialogOpen(false)}>
+                      Cancel
+                    </Button>
+                    <Button type="button" onClick={() => void handleUserSubmit()}>
+                      Save
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <label className="flex flex-col gap-1 text-sm">
+                Search
+                <input
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  value={userFilters.query}
+                  onChange={(event) =>
+                    setUserFilters((prev) => ({ ...prev, query: event.target.value }))
+                  }
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                Active
+                <select
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  value={userFilters.is_active}
+                  onChange={(event) =>
+                    setUserFilters((prev) => ({ ...prev, is_active: event.target.value }))
+                  }
+                >
+                  <option value="all">All</option>
+                  <option value="true">Active</option>
+                  <option value="false">Disabled</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                Admin
+                <select
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900"
+                  value={userFilters.is_admin}
+                  onChange={(event) =>
+                    setUserFilters((prev) => ({ ...prev, is_admin: event.target.value }))
+                  }
+                >
+                  <option value="all">All</option>
+                  <option value="true">Admins</option>
+                  <option value="false">Members</option>
+                </select>
+              </label>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <Button type="button" variant="outline" onClick={() => void loadUsers()}>
+                Apply filters
+              </Button>
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                    <th className="py-2">Email</th>
+                    <th className="py-2">Name</th>
+                    <th className="py-2">Admin</th>
+                    <th className="py-2">Status</th>
+                    <th className="py-2">Created</th>
+                    <th className="py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((item) => (
+                    <tr
+                      key={item.id}
+                      className="border-t border-slate-100 dark:border-slate-800"
+                    >
+                      <td className="py-3">{item.email}</td>
+                      <td className="py-3">{item.full_name ?? "—"}</td>
+                      <td className="py-3">{item.is_admin ? "Yes" : "No"}</td>
+                      <td className="py-3">{item.is_active ? "Active" : "Disabled"}</td>
+                      <td className="py-3">{formatDateTime(item.created_at)}</td>
+                      <td className="py-3 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openUserDialog(item)}
+                            aria-label="Edit user"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openResetDialog(item)}
+                          >
+                            Reset password
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void handleUserToggle(item)}
+                          >
+                            {item.is_active ? "Disable" : "Enable"}
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {!isLoading && users.length === 0 ? (
+                    <tr>
+                      <td className="py-6 text-center text-sm text-slate-500" colSpan={6}>
+                        No users found.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Reset password</DialogTitle>
+                  <DialogDescription>
+                    Set a new password for {resetTarget?.email ?? "user"}.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-3">
+                  <label className="flex flex-col gap-1 text-sm">
+                    New password
+                    <input
+                      type="password"
+                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-950"
+                      value={resetForm.password}
+                      onChange={(event) =>
+                        setResetForm((prev) => ({ ...prev, password: event.target.value }))
+                      }
+                    />
+                  </label>
+                  {resetFormError ? (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                      {resetFormError}
+                    </div>
+                  ) : null}
+                </div>
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setResetDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="button" onClick={() => void handleResetPassword()}>
+                    Save
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </section>
+        ) : null}
+
+        {activeTab === "policy-links" ? (
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-lg font-semibold">Policy links</h2>
@@ -670,7 +1116,16 @@ export default function AdminPage() {
                       >
                         <td className="py-3">{agency ? agency.name : link.agency_id}</td>
                         <td className="py-3">{code ? code.code : link.procedure_code_id}</td>
-                        <td className="py-3">{link.policy_url}</td>
+                        <td className="py-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>{link.policy_url}</span>
+                            {link.missing_policy_link ? (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
+                                Missing
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
                         <td className="py-3">{link.status}</td>
                         <td className="py-3">{formatDateTime(link.updated_at)}</td>
                         <td className="py-3 text-right">
@@ -709,7 +1164,7 @@ export default function AdminPage() {
               </table>
             </div>
           </section>
-        )}
+        ) : null}
       </div>
     </main>
   );
