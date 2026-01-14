@@ -5,13 +5,12 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
