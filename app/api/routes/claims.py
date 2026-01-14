@@ -281,6 +281,7 @@ def add_procedures(
                 ),
             )
         procedure = ClaimProcedure(
+            tenant_id=current_user.tenant_id,
             claim_id=claim.id,
             procedure_code_id=item.procedure_code_id,
             units=item.units,

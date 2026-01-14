@@ -60,11 +60,13 @@ def test_policy_links_resolution(db_session: Session) -> None:
     db_session.add_all(
         [
             ClaimProcedure(
+                tenant_id=claim.tenant_id,
                 claim_id=claim.id,
                 procedure_code_id=code_a.id,
                 units=1,
             ),
             ClaimProcedure(
+                tenant_id=claim.tenant_id,
                 claim_id=claim.id,
                 procedure_code_id=code_b.id,
                 units=2,

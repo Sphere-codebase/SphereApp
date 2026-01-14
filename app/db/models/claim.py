@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -32,6 +32,12 @@ class Claim(UpdatedTimestampMixin, Base):
     )
     service_from: Mapped[date | None] = mapped_column(Date, nullable=True)
     service_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    billed_total_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    allowed_total_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    paid_total_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    patient_responsibility_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     amount_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
@@ -44,4 +50,14 @@ class Claim(UpdatedTimestampMixin, Base):
         "ClaimProcedure",
         back_populates="claim",
         cascade="all, delete-orphan",
+    )
+    diagnosis_links = relationship(
+        "ClaimDiagnosis",
+        back_populates="claim",
+        cascade="all, delete-orphan",
+    )
+    diagnoses = relationship(
+        "Diagnosis",
+        secondary="claim_diagnoses",
+        viewonly=True,
     )
