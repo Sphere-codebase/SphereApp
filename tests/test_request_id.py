@@ -2,6 +2,7 @@ import uuid
 
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 from app.main import app
 
@@ -18,6 +19,11 @@ def echo_ok(payload: EchoPayload) -> dict[str, str]:
 @app.get("/__test__/boom")
 def boom() -> None:
     raise RuntimeError("boom")
+
+
+@app.get("/__test__/db-timeout")
+def db_timeout() -> None:
+    raise SQLAlchemyTimeoutError("db pool exhausted")
 
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -63,4 +69,14 @@ def test_error_format_for_unhandled_exception() -> None:
     payload = response.json()
     assert payload["error"]["code"] == "INTERNAL_SERVER_ERROR"
     assert payload["error"]["message"] == "Internal server error"
+    assert isinstance(payload["error"]["details"], dict)
+
+
+def test_error_format_for_db_timeout() -> None:
+    response = client.get("/__test__/db-timeout")
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["error"]["code"] == "DB_UNAVAILABLE"
+    assert payload["error"]["message"] == "Database unavailable"
     assert isinstance(payload["error"]["details"], dict)

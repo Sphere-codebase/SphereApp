@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from tenacity import RetryError
 
 from app.core.config import Settings, settings
@@ -204,6 +205,20 @@ def retry_error_handler(_: Request, exc: RetryError) -> JSONResponse:
                 "base_url": settings.lmstudio_base_url,
                 "timeout_seconds": settings.llm_timeout_seconds,
             },
+        ),
+    )
+
+
+def db_timeout_handler(_: Request, exc: SQLAlchemyTimeoutError) -> JSONResponse:
+    details: dict[str, Any] = {}
+    if settings.env in {"dev", "test"}:
+        details["error"] = str(exc)
+    return JSONResponse(
+        status_code=503,
+        content=error_payload(
+            code="DB_UNAVAILABLE",
+            message="Database unavailable",
+            details=details,
         ),
     )
 

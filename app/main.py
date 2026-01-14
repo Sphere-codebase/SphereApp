@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from tenacity import RetryError
 
 from app.api.routes import (
@@ -22,6 +23,7 @@ from app.api.routes import (
 from app.core.config import settings
 from app.core.logging import (
     configure_logging,
+    db_timeout_handler,
     http_exception_handler,
     llm_unavailable_handler,
     retry_error_handler,
@@ -46,6 +48,7 @@ app.add_exception_handler(
 )
 app.add_exception_handler(LLMUnavailable, llm_unavailable_handler)  # type: ignore[arg-type]
 app.add_exception_handler(RetryError, retry_error_handler)  # type: ignore[arg-type]
+app.add_exception_handler(SQLAlchemyTimeoutError, db_timeout_handler)  # type: ignore[arg-type]
 app.add_exception_handler(
     Exception, lambda request, exc: unhandled_exception_handler(request, exc, settings)
 )
