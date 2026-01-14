@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
-from app.db.models import ChatMessage, ChatSession, Claim, User
+from app.db.models import ChatMessage, ChatSession, Claim, Patient, User
 from app.db.session import get_db
 from app.schemas.chat_sessions import (
     ChatMessageResponse,
@@ -66,9 +66,13 @@ def create_session(
 ) -> ChatSessionResponse:
     if payload.claim_id:
         claim = db.execute(
-            select(Claim).where(
+            select(Claim)
+            .join(Patient)
+            .where(
                 Claim.id == payload.claim_id,
                 Claim.tenant_id == current_user.tenant_id,
+                Patient.id == Claim.patient_id,
+                Patient.user_id == current_user.id,
             )
         ).scalar_one_or_none()
         if claim is None:

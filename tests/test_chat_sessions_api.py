@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash
-from app.db.models import ChatSession, Claim, Patient, Tenant, User
+from app.db.models import Agency, ChatSession, Claim, ClaimStatus, Patient, Tenant, User
 from app.db.session import get_db
 from app.main import app
 
@@ -102,14 +102,30 @@ def test_create_session_success(db_session: Session) -> None:
 def test_create_session_cross_tenant_claim_returns_404(db_session: Session) -> None:
     user = _seed_user(db_session, "Owner")
     other_tenant = Tenant(id=uuid.uuid4(), name="Tenant Other")
-    patient = Patient(id=uuid.uuid4(), tenant_id=other_tenant.id, full_name="Jane Roe")
+    other_user = User(
+        id=uuid.uuid4(),
+        tenant_id=other_tenant.id,
+        email="doctor-other@example.com",
+        hashed_password=get_password_hash("secret"),
+        is_active=True,
+    )
+    agency = Agency(id=uuid.uuid4(), name="Agency Other", slug="agency-other", is_active=True)
+    patient = Patient(
+        id=uuid.uuid4(),
+        tenant_id=other_tenant.id,
+        user_id=other_user.id,
+        first_name="Jane",
+        last_name="Roe",
+        full_name="Jane Roe",
+    )
     claim = Claim(
         id=uuid.uuid4(),
         tenant_id=other_tenant.id,
+        agency_id=agency.id,
         patient_id=patient.id,
-        status="open",
+        status=ClaimStatus.DRAFT,
     )
-    db_session.add_all([other_tenant, patient, claim])
+    db_session.add_all([other_tenant, other_user, agency, patient, claim])
     db_session.commit()
 
     token = create_access_token(str(user.id))

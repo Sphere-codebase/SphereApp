@@ -9,7 +9,7 @@ export default function ProtectedRoute({ children }: { children: JSX.Element }) 
     return <Navigate to="/login" replace />;
   }
 
-  if (isLoading) {
+  if (isLoading || (token && !user)) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">
         Loading...

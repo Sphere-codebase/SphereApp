@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import BootstrapPage from "@/pages/BootstrapPage";
+import AdminPage from "@/pages/AdminPage";
 import ChatPage from "@/pages/ChatPage";
 import LoginPage from "@/pages/LoginPage";
 import ProtectedRoute from "@/routes/ProtectedRoute";
@@ -15,6 +16,14 @@ export default function AppRoutes() {
         element={
           <ProtectedRoute>
             <ChatPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/app/admin"
+        element={
+          <ProtectedRoute>
+            <AdminPage />
           </ProtectedRoute>
         }
       />

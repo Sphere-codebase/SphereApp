@@ -3,28 +3,45 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.models.base import Base, TimestampMixin
+from app.db.models.base import Base, UpdatedTimestampMixin
+from app.db.models.enums import ClaimStatus
 
 
-class Claim(TimestampMixin, Base):
+class Claim(UpdatedTimestampMixin, Base):
     __tablename__ = "claims"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("tenants.id"), index=True, nullable=False
     )
+    agency_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True
+    )
     patient_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("patients.id"), nullable=False
     )
-    status: Mapped[str] = mapped_column(String(50), nullable=False, default="open")
+    claim_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    status: Mapped[ClaimStatus] = mapped_column(
+        Enum(ClaimStatus, name="claim_status"), nullable=False, default=ClaimStatus.DRAFT
+    )
+    service_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    service_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     amount_cents: Mapped[int | None] = mapped_column(Integer, nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     extra: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
 
     tenant = relationship("Tenant", backref="claims")
     patient = relationship("Patient", backref="claims")
+    agency = relationship("Agency", back_populates="claims")
+    visits = relationship("Visit", secondary="claim_visits", back_populates="claims")
+    procedures = relationship(
+        "ClaimProcedure",
+        back_populates="claim",
+        cascade="all, delete-orphan",
+    )

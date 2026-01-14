@@ -157,9 +157,13 @@ class ChatOrchestrator:
 
         if claim_id:
             claim = self.db.execute(
-                select(Claim).where(
+                select(Claim)
+                .join(Patient)
+                .where(
                     Claim.id == claim_id,
                     Claim.tenant_id == self.user.tenant_id,
+                    Patient.id == Claim.patient_id,
+                    Patient.user_id == self.user.id,
                 )
             ).scalar_one_or_none()
             if claim is None:
@@ -184,9 +188,13 @@ class ChatOrchestrator:
 
         if claim_id:
             claim = self.db.execute(
-                select(Claim).where(
+                select(Claim)
+                .join(Patient)
+                .where(
                     Claim.id == claim_id,
                     Claim.tenant_id == self.user.tenant_id,
+                    Patient.id == Claim.patient_id,
+                    Patient.user_id == self.user.id,
                 )
             ).scalar_one_or_none()
             if claim is None:
@@ -200,7 +208,17 @@ class ChatOrchestrator:
             context = {
                 "claim": {
                     "id": str(claim.id),
-                    "status": claim.status,
+                    "status": (
+                        claim.status.value
+                        if hasattr(claim.status, "value")
+                        else claim.status
+                    ),
+                    "claim_number": claim.claim_number,
+                    "agency_id": str(claim.agency_id) if claim.agency_id else None,
+                    "service_from": claim.service_from.isoformat()
+                    if claim.service_from
+                    else None,
+                    "service_to": claim.service_to.isoformat() if claim.service_to else None,
                     "amount_cents": claim.amount_cents,
                     "description": claim.description,
                 },
@@ -209,8 +227,12 @@ class ChatOrchestrator:
             if patient:
                 context["patient"] = {
                     "id": str(patient.id),
+                    "first_name": patient.first_name,
+                    "last_name": patient.last_name,
+                    "date_of_birth": patient.date_of_birth.isoformat()
+                    if patient.date_of_birth
+                    else None,
                     "full_name": patient.full_name,
-                    "dob": patient.dob.isoformat() if patient.dob else None,
                 }
             messages.append({"role": "system", "content": f"Context: {json.dumps(context)}"})
 
