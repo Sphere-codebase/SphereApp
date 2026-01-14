@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import contextvars
+import json
 import logging
+import re
 import traceback
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -16,6 +20,8 @@ from app.core.config import Settings, settings
 from app.llm.client import LLMUnavailable
 
 request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
+CHAT_LOGGER_NAME = "chat_run"
+_chat_log_path: Path | None = None
 
 
 class RequestIdFilter(logging.Filter):
@@ -34,6 +40,107 @@ def configure_logging(log_level: str) -> None:
     root_logger = logging.getLogger()
     for handler in root_logger.handlers:
         handler.addFilter(RequestIdFilter())
+    _configure_chat_file_logger()
+
+
+def _configure_chat_file_logger() -> None:
+    global _chat_log_path
+    logger = logging.getLogger(CHAT_LOGGER_NAME)
+    if not chat_file_logs_enabled(settings):
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+        logger.handlers.clear()
+        logger.propagate = False
+        _chat_log_path = None
+        return
+
+    log_dir = Path(settings.chat_log_dir)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = log_dir / f"chat_run_{timestamp}.log"
+
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+
+    file_handler = logging.FileHandler(log_path)
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(file_handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    _chat_log_path = log_path
+
+
+def chat_log_path() -> Path | None:
+    return _chat_log_path
+
+
+def chat_file_logs_enabled(settings_obj: Settings) -> bool:
+    if settings_obj.chat_file_logs is not None:
+        return settings_obj.chat_file_logs
+    return settings_obj.env != "prod"
+
+
+def _truncate(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}…"
+
+
+def _sanitize_key(key: str) -> bool:
+    lowered = key.lower()
+    return any(token in lowered for token in ("password", "token", "authorization", "jwt"))
+
+
+def _redact_string(value: str) -> str:
+    patterns = [
+        r"(password)\s*[:=]\s*[^\s]+",
+        r"(token)\s*[:=]\s*[^\s]+",
+        r"(authorization)\s*[:=]\s*[^\s]+",
+        r"(jwt)\s*[:=]\s*[^\s]+",
+        r"(access_token)\s*[:=]\s*[^\s]+",
+    ]
+    redacted = value
+    for pattern in patterns:
+        redacted = re.sub(pattern, r"\\1=[redacted]", redacted, flags=re.IGNORECASE)
+    return redacted
+
+
+def _sanitize(value: Any) -> Any:
+    if isinstance(value, dict):
+        sanitized = {}
+        for key, val in value.items():
+            if _sanitize_key(str(key)):
+                sanitized[key] = "[redacted]"
+            else:
+                sanitized[key] = _sanitize(val)
+        return sanitized
+    if isinstance(value, list):
+        return [_sanitize(item) for item in value]
+    if isinstance(value, str):
+        return _truncate(_redact_string(value), settings.max_context_chars)
+    return value
+
+
+def log_chat_event(event: str, payload: dict[str, Any]) -> None:
+    logger = logging.getLogger(CHAT_LOGGER_NAME)
+    sanitized = _sanitize(payload)
+    record = {
+        "event": event,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        **sanitized,
+    }
+    line = json.dumps(record, default=str)
+    if logger.handlers and logger.isEnabledFor(logging.INFO):
+        logger.info(line)
+        for handler in logger.handlers:
+            if hasattr(handler, "flush"):
+                handler.flush()
+        return
+    if _chat_log_path is None:
+        return
+    with _chat_log_path.open("a", encoding="utf-8", errors="ignore") as handle:
+        handle.write(f"{line}\n")
 
 
 def error_payload(code: str, message: str, details: Any | None = None) -> dict[str, Any]:

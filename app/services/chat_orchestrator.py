@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.logging import log_chat_event
 from app.db.models import ChatMessage, ChatSession, Claim, Patient, User
 from app.llm.client import ChatCompletionResult, LLMClient, ToolCall
 from app.llm.tools import ToolContext, execute_tool, list_tool_schemas
@@ -85,6 +86,16 @@ class ChatOrchestrator:
                 if tool_call.name not in allowed_tools:
                     logger.warning("Skipping unknown tool call: %s", tool_call.name)
                     continue
+                log_chat_event(
+                    "tool_call",
+                    {
+                        "tenant_id": str(self.user.tenant_id),
+                        "user_id": str(self.user.id),
+                        "chat_session_id": str(session.id),
+                        "tool_name": tool_call.name,
+                        "tool_args": self._summarize_payload(tool_call.arguments),
+                    },
+                )
                 self._store_tool_call(session.id, tool_call)
                 try:
                     tool_result = execute_tool(tool_call.name, tool_call.arguments, tool_context)
@@ -97,6 +108,16 @@ class ChatOrchestrator:
                         }
                     }
                 self._store_tool_result(session.id, tool_call.name, tool_result)
+                log_chat_event(
+                    "tool_result",
+                    {
+                        "tenant_id": str(self.user.tenant_id),
+                        "user_id": str(self.user.id),
+                        "chat_session_id": str(session.id),
+                        "tool_name": tool_call.name,
+                        "tool_result": self._summarize_payload(tool_result),
+                    },
+                )
                 if tool_call.name == "request_form" and isinstance(tool_result, dict):
                     ui_actions.append(tool_result)
                 if isinstance(tool_result, dict) and tool_result.get("action_required"):
@@ -281,3 +302,12 @@ class ChatOrchestrator:
         )
         self.db.add(message)
         self.db.commit()
+
+    def _summarize_payload(self, payload: dict[str, Any]) -> str:
+        try:
+            rendered = json.dumps(payload, default=str)
+        except TypeError:
+            rendered = str(payload)
+        if len(rendered) <= settings.max_context_chars:
+            return rendered
+        return f"{rendered[:settings.max_context_chars]}…"

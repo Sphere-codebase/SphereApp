@@ -14,7 +14,9 @@ class LoginRequest(BaseModel):
 
 class AdminCreateUserRequest(BaseModel):
     email: EmailStr
+    full_name: str | None = None
     password: str = Field(min_length=1)
+    role: str | None = None
     tenant_name: str | None = None
 
 
@@ -42,3 +44,4 @@ class UserResponse(BaseModel):
     email: EmailStr
     tenant_id: uuid.UUID
     is_active: bool
+    is_admin: bool

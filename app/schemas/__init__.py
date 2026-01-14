@@ -9,7 +9,11 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.schemas.chat import ChatRequest, ChatResponse
-from app.schemas.chat_sessions import ChatSessionCreateRequest, ChatSessionResponse
+from app.schemas.chat_sessions import (
+    ChatMessageResponse,
+    ChatSessionCreateRequest,
+    ChatSessionResponse,
+)
 
 __all__ = [
     "DevTokenRequest",
@@ -20,6 +24,7 @@ __all__ = [
     "UserResponse",
     "ChatRequest",
     "ChatResponse",
+    "ChatMessageResponse",
     "ChatSessionCreateRequest",
     "ChatSessionResponse",
 ]

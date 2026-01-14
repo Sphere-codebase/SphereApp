@@ -18,3 +18,13 @@ class ChatSessionResponse(BaseModel):
     id: uuid.UUID
     claim_id: uuid.UUID | None = None
     created_at: datetime
+    title: str | None = None
+
+
+class ChatMessageResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    role: str
+    content: str | None = None
+    created_at: datetime

@@ -59,3 +59,19 @@ def chat_page(
         "chat.html",
         {"user": current_user},
     )
+
+
+@router.get("/app/admin/users", response_class=HTMLResponse)
+def admin_users_page(
+    request: Request,
+    current_user: Annotated[User | None, Depends(get_current_user_from_cookie)],
+) -> Response:
+    if current_user is None:
+        return RedirectResponse(url="/login", status_code=302)
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin required")
+    return templates.TemplateResponse(
+        request,
+        "admin_users.html",
+        {"user": current_user},
+    )

@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field("HS256", alias="JWT_ALGORITHM")
     jwt_expires_minutes: int = Field(60, alias="JWT_EXPIRES_MINUTES")
     admin_api_key: str | None = Field(None, alias="ADMIN_API_KEY")
+    chat_file_logs: bool | None = Field(None, alias="CHAT_FILE_LOGS")
+    chat_log_dir: str = Field("logs", alias="CHAT_LOG_DIR")
+    frontend_file_logs: bool | None = Field(None, alias="FRONTEND_FILE_LOGS")
+    frontend_log_path: str = Field("logs/frontend.log", alias="FRONTEND_LOG_PATH")
+    frontend_log_max_bytes: int = Field(10_240, alias="FRONTEND_LOG_MAX_BYTES")
+    frontend_log_rate_per_sec: int = Field(5, alias="FRONTEND_LOG_RATE_PER_SEC")
 
     max_user_message_chars: int = Field(4000, alias="MAX_USER_MESSAGE_CHARS")
     max_context_chars: int = Field(8000, alias="MAX_CONTEXT_CHARS")

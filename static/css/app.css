@@ -21,6 +21,13 @@ body.bg-slate {
   max-width: 80%;
 }
 
+#chat-thread .message-meta {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 0.25rem;
+  text-align: right;
+}
+
 #chat-thread .message.user {
   background: #dbeafe;
   margin-left: auto;

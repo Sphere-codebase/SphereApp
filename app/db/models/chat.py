@@ -28,6 +28,12 @@ class ChatSession(TimestampMixin, Base):
     tenant = relationship("Tenant", backref="chat_sessions")
     user = relationship("User", backref="chat_sessions")
     claim = relationship("Claim", backref="chat_sessions")
+    messages = relationship(
+        "ChatMessage",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class ChatMessage(TimestampMixin, Base):
@@ -38,7 +44,9 @@ class ChatMessage(TimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("tenants.id"), index=True, nullable=False
     )
     session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("chat_sessions.id"), nullable=False
+        UUID(as_uuid=True),
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=False,
     )
     role: Mapped[str] = mapped_column(String(50), nullable=False)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -47,4 +55,4 @@ class ChatMessage(TimestampMixin, Base):
     tool_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     tenant = relationship("Tenant", backref="chat_messages")
-    session = relationship("ChatSession", backref="messages")
+    session = relationship("ChatSession", back_populates="messages")

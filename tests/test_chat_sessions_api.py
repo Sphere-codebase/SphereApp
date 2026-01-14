@@ -133,3 +133,41 @@ def test_create_session_cross_tenant_claim_returns_404(db_session: Session) -> N
         assert count.first() is None
     finally:
         app.dependency_overrides.clear()
+
+
+def test_get_session_returns_200(db_session: Session) -> None:
+    user = _seed_user(db_session, "Get")
+    session = ChatSession(tenant_id=user.tenant_id, user_id=user.id)
+    db_session.add(session)
+    db_session.commit()
+    token = create_access_token(str(user.id))
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.get(
+            f"/api/chat/sessions/{session.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["id"] == str(session.id)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_endpoint_not_found_regression(db_session: Session) -> None:
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.post("/chat", json={"message": "Hello"})
+        assert response.status_code == 401
+        assert response.headers.get("X-Request-ID") is not None
+    finally:
+        app.dependency_overrides.clear()

@@ -10,7 +10,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from tenacity import RetryError
 
-from app.api.routes import auth_router, chat_router, chat_sessions_router, health_router, ui_router
+from app.api.routes import (
+    admin_router,
+    auth_router,
+    chat_router,
+    chat_sessions_router,
+    frontend_log_router,
+    health_router,
+    ui_router,
+)
 from app.core.config import settings
 from app.core.logging import (
     configure_logging,
@@ -43,8 +51,10 @@ app.add_exception_handler(
 )
 
 app.include_router(auth_router)
+app.include_router(admin_router)
 app.include_router(chat_router)
 app.include_router(chat_sessions_router)
+app.include_router(frontend_log_router)
 app.include_router(health_router)
 app.include_router(ui_router)
 

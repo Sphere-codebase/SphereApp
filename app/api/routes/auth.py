@@ -75,11 +75,16 @@ def create_user(
     tenant = Tenant(name=tenant_name)
     db.add(tenant)
     db.flush()
+    is_admin = False
+    if payload.role is not None:
+        is_admin = payload.role.strip().lower() in {"admin", "administrator"}
     user = User(
         tenant_id=tenant.id,
         email=payload.email,
+        full_name=payload.full_name,
         hashed_password=get_password_hash(payload.password),
         is_active=True,
+        is_admin=is_admin,
     )
     db.add(user)
     db.commit()
