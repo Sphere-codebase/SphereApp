@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -20,9 +20,10 @@ from app.core.security import (
 from app.db.models import Tenant, User
 from app.db.session import get_db
 from app.schemas.auth import (
+    AdminCreateUserRequest,
+    AdminCreateUserResponse,
     DevTokenRequest,
     LoginRequest,
-    RegisterRequest,
     TokenResponse,
     UserResponse,
 )
@@ -30,6 +31,10 @@ from app.schemas.auth import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+def get_admin_token(
+    x_admin_token: Annotated[str | None, Header(alias="X-Admin-Token")] = None,
+) -> str | None:
+    return x_admin_token
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -42,8 +47,19 @@ def login(payload: LoginRequest, db: DbSessionDep) -> TokenResponse:
     return TokenResponse(access_token=token)
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, db: DbSessionDep) -> TokenResponse | JSONResponse:
+@router.post(
+    "/admin/users",
+    response_model=AdminCreateUserResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_user(
+    payload: AdminCreateUserRequest,
+    db: DbSessionDep,
+    admin_token: Annotated[str | None, Depends(get_admin_token)],
+) -> AdminCreateUserResponse | JSONResponse:
+    if not settings.admin_api_key or admin_token != settings.admin_api_key:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin token required")
+
     existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
     if existing is not None:
         return JSONResponse(
@@ -55,7 +71,8 @@ def register(payload: RegisterRequest, db: DbSessionDep) -> TokenResponse | JSON
             ),
         )
 
-    tenant = Tenant(name=f"Tenant for {payload.email}")
+    tenant_name = payload.tenant_name or f"Tenant for {payload.email}"
+    tenant = Tenant(name=tenant_name)
     db.add(tenant)
     db.flush()
     user = User(
@@ -68,7 +85,12 @@ def register(payload: RegisterRequest, db: DbSessionDep) -> TokenResponse | JSON
     db.commit()
 
     token = create_access_token(str(user.id))
-    return TokenResponse(access_token=token)
+    return AdminCreateUserResponse(
+        access_token=token,
+        user_id=user.id,
+        tenant_id=tenant.id,
+        email=user.email,
+    )
 
 
 @router.post("/dev-token", response_model=TokenResponse)

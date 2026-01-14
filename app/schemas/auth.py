@@ -12,9 +12,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class RegisterRequest(BaseModel):
+class AdminCreateUserRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1)
+    tenant_name: str | None = None
 
 
 class DevTokenRequest(BaseModel):
@@ -24,6 +25,14 @@ class DevTokenRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class AdminCreateUserResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: uuid.UUID
+    tenant_id: uuid.UUID
+    email: EmailStr
 
 
 class UserResponse(BaseModel):
