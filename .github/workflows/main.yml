@@ -85,7 +85,7 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t $IMAGE_NAME:ci .
+          docker build -t "$(echo "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]'):ci" .
 
       - name: Run container (smoke)
         run: |
