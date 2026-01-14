@@ -24,6 +24,12 @@ help:
 	@echo "  make lint        - lint (ruff)"
 	@echo "  make type        - type-check (mypy)"
 	@echo "  make clean       - remove caches"
+	@echo "  make frontend-install  - install frontend deps"
+	@echo "  make frontend-dev      - run frontend dev server"
+	@echo "  make frontend-lint     - lint frontend"
+	@echo "  make frontend-typecheck- type-check frontend"
+	@echo "  make frontend-test     - test frontend"
+	@echo "  make frontend-build    - build frontend"
 
 venv:
 	$(PYTHON) -m venv $(VENV)
@@ -79,3 +85,45 @@ type:
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache __pycache__ htmlcov .coverage
+
+.PHONY: frontend-install node-install
+
+# Install Node.js (npm) via Homebrew (macOS)
+node-install:
+	@command -v brew >/dev/null 2>&1 || { \
+		echo "Homebrew not found. Install it first:"; \
+		echo '/bin/bash -c "$$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'; \
+		exit 1; \
+	}
+	@command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1 || { \
+		echo "Installing Node.js (includes npm) via Homebrew..."; \
+		brew install node; \
+	}
+	@echo "Node: $$(node -v)"
+	@echo "npm:  $$(npm -v)"
+
+# Create (if missing) and install React frontend (Vite + React + TypeScript)
+frontend-install: node-install
+	@test -d frontend || { \
+		echo "Creating Vite React+TS app in ./frontend ..."; \
+		npm create vite@latest frontend -- --template react-ts; \
+	}
+	@cd frontend && npm install
+	@echo "Done. Run: make frontend-dev"
+
+.PHONY: frontend-dev
+frontend-dev:
+	@cd frontend && npm run dev
+
+.PHONY: frontend-lint frontend-typecheck frontend-test frontend-build
+frontend-lint:
+	@cd frontend && npm run lint
+
+frontend-typecheck:
+	@cd frontend && npm run typecheck
+
+frontend-test:
+	@cd frontend && npm test
+
+frontend-build:
+	@cd frontend && npm run build

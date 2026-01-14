@@ -29,6 +29,11 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/")
+def root() -> dict[str, str]:
+    return {"service": "SphereApp API", "status": "ok"}
+
+
 def _readiness(db: Session, llm_client: LLMClient) -> tuple[bool, bool | None, str | None]:
     try:
         db.execute(text("SELECT 1"))

@@ -3,11 +3,9 @@
 Codex: implement the app wiring, include routers, middleware, and dependencies.
 """
 
-from pathlib import Path
-
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
-from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from tenacity import RetryError
 
@@ -16,9 +14,7 @@ from app.api.routes import (
     auth_router,
     chat_router,
     chat_sessions_router,
-    frontend_log_router,
     health_router,
-    ui_router,
 )
 from app.core.config import settings
 from app.core.logging import (
@@ -36,11 +32,16 @@ from app.middleware.request_logging import RequestLoggingMiddleware
 
 configure_logging(settings.log_level)
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
 app = FastAPI(title="claims-assistant")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
-app.mount("/static", StaticFiles(directory=str(ROOT_DIR / "static")), name="static")
 app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(
     RequestValidationError,
@@ -57,9 +58,7 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(chat_router)
 app.include_router(chat_sessions_router)
-app.include_router(frontend_log_router)
 app.include_router(health_router)
-app.include_router(ui_router)
 
 # TODO: include routers:
 # - health
