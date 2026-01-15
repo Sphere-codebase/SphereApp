@@ -1,102 +1,84 @@
 import { z } from "zod";
 
 const dateString = z.string();
-const optionalDate = z.string().nullable().optional();
 
-export const agencySchema = z.object({
-  id: z.string(),
+export const insuranceCompanySchema = z.object({
+  id: z.number(),
   name: z.string(),
-  slug: z.string().nullable(),
-  is_active: z.boolean(),
-  created_at: dateString,
-  updated_at: dateString,
+  created_at: dateString.nullable(),
 });
 
-export const agencyCreateSchema = z.object({
+export const insuranceCompanyCreateSchema = z.object({
   name: z.string(),
-  slug: z.string().nullable().optional(),
-  is_active: z.boolean().optional(),
 });
 
-export const agencyUpdateSchema = agencyCreateSchema.partial();
+export const insuranceCompanyUpdateSchema = insuranceCompanyCreateSchema.partial();
 
-export const procedureCodeSchema = z.object({
-  id: z.string(),
+export const mcpCodeSchema = z.object({
   code: z.string(),
-  title: z.string().nullable().optional(),
-  created_at: dateString,
-  updated_at: dateString,
+  description: z.string().nullable().optional(),
 });
 
-export const procedureCodeCreateSchema = z.object({
+export const mcpCodeCreateSchema = z.object({
   code: z.string(),
-  title: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
 });
 
-export const procedureCodeUpdateSchema = procedureCodeCreateSchema.partial();
+export const mcpCodeUpdateSchema = z.object({
+  description: z.string().nullable().optional(),
+});
 
-export const diagnosisSchema = z.object({
-  id: z.string(),
+export const diagnosisCodeSchema = z.object({
   code: z.string(),
-  title: z.string().nullable().optional(),
-  created_at: dateString,
-  updated_at: dateString,
+  description: z.string().nullable().optional(),
 });
 
-export const diagnosisCreateSchema = z.object({
+export const diagnosisCodeCreateSchema = z.object({
   code: z.string(),
-  title: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
 });
 
-export const diagnosisUpdateSchema = diagnosisCreateSchema.partial();
+export const diagnosisCodeUpdateSchema = z.object({
+  description: z.string().nullable().optional(),
+});
 
 export const policyLinkSchema = z.object({
-  id: z.string(),
-  agency_id: z.string(),
-  procedure_code_id: z.string(),
+  id: z.number(),
+  insurance_company_id: z.number(),
+  mcp_code: z.string(),
   policy_url: z.string().url(),
-  effective_from: optionalDate,
-  effective_to: optionalDate,
-  status: z.enum(["ACTIVE", "INACTIVE"]),
-  notes: z.string().nullable().optional(),
-  created_at: dateString,
-  updated_at: dateString,
+  created_at: dateString.nullable(),
 });
 
 export const policyLinkCreateSchema = z.object({
-  agency_id: z.string(),
-  procedure_code_id: z.string(),
+  insurance_company_id: z.number(),
+  mcp_code: z.string(),
   policy_url: z.string(),
-  effective_from: z.string().nullable().optional(),
-  effective_to: z.string().nullable().optional(),
-  status: z.enum(["ACTIVE", "INACTIVE"]),
-  notes: z.string().nullable().optional(),
 });
 
 export const policyLinkUpdateSchema = policyLinkCreateSchema.partial();
 
 export const adminUserSchema = z.object({
-  id: z.string(),
+  id: z.number(),
   email: z.string().email(),
   full_name: z.string().nullable(),
-  tenant_id: z.string(),
   is_active: z.boolean(),
-  is_admin: z.boolean(),
-  created_at: dateString,
+  roles: z.array(z.string()),
+  created_at: dateString.nullable(),
 });
 
 export const adminUserCreateSchema = z.object({
   email: z.string().email(),
   full_name: z.string().nullable().optional(),
   password: z.string(),
-  is_admin: z.boolean(),
+  roles: z.array(z.string()).optional(),
   is_active: z.boolean(),
 });
 
 export const adminUserUpdateSchema = z.object({
   email: z.string().email().nullable().optional(),
   full_name: z.string().nullable().optional(),
-  is_admin: z.boolean().optional(),
+  roles: z.array(z.string()).optional(),
   is_active: z.boolean().optional(),
 });
 
@@ -105,110 +87,89 @@ export const adminUserResetSchema = z.object({
 });
 
 export const adminPatientSchema = z.object({
-  id: z.string(),
-  user_id: z.string().nullable(),
+  id: z.number(),
+  doctor_id: z.number(),
   first_name: z.string().nullable(),
   last_name: z.string().nullable(),
-  full_name: z.string(),
   date_of_birth: z.string().nullable(),
-  sex: z.string().nullable(),
-  created_at: dateString,
-  updated_at: dateString,
+  created_at: dateString.nullable(),
 });
 
 export const claimStatusSchema = z.enum(["DRAFT", "SUBMITTED", "PAID", "DENIED"]);
+const claimStatusNullableSchema = claimStatusSchema.nullable();
 
 export const adminClaimSummarySchema = z.object({
-  id: z.string(),
-  patient_id: z.string(),
+  id: z.number(),
+  patient_id: z.number(),
   patient_name: z.string(),
-  patient_user_id: z.string().nullable(),
-  agency_id: z.string().nullable(),
-  agency_name: z.string().nullable(),
+  doctor_id: z.number(),
+  insurance_company_id: z.number(),
+  insurance_company_name: z.string().nullable(),
   claim_number: z.string().nullable(),
-  status: claimStatusSchema,
-  service_from: z.string().nullable(),
-  service_to: z.string().nullable(),
-  received_at: z.string().nullable(),
-  finalized_at: z.string().nullable(),
-  billed_total_cents: z.number().int().nullable(),
-  allowed_total_cents: z.number().int().nullable(),
-  paid_total_cents: z.number().int().nullable(),
-  patient_responsibility_cents: z.number().int().nullable(),
-  created_at: dateString,
-  updated_at: dateString,
+  claim_status: claimStatusNullableSchema,
+  service_date: z.string().nullable(),
+  claim_date: z.string().nullable(),
+  billed_amount_total: z.number().nullable(),
+  allowed_amount_total: z.number().nullable(),
+  coinsurance_amount_total: z.number().nullable(),
+  copay_amount_total: z.number().nullable(),
+  deductible_amount_total: z.number().nullable(),
+  created_at: dateString.nullable(),
 });
 
-export const procedureCodeSummarySchema = z.object({
-  id: z.string(),
+export const mcpCodeSummarySchema = z.object({
   code: z.string(),
-  title: z.string().nullable(),
+  description: z.string().nullable().optional(),
 });
 
-export const adminClaimProcedurePaymentSchema = z.object({
-  id: z.string(),
-  paid_amount_cents: z.number().int(),
-  adjustment_amount_cents: z.number().int().nullable(),
-  adjustment_reason_code: z.string().nullable(),
-  check_number: z.string().nullable(),
-  paid_at: z.string(),
-  created_at: z.string(),
-});
-
-export const adminClaimProcedureSchema = z.object({
-  id: z.string(),
-  procedure_code: procedureCodeSummarySchema,
-  units: z.number().int(),
+export const adminClaimProcedureFactSchema = z.object({
+  id: z.number(),
+  mcp_code: mcpCodeSummarySchema,
+  service_date: z.string().nullable(),
+  units: z.number().nullable(),
   modifier: z.string().nullable(),
-  price: z.number().nullable(),
-  billed_amount_cents: z.number().int().nullable(),
-  allowed_amount_cents: z.number().int().nullable(),
-  coinsurance_amount_cents: z.number().int().nullable(),
-  copay_amount_cents: z.number().int().nullable(),
-  deductible_amount_cents: z.number().int().nullable(),
-  paid_amount_cents: z.number().int().nullable(),
-  denial_reason_code: z.string().nullable(),
-  line_number: z.number().int().nullable(),
-  created_at: z.string(),
-  updated_at: z.string(),
-  payments: z.array(adminClaimProcedurePaymentSchema),
+  billed_amount: z.number().nullable(),
+  allowed_amount: z.number().nullable(),
+  coinsurance_amount: z.number().nullable(),
+  copay_amount: z.number().nullable(),
+  deductible_amount: z.number().nullable(),
+  paid_amount: z.number().nullable(),
+  paid_at: z.string().nullable(),
+  created_at: dateString.nullable(),
 });
 
-export const adminDiagnosisSummarySchema = z.object({
-  id: z.string(),
+export const diagnosisCodeSummarySchema = z.object({
   code: z.string(),
-  title: z.string().nullable(),
+  description: z.string().nullable().optional(),
 });
 
 export const adminClaimDetailSchema = z.object({
-  id: z.string(),
+  id: z.number(),
   patient: adminPatientSchema,
-  agency: agencySchema.nullable(),
+  insurance_company: insuranceCompanySchema.nullable(),
   claim_number: z.string().nullable(),
-  status: claimStatusSchema,
-  service_from: z.string().nullable(),
-  service_to: z.string().nullable(),
-  received_at: z.string().nullable(),
-  finalized_at: z.string().nullable(),
-  billed_total_cents: z.number().int().nullable(),
-  allowed_total_cents: z.number().int().nullable(),
-  paid_total_cents: z.number().int().nullable(),
-  patient_responsibility_cents: z.number().int().nullable(),
-  created_at: dateString,
-  updated_at: dateString,
-  procedures: z.array(adminClaimProcedureSchema),
-  diagnoses: z.array(adminDiagnosisSummarySchema),
+  claim_status: claimStatusNullableSchema,
+  service_date: z.string().nullable(),
+  claim_date: z.string().nullable(),
+  billed_amount_total: z.number().nullable(),
+  allowed_amount_total: z.number().nullable(),
+  coinsurance_amount_total: z.number().nullable(),
+  copay_amount_total: z.number().nullable(),
+  deductible_amount_total: z.number().nullable(),
+  created_at: dateString.nullable(),
+  procedures: z.array(adminClaimProcedureFactSchema),
+  diagnoses: z.array(diagnosisCodeSummarySchema),
 });
 
-export type Agency = z.infer<typeof agencySchema>;
-export type AgencyCreateInput = z.infer<typeof agencyCreateSchema>;
-export type AgencyUpdateInput = z.infer<typeof agencyUpdateSchema>;
-export type ProcedureCode = z.infer<typeof procedureCodeSchema>;
-export type ProcedureCodeCreateInput = z.infer<typeof procedureCodeCreateSchema>;
-export type ProcedureCodeUpdateInput = z.infer<typeof procedureCodeUpdateSchema>;
-export type Diagnosis = z.infer<typeof diagnosisSchema>;
-export type DiagnosisCreateInput = z.infer<typeof diagnosisCreateSchema>;
-export type DiagnosisUpdateInput = z.infer<typeof diagnosisUpdateSchema>;
+export type InsuranceCompany = z.infer<typeof insuranceCompanySchema>;
+export type InsuranceCompanyCreateInput = z.infer<typeof insuranceCompanyCreateSchema>;
+export type InsuranceCompanyUpdateInput = z.infer<typeof insuranceCompanyUpdateSchema>;
+export type McpCode = z.infer<typeof mcpCodeSchema>;
+export type McpCodeCreateInput = z.infer<typeof mcpCodeCreateSchema>;
+export type McpCodeUpdateInput = z.infer<typeof mcpCodeUpdateSchema>;
+export type DiagnosisCode = z.infer<typeof diagnosisCodeSchema>;
+export type DiagnosisCodeCreateInput = z.infer<typeof diagnosisCodeCreateSchema>;
+export type DiagnosisCodeUpdateInput = z.infer<typeof diagnosisCodeUpdateSchema>;
 export type PolicyLink = z.infer<typeof policyLinkSchema>;
 export type PolicyLinkCreateInput = z.infer<typeof policyLinkCreateSchema>;
 export type PolicyLinkUpdateInput = z.infer<typeof policyLinkUpdateSchema>;

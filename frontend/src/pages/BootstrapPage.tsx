@@ -15,11 +15,10 @@ export default function BootstrapPage() {
     email: "",
     password: "",
     full_name: "",
-    role: "admin",
-    tenant_name: "",
+    roles: ["admin"],
   });
 
-  const handleChange = (field: keyof AdminCreateUserRequest, value: string) => {
+  const handleChange = (field: "email" | "password" | "full_name", value: string) => {
     setForm((prev) => ({
       ...prev,
       [field]: value,
@@ -80,23 +79,18 @@ export default function BootstrapPage() {
                   onChange={(event) => handleChange("full_name", event.target.value)}
                 />
               </label>
-              <label className="text-sm text-slate-300">
-                Role
+              <label className="flex items-center gap-2 text-sm text-slate-300">
                 <input
-                  type="text"
-                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-100"
-                  value={form.role ?? ""}
-                  onChange={(event) => handleChange("role", event.target.value)}
+                  type="checkbox"
+                  checked={Boolean(form.roles?.includes("admin"))}
+                  onChange={(event) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      roles: event.target.checked ? ["admin"] : [],
+                    }))
+                  }
                 />
-              </label>
-              <label className="text-sm text-slate-300">
-                Tenant name
-                <input
-                  type="text"
-                  className="mt-2 w-full rounded-2xl border border-slate-700 bg-slate-900 px-4 py-3 text-sm text-slate-100"
-                  value={form.tenant_name ?? ""}
-                  onChange={(event) => handleChange("tenant_name", event.target.value)}
-                />
+                Grant admin access
               </label>
               {error ? <ErrorNotice error={error} /> : null}
               <div>

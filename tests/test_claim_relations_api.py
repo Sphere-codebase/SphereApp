@@ -1,62 +1,64 @@
-import uuid
-from datetime import UTC, datetime
-
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash
-from app.db.models import Claim, ClaimStatus, Patient, Tenant, User, Visit
+from app.db.id_utils import next_id
+from app.db.models import InsuranceCompany, Patient, Role, User, UserRole
+from app.db.models.claim import Claim
 from app.db.session import get_db
 from app.main import app
+from app.utils.time import utcnow
 
 
-def _seed_claim_with_patients(db_session: Session) -> tuple[User, Claim, Patient, Patient]:
-    tenant = Tenant(id=uuid.uuid4(), name="Tenant Claims Relations")
+def _seed_user(db_session: Session, email: str) -> User:
+    doctor_role = db_session.execute(
+        select(Role).where(Role.code == "doctor")
+    ).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
+
     user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        email="doctor@example.com",
-        hashed_password=get_password_hash("secret"),
+        id=next_id(db_session, User),
+        email=email,
+        password_hash=get_password_hash("secret"),
         is_active=True,
+        created_at=utcnow(),
     )
-    patient_a = Patient(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        user_id=user.id,
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(UserRole(user_id=user.id, role_id=doctor_role.id))
+    db_session.commit()
+    return user
+
+
+def _seed_claim(db_session: Session, user: User) -> Claim:
+    company = InsuranceCompany(id=next_id(db_session, InsuranceCompany), name="Company A")
+    patient = Patient(
+        id=next_id(db_session, Patient),
+        doctor_id=user.id,
         first_name="Jane",
         last_name="Doe",
-        full_name="Jane Doe",
-    )
-    patient_b = Patient(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        user_id=user.id,
-        first_name="John",
-        last_name="Smith",
-        full_name="John Smith",
+        created_at=utcnow(),
     )
     claim = Claim(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        patient_id=patient_a.id,
-        status=ClaimStatus.DRAFT,
+        id=next_id(db_session, Claim),
+        doctor_id=user.id,
+        patient_id=patient.id,
+        insurance_company_id=company.id,
+        claim_status="DRAFT",
+        created_at=utcnow(),
     )
-    db_session.add_all([tenant, user, patient_a, patient_b, claim])
+    db_session.add_all([company, patient, claim])
     db_session.commit()
-    return user, claim, patient_a, patient_b
+    return claim
 
 
-def test_attach_visit_other_patient_returns_422(db_session: Session) -> None:
-    user, claim, _patient_a, patient_b = _seed_claim_with_patients(db_session)
-    visit = Visit(
-        id=uuid.uuid4(),
-        tenant_id=claim.tenant_id,
-        patient_id=patient_b.id,
-        visited_at=datetime.now(tz=UTC),
-    )
-    db_session.add(visit)
-    db_session.commit()
-
+def test_add_mcp_code_missing_returns_404(db_session: Session) -> None:
+    user = _seed_user(db_session, "doctor@example.com")
+    claim = _seed_claim(db_session, user)
     token = create_access_token(str(user.id))
 
     def override_get_db():
@@ -66,32 +68,32 @@ def test_attach_visit_other_patient_returns_422(db_session: Session) -> None:
     client = TestClient(app)
     try:
         response = client.post(
-            f"/api/claims/{claim.id}/visits",
-            json={"visit_ids": [str(visit.id)]},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert response.status_code == 422
-        assert response.json()["error"]["code"] == "HTTP_422"
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_add_procedure_missing_code_returns_404(db_session: Session) -> None:
-    user, claim, _patient_a, _patient_b = _seed_claim_with_patients(db_session)
-    token = create_access_token(str(user.id))
-
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-    client = TestClient(app)
-    try:
-        response = client.post(
-            f"/api/claims/{claim.id}/procedures",
-            json={"procedures": [{"procedure_code_id": str(uuid.uuid4()), "units": 1}]},
+            f"/api/claims/{claim.id}/mcp-codes",
+            json={"mcp_codes": ["99999"]},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "HTTP_404"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_claim_access_restricted_to_owner(db_session: Session) -> None:
+    owner = _seed_user(db_session, "owner@example.com")
+    other = _seed_user(db_session, "other@example.com")
+    claim = _seed_claim(db_session, owner)
+    token = create_access_token(str(other.id))
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.get(
+            f"/api/claims/{claim.id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 404
     finally:
         app.dependency_overrides.clear()

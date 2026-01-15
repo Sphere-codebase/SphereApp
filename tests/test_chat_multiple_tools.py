@@ -1,15 +1,23 @@
-import uuid
-
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.routes.chat import get_llm_client
 from app.core.security import create_access_token, get_password_hash
-from app.db.models import Agency, ChatMessage, Claim, ClaimStatus, Patient, Tenant, User
+from app.db.id_utils import next_id
+from app.db.models import (
+    ChatMessage,
+    Claim,
+    InsuranceCompany,
+    Patient,
+    Role,
+    User,
+    UserRole,
+)
 from app.db.session import get_db
 from app.llm.client import ChatCompletionResult, ToolCall
 from app.main import app
+from app.utils.time import utcnow
 
 
 class FakeLLMClient:
@@ -24,38 +32,38 @@ class FakeLLMClient:
 
 
 def _seed_claim(db_session: Session) -> tuple[User, Claim]:
-    tenant = Tenant(id=uuid.uuid4(), name="Tenant Multi Tools")
+    doctor_role = db_session.execute(
+        select(Role).where(Role.code == "doctor")
+    ).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
+
     user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
+        id=next_id(db_session, User),
         email="doctor@example.com",
-        hashed_password=get_password_hash("secret"),
+        password_hash=get_password_hash("secret"),
         is_active=True,
+        created_at=utcnow(),
     )
-    agency = Agency(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        name="Agency Multi",
-        slug="agency-multi",
-        is_active=True,
-    )
+    company = InsuranceCompany(id=next_id(db_session, InsuranceCompany), name="Company A")
     patient = Patient(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        user_id=user.id,
+        id=next_id(db_session, Patient),
+        doctor_id=user.id,
         first_name="Jane",
         last_name="Doe",
-        full_name="Jane Doe",
+        created_at=utcnow(),
     )
     claim = Claim(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        agency_id=agency.id,
+        id=next_id(db_session, Claim),
+        doctor_id=user.id,
         patient_id=patient.id,
-        status=ClaimStatus.DRAFT,
-        description="Test",
+        insurance_company_id=company.id,
+        claim_status="DRAFT",
+        created_at=utcnow(),
     )
-    db_session.add_all([tenant, user, agency, patient, claim])
+    db_session.add_all([user, UserRole(user_id=user.id, role_id=doctor_role.id), company, patient, claim])
     db_session.commit()
     return user, claim
 
@@ -70,7 +78,7 @@ def test_chat_multiple_tools_in_one_step(db_session: Session) -> None:
                 ToolCall(
                     id="call-1",
                     name="get_claim",
-                    arguments={"claim_id": str(claim.id)},
+                    arguments={"claim_id": claim.id},
                 ),
                 ToolCall(
                     id="call-2",
@@ -106,17 +114,15 @@ def test_chat_multiple_tools_in_one_step(db_session: Session) -> None:
         tool_messages = (
             db_session.execute(
                 select(ChatMessage).where(
-                    ChatMessage.session_id == uuid.UUID(session_id),
-                    ChatMessage.tool_name.in_(["get_claim", "time_now"]),
-                    ChatMessage.tool_result.is_not(None),
+                    ChatMessage.session_id == int(session_id),
+                    ChatMessage.content.ilike("%[tool_result]%"),
                 )
             )
             .scalars()
             .all()
         )
         assert len(tool_messages) == 2
-        results_by_name = {item.tool_name: item.tool_result for item in tool_messages}
-        assert results_by_name["get_claim"]["claim"]["id"] == str(claim.id)
-        assert results_by_name["time_now"]["tz"] == "UTC"
+        assert any("get_claim" in item.content for item in tool_messages)
+        assert any("time_now" in item.content for item in tool_messages)
     finally:
         app.dependency_overrides.clear()

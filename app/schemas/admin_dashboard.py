@@ -2,120 +2,90 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
-
-from app.db.models.enums import ClaimStatus
 
 
 class AdminPatientSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
-    user_id: uuid.UUID | None
+    id: int
+    doctor_id: int
     first_name: str | None
     last_name: str | None
-    full_name: str
     date_of_birth: date | None
-    sex: str | None
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None
 
 
-class AdminAgencySummary(BaseModel):
+class AdminInsuranceCompanySummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: int
     name: str
-    slug: str | None
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None
 
 
-class AdminDiagnosisSummary(BaseModel):
+class AdminDiagnosisCodeSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
     code: str
-    title: str | None
+    description: str | None
 
 
 class AdminClaimSummary(BaseModel):
-    id: uuid.UUID
-    patient_id: uuid.UUID
+    id: int
+    patient_id: int
     patient_name: str
-    patient_user_id: uuid.UUID | None
-    agency_id: uuid.UUID | None
-    agency_name: str | None
+    doctor_id: int
+    insurance_company_id: int
+    insurance_company_name: str | None
     claim_number: str | None
-    status: ClaimStatus
-    service_from: date | None
-    service_to: date | None
-    received_at: datetime | None
-    finalized_at: datetime | None
-    billed_total_cents: int | None
-    allowed_total_cents: int | None
-    paid_total_cents: int | None
-    patient_responsibility_cents: int | None
-    created_at: datetime
-    updated_at: datetime
+    claim_status: str | None
+    service_date: date | None
+    claim_date: date | None
+    billed_amount_total: float | None
+    allowed_amount_total: float | None
+    coinsurance_amount_total: float | None
+    copay_amount_total: float | None
+    deductible_amount_total: float | None
+    created_at: datetime | None
 
 
-class ProcedureCodeSummary(BaseModel):
-    id: uuid.UUID
+class McpCodeSummary(BaseModel):
     code: str
-    title: str | None
+    description: str | None
 
 
-class AdminClaimProcedurePaymentResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    paid_amount_cents: int
-    adjustment_amount_cents: int | None
-    adjustment_reason_code: str | None
-    check_number: str | None
-    paid_at: datetime
-    created_at: datetime
-
-
-class AdminClaimProcedureResponse(BaseModel):
-    id: uuid.UUID
-    procedure_code: ProcedureCodeSummary
-    units: int
+class AdminClaimProcedureFactResponse(BaseModel):
+    id: int
+    mcp_code: McpCodeSummary
+    service_date: date | None
+    units: float | None
     modifier: str | None
-    price: float | None
-    billed_amount_cents: int | None
-    allowed_amount_cents: int | None
-    coinsurance_amount_cents: int | None
-    copay_amount_cents: int | None
-    deductible_amount_cents: int | None
-    paid_amount_cents: int | None
-    denial_reason_code: str | None
-    line_number: int | None
-    created_at: datetime
-    updated_at: datetime
-    payments: list[AdminClaimProcedurePaymentResponse]
+    billed_amount: float | None
+    allowed_amount: float | None
+    coinsurance_amount: float | None
+    copay_amount: float | None
+    deductible_amount: float | None
+    paid_amount: float | None
+    paid_at: date | None
+    created_at: datetime | None
 
 
 class AdminClaimDetailResponse(BaseModel):
-    id: uuid.UUID
+    id: int
     patient: AdminPatientSummary
-    agency: AdminAgencySummary | None
+    insurance_company: AdminInsuranceCompanySummary | None
     claim_number: str | None
-    status: ClaimStatus
-    service_from: date | None
-    service_to: date | None
-    received_at: datetime | None
-    finalized_at: datetime | None
-    billed_total_cents: int | None
-    allowed_total_cents: int | None
-    paid_total_cents: int | None
-    patient_responsibility_cents: int | None
-    created_at: datetime
-    updated_at: datetime
-    procedures: list[AdminClaimProcedureResponse]
-    diagnoses: list[AdminDiagnosisSummary]
+    claim_status: str | None
+    service_date: date | None
+    claim_date: date | None
+    billed_amount_total: float | None
+    allowed_amount_total: float | None
+    coinsurance_amount_total: float | None
+    copay_amount_total: float | None
+    deductible_amount_total: float | None
+    created_at: datetime | None
+    procedures: list[AdminClaimProcedureFactResponse]
+    diagnoses: list[AdminDiagnosisCodeSummary]

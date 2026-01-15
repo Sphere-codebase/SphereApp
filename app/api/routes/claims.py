@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -12,99 +11,75 @@ from sqlalchemy.orm import Session
 
 from app.core.logging import error_payload
 from app.core.security import get_current_user
+from app.db.id_utils import next_id
 from app.db.models import (
-    Agency,
-    AgencyProcedurePolicyLink,
     Claim,
-    ClaimProcedure,
-    ClaimStatus,
+    ClaimMcpCode,
+    InsuranceCompany,
+    McpCode,
     Patient,
-    PolicyLinkStatus,
-    ProcedureCode,
+    PolicyLink,
     User,
-    Visit,
 )
 from app.db.session import get_db
 from app.schemas.claims import (
     ClaimCreateRequest,
+    ClaimMcpCodeCreateRequest,
+    ClaimMcpCodeResponse,
     ClaimPolicyLinkItem,
-    ClaimProcedureCreateRequest,
-    ClaimProcedureResponse,
     ClaimResponse,
     ClaimUpdateRequest,
-    ClaimVisitAttachRequest,
-    ProcedureCodeSummary,
+    McpCodeSummary,
 )
+from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/claims", tags=["claims"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
-def _get_claim_or_404(db: Session, claim_id: uuid.UUID, current_user: User) -> Claim:
+def _get_claim_or_404(db: Session, claim_id: int, current_user: User) -> Claim:
     claim = db.execute(
-        select(Claim)
-        .join(Patient)
-        .where(
-            Claim.id == claim_id,
-            Claim.tenant_id == current_user.tenant_id,
-            Patient.id == Claim.patient_id,
-            Patient.user_id == current_user.id,
-        )
+        select(Claim).where(Claim.id == claim_id, Claim.doctor_id == current_user.id)
     ).scalar_one_or_none()
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
     return claim
 
 
-def _require_patient(db: Session, patient_id: uuid.UUID, current_user: User) -> Patient:
+def _require_patient(db: Session, patient_id: int, current_user: User) -> Patient:
     patient = db.execute(
-        select(Patient).where(
-            Patient.id == patient_id,
-            Patient.tenant_id == current_user.tenant_id,
-            Patient.user_id == current_user.id,
-        )
+        select(Patient).where(Patient.id == patient_id, Patient.doctor_id == current_user.id)
     ).scalar_one_or_none()
     if patient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
     return patient
 
 
-def _require_agency(db: Session, agency_id: uuid.UUID, current_user: User) -> Agency:
-    agency = db.execute(
-        select(Agency).where(
-            Agency.id == agency_id,
-            Agency.tenant_id == current_user.tenant_id,
-        )
+def _require_insurance_company(db: Session, company_id: int) -> InsuranceCompany:
+    company = db.execute(
+        select(InsuranceCompany).where(InsuranceCompany.id == company_id)
     ).scalar_one_or_none()
-    if agency is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agency not found")
-    return agency
+    if company is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+    return company
 
 
 @router.get("", response_model=list[ClaimResponse])
 def list_claims(
     db: DbSessionDep,
     current_user: CurrentUserDep,
-    patient_id: Annotated[uuid.UUID | None, Query()] = None,
-    agency_id: Annotated[uuid.UUID | None, Query()] = None,
-    status_value: Annotated[ClaimStatus | None, Query(alias="status")] = None,
+    patient_id: Annotated[int | None, Query()] = None,
+    insurance_company_id: Annotated[int | None, Query()] = None,
+    status_value: Annotated[str | None, Query(alias="status")] = None,
 ) -> list[ClaimResponse]:
-    stmt = (
-        select(Claim)
-        .join(Patient)
-        .where(
-            Claim.tenant_id == current_user.tenant_id,
-            Patient.user_id == current_user.id,
-            Patient.id == Claim.patient_id,
-        )
-    )
+    stmt = select(Claim).where(Claim.doctor_id == current_user.id)
     if patient_id:
         stmt = stmt.where(Claim.patient_id == patient_id)
-    if agency_id:
-        stmt = stmt.where(Claim.agency_id == agency_id)
+    if insurance_company_id:
+        stmt = stmt.where(Claim.insurance_company_id == insurance_company_id)
     if status_value:
-        stmt = stmt.where(Claim.status == status_value)
+        stmt = stmt.where(Claim.claim_status == status_value)
     claims = db.execute(stmt.order_by(Claim.created_at.desc())).scalars().all()
     return [ClaimResponse.model_validate(claim) for claim in claims]
 
@@ -116,31 +91,22 @@ def create_claim(
     current_user: CurrentUserDep,
 ) -> ClaimResponse | JSONResponse:
     patient = _require_patient(db, payload.patient_id, current_user)
-    _require_agency(db, payload.agency_id, current_user)
-    if payload.claim_number:
-        existing = db.execute(
-            select(Claim).where(
-                Claim.agency_id == payload.agency_id,
-                Claim.claim_number == payload.claim_number,
-            )
-        ).scalar_one_or_none()
-        if existing is not None:
-            return JSONResponse(
-                status_code=status.HTTP_409_CONFLICT,
-                content=error_payload(
-                    code="CLAIM_NUMBER_EXISTS",
-                    message="Claim number already exists for agency",
-                    details={"claim_number": payload.claim_number},
-                ),
-            )
+    _require_insurance_company(db, payload.insurance_company_id)
     claim = Claim(
-        tenant_id=current_user.tenant_id,
-        agency_id=payload.agency_id,
+        id=next_id(db, Claim),
+        doctor_id=current_user.id,
         patient_id=patient.id,
+        insurance_company_id=payload.insurance_company_id,
         claim_number=payload.claim_number,
-        status=payload.status,
-        service_from=payload.service_from,
-        service_to=payload.service_to,
+        claim_status=payload.claim_status,
+        service_date=payload.service_date,
+        claim_date=payload.claim_date,
+        billed_amount_total=payload.billed_amount_total,
+        allowed_amount_total=payload.allowed_amount_total,
+        coinsurance_amount_total=payload.coinsurance_amount_total,
+        copay_amount_total=payload.copay_amount_total,
+        deductible_amount_total=payload.deductible_amount_total,
+        created_at=utcnow(),
     )
     db.add(claim)
     db.commit()
@@ -150,7 +116,7 @@ def create_claim(
 
 @router.get("/{claim_id}", response_model=ClaimResponse)
 def get_claim(
-    claim_id: uuid.UUID,
+    claim_id: int,
     db: DbSessionDep,
     current_user: CurrentUserDep,
 ) -> ClaimResponse:
@@ -160,32 +126,17 @@ def get_claim(
 
 @router.patch("/{claim_id}", response_model=ClaimResponse)
 def update_claim(
-    claim_id: uuid.UUID,
+    claim_id: int,
     payload: ClaimUpdateRequest,
     db: DbSessionDep,
     current_user: CurrentUserDep,
 ) -> ClaimResponse | JSONResponse:
     claim = _get_claim_or_404(db, claim_id, current_user)
     data = payload.model_dump(exclude_unset=True)
-    if "agency_id" in data and data["agency_id"] is not None:
-        _require_agency(db, data["agency_id"], current_user)
-    if "claim_number" in data and data["claim_number"]:
-        existing = db.execute(
-            select(Claim).where(
-                Claim.agency_id == data.get("agency_id", claim.agency_id),
-                Claim.claim_number == data["claim_number"],
-                Claim.id != claim.id,
-            )
-        ).scalar_one_or_none()
-        if existing is not None:
-            return JSONResponse(
-                status_code=status.HTTP_409_CONFLICT,
-                content=error_payload(
-                    code="CLAIM_NUMBER_EXISTS",
-                    message="Claim number already exists for agency",
-                    details={"claim_number": data["claim_number"]},
-                ),
-            )
+    if "patient_id" in data and data["patient_id"] is not None:
+        _require_patient(db, data["patient_id"], current_user)
+    if "insurance_company_id" in data and data["insurance_company_id"] is not None:
+        _require_insurance_company(db, data["insurance_company_id"])
     for field, value in data.items():
         setattr(claim, field, value)
     db.add(claim)
@@ -194,155 +145,78 @@ def update_claim(
     return ClaimResponse.model_validate(claim)
 
 
-@router.post("/{claim_id}/visits", response_model=list[uuid.UUID])
-def attach_visits(
-    claim_id: uuid.UUID,
-    payload: ClaimVisitAttachRequest,
+@router.post("/{claim_id}/mcp-codes", response_model=list[ClaimMcpCodeResponse])
+def add_mcp_codes(
+    claim_id: int,
+    payload: ClaimMcpCodeCreateRequest,
     db: DbSessionDep,
     current_user: CurrentUserDep,
-) -> list[uuid.UUID] | JSONResponse:
+) -> list[ClaimMcpCodeResponse] | JSONResponse:
     claim = _get_claim_or_404(db, claim_id, current_user)
-    if not payload.visit_ids:
+    if not payload.mcp_codes:
         return []
-    visits = (
-        db.execute(
-            select(Visit).where(
-                Visit.id.in_(payload.visit_ids),
-                Visit.tenant_id == current_user.tenant_id,
-            )
-        )
-        .scalars()
-        .all()
-    )
-    visit_by_id = {visit.id: visit for visit in visits}
-    missing = [vid for vid in payload.visit_ids if vid not in visit_by_id]
-    if missing:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Visit not found")
-    for visit in visits:
-        if visit.patient_id != claim.patient_id:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Visit does not belong to claim patient",
-            )
-    existing_ids = {visit.id for visit in claim.visits}
-    duplicates = [vid for vid in payload.visit_ids if vid in existing_ids]
-    if duplicates:
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content=error_payload(
-                code="VISIT_ALREADY_LINKED",
-                message="Visit already linked to claim",
-                details={"visit_ids": [str(vid) for vid in duplicates]},
-            ),
-        )
-    for visit in visits:
-        claim.visits.append(visit)
-    db.add(claim)
-    db.commit()
-    return [visit.id for visit in visits]
-
-
-@router.post("/{claim_id}/procedures", response_model=list[ClaimProcedureResponse])
-def add_procedures(
-    claim_id: uuid.UUID,
-    payload: ClaimProcedureCreateRequest,
-    db: DbSessionDep,
-    current_user: CurrentUserDep,
-) -> list[ClaimProcedureResponse] | JSONResponse:
-    claim = _get_claim_or_404(db, claim_id, current_user)
-    if not payload.procedures:
-        return []
-    procedure_ids = [item.procedure_code_id for item in payload.procedures]
     codes = (
-        db.execute(
-            select(ProcedureCode).where(
-                ProcedureCode.id.in_(procedure_ids),
-                ProcedureCode.tenant_id == current_user.tenant_id,
-            )
-        )
+        db.execute(select(McpCode).where(McpCode.code.in_(payload.mcp_codes)))
         .scalars()
         .all()
     )
-    code_by_id = {code.id: code for code in codes}
-    missing = [pid for pid in procedure_ids if pid not in code_by_id]
+    code_by_value = {code.code: code for code in codes}
+    missing = [code for code in payload.mcp_codes if code not in code_by_value]
     if missing:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Procedure code not found",
-        )
-
-    responses: list[ClaimProcedureResponse] = []
-    for item in payload.procedures:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP code not found")
+    responses: list[ClaimMcpCodeResponse] = []
+    for code_value in payload.mcp_codes:
         existing = db.execute(
-            select(ClaimProcedure).where(
-                ClaimProcedure.claim_id == claim.id,
-                ClaimProcedure.tenant_id == current_user.tenant_id,
-                ClaimProcedure.procedure_code_id == item.procedure_code_id,
-                ClaimProcedure.modifier == item.modifier,
+            select(ClaimMcpCode).where(
+                ClaimMcpCode.claim_id == claim.id,
+                ClaimMcpCode.mcp_code == code_value,
             )
         ).scalar_one_or_none()
         if existing is not None:
             return JSONResponse(
                 status_code=status.HTTP_409_CONFLICT,
                 content=error_payload(
-                    code="PROCEDURE_ALREADY_LINKED",
-                    message="Procedure already linked to claim",
-                    details={
-                        "procedure_code_id": str(item.procedure_code_id),
-                        "modifier": item.modifier,
-                    },
+                    code="MCP_CODE_ALREADY_LINKED",
+                    message="MCP code already linked to claim",
+                    details={"mcp_code": code_value},
                 ),
             )
-        procedure = ClaimProcedure(
-            tenant_id=current_user.tenant_id,
-            claim_id=claim.id,
-            procedure_code_id=item.procedure_code_id,
-            units=item.units,
-            modifier=item.modifier,
-            price=item.price,
-        )
-        db.add(procedure)
-        db.flush()
-        db.refresh(procedure)
-        responses.append(ClaimProcedureResponse.model_validate(procedure))
+        link = ClaimMcpCode(claim_id=claim.id, mcp_code=code_value)
+        db.add(link)
+        responses.append(ClaimMcpCodeResponse(claim_id=claim.id, mcp_code=code_value))
     db.commit()
     return responses
 
 
 @router.get("/{claim_id}/policy-links", response_model=list[ClaimPolicyLinkItem])
 def resolve_policy_links(
-    claim_id: uuid.UUID,
+    claim_id: int,
     db: DbSessionDep,
     current_user: CurrentUserDep,
 ) -> list[ClaimPolicyLinkItem]:
     claim = _get_claim_or_404(db, claim_id, current_user)
-    procedures = db.execute(
-        select(ClaimProcedure, ProcedureCode, AgencyProcedurePolicyLink)
-        .join(ProcedureCode, ClaimProcedure.procedure_code_id == ProcedureCode.id)
-        .outerjoin(
-            AgencyProcedurePolicyLink,
-            (AgencyProcedurePolicyLink.agency_id == claim.agency_id)
-            & (AgencyProcedurePolicyLink.procedure_code_id == ProcedureCode.id)
-            & (AgencyProcedurePolicyLink.status == PolicyLinkStatus.ACTIVE)
-            & (AgencyProcedurePolicyLink.tenant_id == current_user.tenant_id),
+    codes = (
+        db.execute(
+            select(ClaimMcpCode, McpCode)
+            .join(McpCode, ClaimMcpCode.mcp_code == McpCode.code)
+            .where(ClaimMcpCode.claim_id == claim.id)
         )
-        .where(
-            ClaimProcedure.claim_id == claim.id,
-            ClaimProcedure.tenant_id == current_user.tenant_id,
-            ProcedureCode.tenant_id == current_user.tenant_id,
-        )
-    ).all()
+        .all()
+    )
     items: list[ClaimPolicyLinkItem] = []
-    for _claim_proc, code, link in procedures:
-        summary = ProcedureCodeSummary(
-            id=code.id,
-            code=code.code,
-            title=code.title,
-        )
-        policy_url = link.policy_url if link else None
+    for link, code in codes:
+        policy_link = db.execute(
+            select(PolicyLink)
+            .where(
+                PolicyLink.insurance_company_id == claim.insurance_company_id,
+                PolicyLink.mcp_code == code.code,
+            )
+            .order_by(PolicyLink.created_at.desc())
+        ).scalars().first()
+        policy_url = policy_link.policy_url if policy_link else None
         items.append(
             ClaimPolicyLinkItem(
-                procedure_code=summary,
+                mcp_code=McpCodeSummary(code=code.code, description=code.description),
                 policy_url=policy_url,
                 missing_policy_link=policy_url is None,
             )

@@ -24,14 +24,13 @@ def list_patients(
     current_user: AdminUserDep,
     query: Annotated[str | None, Query()] = None,
 ) -> list[AdminPatientSummary]:
-    stmt = select(Patient).where(Patient.tenant_id == current_user.tenant_id)
+    stmt = select(Patient)
     if query:
         like = f"%{query}%"
         stmt = stmt.where(
             or_(
                 Patient.first_name.ilike(like),
                 Patient.last_name.ilike(like),
-                Patient.full_name.ilike(like),
             )
         )
     patients = db.execute(stmt.order_by(Patient.last_name.asc())).scalars().all()

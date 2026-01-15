@@ -1,14 +1,14 @@
-import uuid
-
 from fastapi.testclient import TestClient
 from tenacity import RetryError
 
 from app.api.routes.chat import get_llm_client
 from app.core.security import create_access_token
-from app.db.models import Tenant, User
+from app.db.id_utils import next_id
+from app.db.models import User
 from app.db.session import get_db
 from app.llm.client import LLMUnavailable
 from app.main import app
+from app.utils.time import utcnow
 
 
 class FakeRetryErrorLLM:
@@ -32,15 +32,14 @@ def test_llm_unavailable_maps_to_503() -> None:
 
 
 def test_chat_retry_error_maps_to_503(db_session) -> None:
-    tenant = Tenant(id=uuid.uuid4(), name="Tenant LLM")
     user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
+        id=next_id(db_session, User),
         email="doctor@example.com",
-        hashed_password="hash",
+        password_hash="hash",
         is_active=True,
+        created_at=utcnow(),
     )
-    db_session.add_all([tenant, user])
+    db_session.add(user)
     db_session.commit()
 
     def override_get_db():

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,9 +15,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import log_chat_event
-from app.db.models import ChatMessage, ChatSession, Claim, Patient, User
+from app.db.id_utils import next_id
+from app.db.models import ChatMessage, ChatSession, User
 from app.llm.client import ChatCompletionResult, LLMClient, ToolCall
 from app.llm.tools import ToolContext, execute_tool, list_tool_schemas
+from app.utils.time import utcnow
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SYSTEM_RULES_PATH = ROOT_DIR / "docs" / "system_rules.md"
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ChatResult:
-    session_id: uuid.UUID
+    session_id: int
     assistant_message: str
     ui_actions: list[dict[str, Any]]
     debug: dict[str, Any] | None
@@ -43,12 +44,12 @@ class ChatOrchestrator:
         self.llm_client = llm_client or LLMClient()
 
     def run(
-        self, message: str, session_id: uuid.UUID | None, claim_id: uuid.UUID | None
+        self, message: str, session_id: int | None
     ) -> ChatResult:
-        session = self._get_or_create_session(session_id, claim_id)
+        session = self._get_or_create_session(session_id)
         self._store_message(session.id, role="user", content=message)
 
-        messages = self._build_prompt(session.id, claim_id)
+        messages = self._build_prompt(session.id)
         tools = list_tool_schemas()
         allowed_tools = {tool["function"]["name"] for tool in tools}
         ui_actions: list[dict[str, Any]] = []
@@ -77,7 +78,6 @@ class ChatOrchestrator:
 
             tool_context = ToolContext(
                 db=self.db,
-                tenant_id=self.user.tenant_id,
                 user_id=self.user.id,
                 chat_session_id=session.id,
             )
@@ -89,7 +89,6 @@ class ChatOrchestrator:
                 log_chat_event(
                     "tool_call",
                     {
-                        "tenant_id": str(self.user.tenant_id),
                         "user_id": str(self.user.id),
                         "chat_session_id": str(session.id),
                         "tool_name": tool_call.name,
@@ -111,7 +110,6 @@ class ChatOrchestrator:
                 log_chat_event(
                     "tool_result",
                     {
-                        "tenant_id": str(self.user.tenant_id),
                         "user_id": str(self.user.id),
                         "chat_session_id": str(session.id),
                         "tool_name": tool_call.name,
@@ -138,15 +136,12 @@ class ChatOrchestrator:
             debug=debug if settings.env in {"dev", "test"} else None,
         )
 
-    def _get_or_create_session(
-        self, session_id: uuid.UUID | None, claim_id: uuid.UUID | None
-    ) -> ChatSession:
+    def _get_or_create_session(self, session_id: int | None) -> ChatSession:
         if session_id:
             session = self.db.execute(
                 select(ChatSession).where(
                     ChatSession.id == session_id,
-                    ChatSession.tenant_id == self.user.tenant_id,
-                    ChatSession.user_id == self.user.id,
+                    ChatSession.doctor_id == self.user.id,
                 )
             ).scalar_one_or_none()
             if session is None:
@@ -155,86 +150,20 @@ class ChatOrchestrator:
                 )
             return session
 
-        if claim_id:
-            claim = self.db.execute(
-                select(Claim)
-                .join(Patient)
-                .where(
-                    Claim.id == claim_id,
-                    Claim.tenant_id == self.user.tenant_id,
-                    Patient.id == Claim.patient_id,
-                    Patient.user_id == self.user.id,
-                )
-            ).scalar_one_or_none()
-            if claim is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
-
         session = ChatSession(
-            tenant_id=self.user.tenant_id,
-            user_id=self.user.id,
-            claim_id=claim_id,
+            id=next_id(self.db, ChatSession),
+            doctor_id=self.user.id,
+            created_at=utcnow(),
         )
         self.db.add(session)
         self.db.commit()
         self.db.refresh(session)
         return session
 
-    def _build_prompt(
-        self, session_id: uuid.UUID, claim_id: uuid.UUID | None
-    ) -> list[dict[str, Any]]:
+    def _build_prompt(self, session_id: int) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         messages.append({"role": "system", "content": SYSTEM_RULES_PATH.read_text()})
         messages.append({"role": "system", "content": DEVELOPER_POLICY_PATH.read_text()})
-
-        if claim_id:
-            claim = self.db.execute(
-                select(Claim)
-                .join(Patient)
-                .where(
-                    Claim.id == claim_id,
-                    Claim.tenant_id == self.user.tenant_id,
-                    Patient.id == Claim.patient_id,
-                    Patient.user_id == self.user.id,
-                )
-            ).scalar_one_or_none()
-            if claim is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
-            patient = self.db.execute(
-                select(Patient).where(
-                    Patient.id == claim.patient_id,
-                    Patient.tenant_id == self.user.tenant_id,
-                )
-            ).scalar_one_or_none()
-            context = {
-                "claim": {
-                    "id": str(claim.id),
-                    "status": (
-                        claim.status.value
-                        if hasattr(claim.status, "value")
-                        else claim.status
-                    ),
-                    "claim_number": claim.claim_number,
-                    "agency_id": str(claim.agency_id) if claim.agency_id else None,
-                    "service_from": claim.service_from.isoformat()
-                    if claim.service_from
-                    else None,
-                    "service_to": claim.service_to.isoformat() if claim.service_to else None,
-                    "amount_cents": claim.amount_cents,
-                    "description": claim.description,
-                },
-                "patient": None,
-            }
-            if patient:
-                context["patient"] = {
-                    "id": str(patient.id),
-                    "first_name": patient.first_name,
-                    "last_name": patient.last_name,
-                    "date_of_birth": patient.date_of_birth.isoformat()
-                    if patient.date_of_birth
-                    else None,
-                    "full_name": patient.full_name,
-                }
-            messages.append({"role": "system", "content": f"Context: {json.dumps(context)}"})
 
         history = self.db.execute(
             select(ChatMessage)
@@ -245,14 +174,6 @@ class ChatOrchestrator:
         for item in history:
             if item.role in {"user", "assistant"} and item.content:
                 messages.append({"role": item.role, "content": item.content})
-            elif item.role == "tool" and item.tool_result is not None:
-                messages.append(
-                    {
-                        "role": "tool",
-                        "name": item.tool_name or "",
-                        "content": json.dumps(item.tool_result),
-                    }
-                )
 
         return messages
 
@@ -280,47 +201,50 @@ class ChatOrchestrator:
         }
 
     def _store_message(
-        self, session_id: uuid.UUID, role: str, content: str | None = None
+        self, session_id: int, role: str, content: str | None = None
     ) -> ChatMessage | None:
         if role == "assistant" and (content is None or not content.strip()):
             return None
         message = ChatMessage(
-            tenant_id=self.user.tenant_id,
+            id=next_id(self.db, ChatMessage),
             session_id=session_id,
             role=role,
-            content=content,
+            content=content or "",
+            created_at=utcnow(),
         )
         self.db.add(message)
         self.db.commit()
         self.db.refresh(message)
         return message
 
-    def _store_tool_call(self, session_id: uuid.UUID, call: ToolCall) -> None:
+    def _store_tool_call(self, session_id: int, call: ToolCall) -> None:
         if not call.name:
             return
+        rendered = json.dumps(call.arguments, sort_keys=True, default=str)
+        content = f"[tool_call] {call.name} args={rendered}"
         message = ChatMessage(
-            tenant_id=self.user.tenant_id,
+            id=next_id(self.db, ChatMessage),
             session_id=session_id,
             role="assistant",
-            content=None,
-            tool_name=call.name,
-            tool_args=call.arguments,
+            content=content,
+            created_at=utcnow(),
         )
         self.db.add(message)
         self.db.commit()
 
     def _store_tool_result(
-        self, session_id: uuid.UUID, tool_name: str, result: dict[str, Any]
+        self, session_id: int, tool_name: str, result: dict[str, Any]
     ) -> None:
         if not tool_name or result is None:
             return
+        rendered = json.dumps(result, sort_keys=True, default=str)
+        content = f"[tool_result] {tool_name} result={rendered}"
         message = ChatMessage(
-            tenant_id=self.user.tenant_id,
+            id=next_id(self.db, ChatMessage),
             session_id=session_id,
             role="tool",
-            content=None,
-            tool_name=tool_name,
-            tool_result=result,
+            content=content,
+            created_at=utcnow(),
         )
         self.db.add(message)
         self.db.commit()

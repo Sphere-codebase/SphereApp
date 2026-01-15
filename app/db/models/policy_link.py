@@ -1,39 +1,32 @@
-"""Agency procedure policy links."""
+"""Policy link model."""
 
 from __future__ import annotations
 
-import uuid
-from datetime import date
-
-from sqlalchemy import Date, Enum, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import BigInteger, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.models.base import Base, UpdatedTimestampMixin
-from app.db.models.enums import PolicyLinkStatus
+from app.db.models.base import Base, TimestampMixin
 
 
-class AgencyProcedurePolicyLink(UpdatedTimestampMixin, Base):
-    __tablename__ = "agency_procedure_policy_links"
+class PolicyLink(TimestampMixin, Base):
+    __tablename__ = "policy_links"
+    __table_args__ = (
+        Index("ix_policy_links_insurance_company_id_mcp_code", "insurance_company_id", "mcp_code"),
+        Index(
+            "uq_policy_links_insurance_company_id_mcp_code_policy_url",
+            "insurance_company_id",
+            "mcp_code",
+            "policy_url",
+            unique=True,
+        ),
+    )
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tenants.id"), index=True, nullable=False
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    insurance_company_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("insurance_companies.id"), nullable=False
     )
-    agency_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=False
-    )
-    procedure_code_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("procedure_codes.id"), nullable=False
-    )
-    policy_url: Mapped[str] = mapped_column(String(2048), nullable=False)
-    effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
-    effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
-    status: Mapped[PolicyLinkStatus] = mapped_column(
-        Enum(PolicyLinkStatus, name="policy_link_status"), nullable=False
-    )
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mcp_code: Mapped[str] = mapped_column(String, ForeignKey("mcp_codes.code"), nullable=False)
+    policy_url: Mapped[str] = mapped_column(String, nullable=False)
 
-    tenant = relationship("Tenant", backref="policy_links")
-    agency = relationship("Agency", back_populates="policy_links")
-    procedure_code = relationship("ProcedureCode", back_populates="policy_links")
+    insurance_company = relationship("InsuranceCompany", back_populates="policy_links")
+    mcp_code_ref = relationship("McpCode", back_populates="policy_links")

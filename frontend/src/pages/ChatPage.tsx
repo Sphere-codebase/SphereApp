@@ -30,7 +30,7 @@ function getInitialTheme(): ThemeMode {
   return prefersDark ? "dark" : "light";
 }
 
-function formatTime(value?: string): string | undefined {
+function formatTime(value?: string | null): string | undefined {
   if (!value) {
     return undefined;
   }

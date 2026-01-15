@@ -1,25 +1,34 @@
-import uuid
-
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash
-from app.db.models import Agency, ChatSession, Claim, ClaimStatus, Patient, Tenant, User
+from app.db.id_utils import next_id
+from app.db.models import ChatSession, Role, User, UserRole
 from app.db.session import get_db
 from app.main import app
+from app.utils.time import utcnow
 
 
 def _seed_user(db_session: Session, name: str) -> User:
-    tenant = Tenant(id=uuid.uuid4(), name=f"Tenant {name}")
+    doctor_role = db_session.execute(
+        select(Role).where(Role.code == "doctor")
+    ).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
+
     user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
+        id=next_id(db_session, User),
         email=f"doctor-{name.lower()}@example.com",
-        hashed_password=get_password_hash("secret"),
+        password_hash=get_password_hash("secret"),
         is_active=True,
+        created_at=utcnow(),
     )
-    db_session.add_all([tenant, user])
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(UserRole(user_id=user.id, role_id=doctor_role.id))
     db_session.commit()
     return user
 
@@ -36,9 +45,22 @@ def test_list_sessions_scoped_to_user(db_session: Session) -> None:
     user_a = _seed_user(db_session, "A")
     user_b = _seed_user(db_session, "B")
 
-    session_a1 = ChatSession(tenant_id=user_a.tenant_id, user_id=user_a.id)
-    session_a2 = ChatSession(tenant_id=user_a.tenant_id, user_id=user_a.id)
-    session_b = ChatSession(tenant_id=user_b.tenant_id, user_id=user_b.id)
+    first_session_id = next_id(db_session, ChatSession)
+    session_a1 = ChatSession(
+        id=first_session_id,
+        doctor_id=user_a.id,
+        created_at=utcnow(),
+    )
+    session_a2 = ChatSession(
+        id=first_session_id + 1,
+        doctor_id=user_a.id,
+        created_at=utcnow(),
+    )
+    session_b = ChatSession(
+        id=first_session_id + 2,
+        doctor_id=user_b.id,
+        created_at=utcnow(),
+    )
     db_session.add_all([session_a1, session_a2, session_b])
     db_session.commit()
 
@@ -58,7 +80,7 @@ def test_list_sessions_scoped_to_user(db_session: Session) -> None:
         assert response.headers.get("X-Request-ID") is not None
         payload = response.json()
         returned_ids = {item["id"] for item in payload}
-        assert returned_ids == {str(session_a1.id), str(session_a2.id)}
+        assert returned_ids == {session_a1.id, session_a2.id}
     finally:
         app.dependency_overrides.clear()
 
@@ -83,83 +105,28 @@ def test_create_session_success(db_session: Session) -> None:
     try:
         response = client.post(
             "/api/chat/sessions",
-            json={},
+            json={"title": "My session"},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 201
         assert response.headers.get("X-Request-ID") is not None
         payload = response.json()
-        assert payload["claim_id"] is None
+        assert payload["title"] == "My session"
 
-        created = db_session.get(ChatSession, uuid.UUID(payload["id"]))
+        created = db_session.get(ChatSession, int(payload["id"]))
         assert created is not None
-        assert created.user_id == user.id
-        assert created.tenant_id == user.tenant_id
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_create_session_cross_tenant_claim_returns_404(db_session: Session) -> None:
-    user = _seed_user(db_session, "Owner")
-    other_tenant = Tenant(id=uuid.uuid4(), name="Tenant Other")
-    other_user = User(
-        id=uuid.uuid4(),
-        tenant_id=other_tenant.id,
-        email="doctor-other@example.com",
-        hashed_password=get_password_hash("secret"),
-        is_active=True,
-    )
-    agency = Agency(
-        id=uuid.uuid4(),
-        tenant_id=other_tenant.id,
-        name="Agency Other",
-        slug="agency-other",
-        is_active=True,
-    )
-    patient = Patient(
-        id=uuid.uuid4(),
-        tenant_id=other_tenant.id,
-        user_id=other_user.id,
-        first_name="Jane",
-        last_name="Roe",
-        full_name="Jane Roe",
-    )
-    claim = Claim(
-        id=uuid.uuid4(),
-        tenant_id=other_tenant.id,
-        agency_id=agency.id,
-        patient_id=patient.id,
-        status=ClaimStatus.DRAFT,
-    )
-    db_session.add_all([other_tenant, other_user, agency, patient, claim])
-    db_session.commit()
-
-    token = create_access_token(str(user.id))
-
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-    client = TestClient(app)
-    try:
-        response = client.post(
-            "/api/chat/sessions",
-            json={"claim_id": str(claim.id)},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert response.status_code == 404
-        assert response.headers.get("X-Request-ID") is not None
-        count = db_session.execute(
-            select(ChatSession).where(ChatSession.user_id == user.id)
-        ).scalars()
-        assert count.first() is None
+        assert created.doctor_id == user.id
     finally:
         app.dependency_overrides.clear()
 
 
 def test_get_session_returns_200(db_session: Session) -> None:
     user = _seed_user(db_session, "Get")
-    session = ChatSession(tenant_id=user.tenant_id, user_id=user.id)
+    session = ChatSession(
+        id=next_id(db_session, ChatSession),
+        doctor_id=user.id,
+        created_at=utcnow(),
+    )
     db_session.add(session)
     db_session.commit()
     token = create_access_token(str(user.id))
@@ -176,20 +143,6 @@ def test_get_session_returns_200(db_session: Session) -> None:
         )
         assert response.status_code == 200
         payload = response.json()
-        assert payload["id"] == str(session.id)
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_chat_endpoint_not_found_regression(db_session: Session) -> None:
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-    client = TestClient(app)
-    try:
-        response = client.post("/chat", json={"message": "Hello"})
-        assert response.status_code == 401
-        assert response.headers.get("X-Request-ID") is not None
+        assert payload["id"] == session.id
     finally:
         app.dependency_overrides.clear()

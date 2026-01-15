@@ -1,47 +1,48 @@
 """SQLAlchemy models for the application."""
 
-from app.db.models.agency import Agency
 from app.db.models.base import Base
 from app.db.models.chat import ChatMessage, ChatSession
 from app.db.models.claim import Claim
-from app.db.models.claim_diagnosis import ClaimDiagnosis
-from app.db.models.claim_event import ClaimEvent
-from app.db.models.claim_procedure import ClaimProcedure
-from app.db.models.claim_procedure_payment import ClaimProcedurePayment
-from app.db.models.claim_visit import claim_visits
-from app.db.models.diagnosis import Diagnosis
-from app.db.models.enums import ClaimStatus, PolicyLinkStatus
+from app.db.models.claim_diagnosis_code import ClaimDiagnosisCode
+from app.db.models.claim_line_coverage import ClaimLineCoverage
+from app.db.models.claim_mcp_code import ClaimMcpCode
+from app.db.models.claim_procedure_diagnosis import ClaimProcedureDiagnosis
+from app.db.models.claim_procedure_fact import ClaimProcedureFact
+from app.db.models.diagnosis_code import DiagnosisCode
+from app.db.models.enums import ClaimStatus
+from app.db.models.insurance_company import InsuranceCompany
+from app.db.models.mcp_code import McpCode
+from app.db.models.mcp_payment_prediction import McpPaymentPrediction
+from app.db.models.ml_prediction import MlPrediction
+from app.db.models.ml_training_example import MlTrainingExample
 from app.db.models.patient import Patient
-from app.db.models.patient_diagnosis import PatientDiagnosis
-from app.db.models.payment import Payment
-from app.db.models.policy_link import AgencyProcedurePolicyLink
-from app.db.models.procedure_code import ProcedureCode
-from app.db.models.procedure_price_by_agency import ProcedurePriceByAgency
-from app.db.models.tenant import Tenant
+from app.db.models.policy_link import PolicyLink
+from app.db.models.policy_rule import PolicyRule
+from app.db.models.role import Role
 from app.db.models.user import User
-from app.db.models.visit import Visit
+from app.db.models.user_role import UserRole
 
 __all__ = [
     "Base",
-    "Agency",
-    "AgencyProcedurePolicyLink",
     "ChatMessage",
     "ChatSession",
     "Claim",
-    "ClaimDiagnosis",
-    "ClaimEvent",
-    "ClaimProcedure",
-    "ClaimProcedurePayment",
+    "ClaimDiagnosisCode",
+    "ClaimLineCoverage",
+    "ClaimMcpCode",
+    "ClaimProcedureDiagnosis",
+    "ClaimProcedureFact",
     "ClaimStatus",
-    "Diagnosis",
+    "DiagnosisCode",
+    "InsuranceCompany",
+    "McpCode",
+    "McpPaymentPrediction",
+    "MlPrediction",
+    "MlTrainingExample",
     "Patient",
-    "PatientDiagnosis",
-    "Payment",
-    "PolicyLinkStatus",
-    "ProcedureCode",
-    "ProcedurePriceByAgency",
-    "Tenant",
+    "PolicyLink",
+    "PolicyRule",
+    "Role",
     "User",
-    "Visit",
-    "claim_visits",
+    "UserRole",
 ]

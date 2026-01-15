@@ -1,34 +1,52 @@
-import uuid
-from datetime import UTC, datetime
-
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash
-from app.db.models import Tenant, User
+from app.db.id_utils import next_id
+from app.db.models import Role, User, UserRole
 from app.db.session import get_db
 from app.main import app
+from app.utils.time import utcnow
 
 
 def _seed_users(db_session: Session) -> tuple[User, User]:
-    tenant = Tenant(id=uuid.uuid4(), name="Tenant Policy Flow")
+    admin_role = db_session.execute(select(Role).where(Role.code == "admin")).scalar_one_or_none()
+    if admin_role is None:
+        admin_role = Role(id=next_id(db_session, Role), code="admin", description="Admin")
+        db_session.add(admin_role)
+    doctor_role = db_session.execute(
+        select(Role).where(Role.code == "doctor")
+    ).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+    db_session.flush()
+
+    first_user_id = next_id(db_session, User)
     admin = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
+        id=first_user_id,
         email="admin@example.com",
-        hashed_password=get_password_hash("secret"),
+        password_hash=get_password_hash("secret"),
         is_active=True,
-        is_admin=True,
+        created_at=utcnow(),
     )
     user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
+        id=first_user_id + 1,
         email="doctor@example.com",
-        hashed_password=get_password_hash("secret"),
+        password_hash=get_password_hash("secret"),
         is_active=True,
-        is_admin=False,
+        created_at=utcnow(),
     )
-    db_session.add_all([tenant, admin, user])
+    db_session.add_all([admin, user])
+    db_session.flush()
+    db_session.add_all(
+        [
+            UserRole(user_id=admin.id, role_id=doctor_role.id),
+            UserRole(user_id=admin.id, role_id=admin_role.id),
+            UserRole(user_id=user.id, role_id=doctor_role.id),
+        ]
+    )
     db_session.commit()
     return admin, user
 
@@ -44,37 +62,34 @@ def test_policy_links_flow(db_session: Session) -> None:
     app.dependency_overrides[get_db] = override_get_db
     client = TestClient(app)
     try:
-        agency_response = client.post(
-            "/api/admin/agencies",
-            json={"name": "Agency A", "slug": "agency-a", "is_active": True},
+        company_response = client.post(
+            "/api/admin/insurance-companies",
+            json={"name": "Company A"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
-        assert agency_response.status_code == 201
-        agency_id = agency_response.json()["id"]
+        assert company_response.status_code == 201
+        company_id = company_response.json()["id"]
 
         code_response = client.post(
-            "/api/admin/procedure-codes",
-            json={"code": "99213", "title": "Office Visit"},
+            "/api/admin/mcp-codes",
+            json={"code": "99213", "description": "Office Visit"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert code_response.status_code == 201
-        procedure_id = code_response.json()["id"]
 
         missing_code_response = client.post(
-            "/api/admin/procedure-codes",
-            json={"code": "93000", "title": "EKG"},
+            "/api/admin/mcp-codes",
+            json={"code": "93000", "description": "EKG"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert missing_code_response.status_code == 201
-        missing_procedure_id = missing_code_response.json()["id"]
 
         link_response = client.post(
             "/api/admin/policy-links",
             json={
-                "agency_id": agency_id,
-                "procedure_code_id": procedure_id,
+                "insurance_company_id": company_id,
+                "mcp_code": "99213",
                 "policy_url": "https://example.com/policy-a",
-                "status": "ACTIVE",
             },
             headers={"Authorization": f"Bearer {admin_token}"},
         )
@@ -82,46 +97,23 @@ def test_policy_links_flow(db_session: Session) -> None:
 
         patient_response = client.post(
             "/api/patients",
-            json={"first_name": "Jane", "last_name": "Doe", "sex": "F"},
+            json={"first_name": "Jane", "last_name": "Doe"},
             headers={"Authorization": f"Bearer {user_token}"},
         )
         assert patient_response.status_code == 201
         patient_id = patient_response.json()["id"]
 
-        visit_response = client.post(
-            f"/api/patients/{patient_id}/visits",
-            json={
-                "visited_at": datetime.now(tz=UTC).isoformat(),
-                "provider": "Dr. House",
-            },
-            headers={"Authorization": f"Bearer {user_token}"},
-        )
-        assert visit_response.status_code == 201
-        visit_id = visit_response.json()["id"]
-
         claim_response = client.post(
             "/api/claims",
-            json={"agency_id": agency_id, "patient_id": patient_id},
+            json={"insurance_company_id": company_id, "patient_id": patient_id},
             headers={"Authorization": f"Bearer {user_token}"},
         )
         assert claim_response.status_code == 201
         claim_id = claim_response.json()["id"]
 
-        attach_response = client.post(
-            f"/api/claims/{claim_id}/visits",
-            json={"visit_ids": [visit_id]},
-            headers={"Authorization": f"Bearer {user_token}"},
-        )
-        assert attach_response.status_code == 200
-
         procedures_response = client.post(
-            f"/api/claims/{claim_id}/procedures",
-            json={
-                "procedures": [
-                    {"procedure_code_id": procedure_id, "units": 1},
-                    {"procedure_code_id": missing_procedure_id, "units": 1},
-                ]
-            },
+            f"/api/claims/{claim_id}/mcp-codes",
+            json={"mcp_codes": ["99213", "93000"]},
             headers={"Authorization": f"Bearer {user_token}"},
         )
         assert procedures_response.status_code == 200
@@ -132,7 +124,7 @@ def test_policy_links_flow(db_session: Session) -> None:
         )
         assert policy_links_response.status_code == 200
         items = policy_links_response.json()
-        by_code = {item["procedure_code"]["code"]: item for item in items}
+        by_code = {item["mcp_code"]["code"]: item for item in items}
 
         assert by_code["99213"]["policy_url"] == "https://example.com/policy-a"
         assert by_code["99213"]["missing_policy_link"] is False

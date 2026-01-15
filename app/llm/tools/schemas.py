@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -13,15 +12,15 @@ class SearchPatientsArgs(BaseModel):
 
 
 class GetPatientArgs(BaseModel):
-    patient_id: uuid.UUID
+    patient_id: int
 
 
 class GetClaimArgs(BaseModel):
-    claim_id: uuid.UUID
+    claim_id: int
 
 
 class ListClaimsArgs(BaseModel):
-    patient_id: uuid.UUID
+    patient_id: int
 
 
 class RequestFormArgs(BaseModel):
@@ -29,13 +28,13 @@ class RequestFormArgs(BaseModel):
 
 
 class CreateClaimDraftArgs(BaseModel):
-    patient_id: uuid.UUID
+    patient_id: int
     fields: dict[str, Any]
     confirm: bool = False
 
 
 class UpdateClaimFieldsArgs(BaseModel):
-    claim_id: uuid.UUID
+    claim_id: int
     patch: dict[str, Any]
     confirm: bool = False
 

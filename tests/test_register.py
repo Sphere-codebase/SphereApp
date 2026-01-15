@@ -1,11 +1,14 @@
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.security import create_access_token, get_password_hash
-from app.db.models import Tenant, User
+from app.db.id_utils import next_id
+from app.db.models import Role, User, UserRole
 from app.db.session import get_db
 from app.main import app
+from app.utils.time import utcnow
 
 
 def test_public_register_endpoint_removed() -> None:
@@ -51,7 +54,7 @@ def test_admin_create_user_success(db_session: Session, monkeypatch) -> None:
         payload = response.json()
         assert payload["access_token"]
         assert payload["email"] == "newdoctor@example.com"
-        assert payload["tenant_id"]
+        assert "doctor" in payload["roles"]
 
         me = client.get(
             "/auth/me",
@@ -60,21 +63,28 @@ def test_admin_create_user_success(db_session: Session, monkeypatch) -> None:
         assert me.status_code == 200
         me_payload = me.json()
         assert me_payload["email"] == payload["email"]
-        assert "tenant_id" in me_payload
+        assert "doctor" in me_payload["roles"]
     finally:
         app.dependency_overrides.clear()
 
 
 def test_normal_user_cannot_create_others(db_session: Session, monkeypatch) -> None:
     monkeypatch.setattr(settings, "admin_api_key", "admin-secret")
-    tenant = Tenant(name="Tenant Normal")
+    doctor_role = db_session.execute(
+        select(Role).where(Role.code == "doctor")
+    ).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
     user = User(
-        tenant=tenant,
+        id=next_id(db_session, User),
         email="doctor@example.com",
-        hashed_password=get_password_hash("secret"),
+        password_hash=get_password_hash("secret"),
         is_active=True,
+        created_at=utcnow(),
     )
-    db_session.add_all([tenant, user])
+    db_session.add_all([user, UserRole(user_id=user.id, role_id=doctor_role.id)])
     db_session.commit()
 
     token = create_access_token(str(user.id))

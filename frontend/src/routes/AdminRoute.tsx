@@ -21,7 +21,7 @@ export default function AdminRoute({ children }: { children: JSX.Element }) {
     return <Navigate to="/login" replace />;
   }
 
-  if (!user.is_admin) {
+  if (!user.roles.includes("admin")) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-2 text-sm text-slate-500">
         <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">

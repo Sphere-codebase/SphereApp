@@ -46,7 +46,7 @@ describe("auth flow", () => {
   });
 
   test("login success stores token and redirects", async () => {
-    const sessionId = "e4b83a7b-b9e1-4bcf-8b97-3ae9a616bf21";
+    const sessionId = 42;
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof input === "string"
@@ -68,11 +68,10 @@ describe("auth flow", () => {
           buildJsonResponse({
             status: 200,
             body: {
-              id: "b3a8f3c0-2d9a-4f7f-9e15-437c8db3fd8f",
+              id: 7,
               email: "doctor@example.com",
-              tenant_id: "d2a73c6c-4b99-4c1d-83b7-7d9f5d1f45ef",
               is_active: true,
-              is_admin: false,
+              roles: ["doctor"],
             },
           })
         );
@@ -84,7 +83,7 @@ describe("auth flow", () => {
             body: [
               {
                 id: sessionId,
-                claim_id: null,
+                doctor_id: 7,
                 created_at: "2026-01-14T05:00:00",
                 title: null,
               },

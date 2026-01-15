@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -14,8 +13,10 @@ from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Claim, ClaimEvent, ClaimStatus, Patient, User
+from app.db.id_utils import next_id
+from app.db.models import Claim, ClaimStatus, InsuranceCompany, Patient, User
 from app.llm.tools import schemas
+from app.utils.time import utcnow
 
 Handler = Callable[["ToolContext", Any], dict[str, Any]]
 
@@ -23,9 +24,8 @@ Handler = Callable[["ToolContext", Any], dict[str, Any]]
 @dataclass(frozen=True)
 class ToolContext:
     db: Session
-    tenant_id: uuid.UUID
-    user_id: uuid.UUID | None = None
-    chat_session_id: uuid.UUID | None = None
+    user_id: int | None = None
+    chat_session_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -38,25 +38,23 @@ class ToolDefinition:
 
 def _search_patients(ctx: ToolContext, args: schemas.SearchPatientsArgs) -> dict[str, Any]:
     query = f"%{args.query}%"
-    filters = [Patient.tenant_id == ctx.tenant_id]
+    filters = []
     if ctx.user_id is not None:
-        filters.append(Patient.user_id == ctx.user_id)
+        filters.append(Patient.doctor_id == ctx.user_id)
     rows = ctx.db.execute(
         select(Patient).where(
             *filters,
             or_(
                 Patient.first_name.ilike(query),
                 Patient.last_name.ilike(query),
-                Patient.full_name.ilike(query),
             ),
         )
     ).scalars()
     patients = [
         {
-            "id": str(patient.id),
+            "id": patient.id,
             "first_name": patient.first_name,
             "last_name": patient.last_name,
-            "full_name": patient.full_name,
             "date_of_birth": patient.date_of_birth.isoformat()
             if patient.date_of_birth
             else None,
@@ -67,24 +65,20 @@ def _search_patients(ctx: ToolContext, args: schemas.SearchPatientsArgs) -> dict
 
 
 def _get_patient(ctx: ToolContext, args: schemas.GetPatientArgs) -> dict[str, Any]:
-    filters = [Patient.tenant_id == ctx.tenant_id, Patient.id == args.patient_id]
+    filters = [Patient.id == args.patient_id]
     if ctx.user_id is not None:
-        filters.append(Patient.user_id == ctx.user_id)
-    patient = ctx.db.execute(
-        select(Patient).where(*filters)
-    ).scalar_one_or_none()
+        filters.append(Patient.doctor_id == ctx.user_id)
+    patient = ctx.db.execute(select(Patient).where(*filters)).scalar_one_or_none()
     if patient is None:
         return {"patient": None}
     return {
         "patient": {
-            "id": str(patient.id),
+            "id": patient.id,
             "first_name": patient.first_name,
             "last_name": patient.last_name,
             "date_of_birth": patient.date_of_birth.isoformat()
             if patient.date_of_birth
             else None,
-            "sex": patient.sex,
-            "notes": patient.notes,
         }
     }
 
@@ -92,10 +86,8 @@ def _get_patient(ctx: ToolContext, args: schemas.GetPatientArgs) -> dict[str, An
 def _get_claim(ctx: ToolContext, args: schemas.GetClaimArgs) -> dict[str, Any]:
     claim = ctx.db.execute(
         select(Claim, Patient).join(Patient).where(
-            Claim.tenant_id == ctx.tenant_id,
             Claim.id == args.claim_id,
-            Patient.tenant_id == ctx.tenant_id,
-            *( [Patient.user_id == ctx.user_id] if ctx.user_id is not None else [] ),
+            *( [Patient.doctor_id == ctx.user_id] if ctx.user_id is not None else [] ),
         )
     ).first()
     if claim is None:
@@ -103,19 +95,18 @@ def _get_claim(ctx: ToolContext, args: schemas.GetClaimArgs) -> dict[str, Any]:
     claim_row, patient = claim
     return {
         "claim": {
-            "id": str(claim_row.id),
-            "patient_id": str(claim_row.patient_id),
-            "status": claim_row.status.value
-            if hasattr(claim_row.status, "value")
-            else claim_row.status,
+            "id": claim_row.id,
+            "patient_id": claim_row.patient_id,
+            "claim_status": claim_row.claim_status,
             "claim_number": claim_row.claim_number,
-            "agency_id": str(claim_row.agency_id) if claim_row.agency_id else None,
-            "service_from": claim_row.service_from.isoformat()
-            if claim_row.service_from
+            "insurance_company_id": claim_row.insurance_company_id,
+            "service_date": claim_row.service_date.isoformat()
+            if claim_row.service_date
             else None,
-            "service_to": claim_row.service_to.isoformat() if claim_row.service_to else None,
-            "amount_cents": claim_row.amount_cents,
-            "description": claim_row.description,
+            "claim_date": claim_row.claim_date.isoformat() if claim_row.claim_date else None,
+            "billed_amount_total": float(claim_row.billed_amount_total)
+            if claim_row.billed_amount_total is not None
+            else None,
         }
     }
 
@@ -125,17 +116,17 @@ def _list_claims(ctx: ToolContext, args: schemas.ListClaimsArgs) -> dict[str, An
         select(Claim)
         .join(Patient)
         .where(
-            Claim.tenant_id == ctx.tenant_id,
             Claim.patient_id == args.patient_id,
-            Patient.tenant_id == ctx.tenant_id,
-            *( [Patient.user_id == ctx.user_id] if ctx.user_id is not None else [] ),
+            *( [Patient.doctor_id == ctx.user_id] if ctx.user_id is not None else [] ),
         )
     ).scalars()
     claims = [
         {
-            "id": str(claim.id),
-            "status": claim.status.value if hasattr(claim.status, "value") else claim.status,
-            "amount_cents": claim.amount_cents,
+            "id": claim.id,
+            "claim_status": claim.claim_status,
+            "billed_amount_total": float(claim.billed_amount_total)
+            if claim.billed_amount_total is not None
+            else None,
         }
         for claim in rows
     ]
@@ -152,13 +143,12 @@ def _get_account(ctx: ToolContext, _: schemas.GetAccountArgs) -> dict[str, Any]:
     user = ctx.db.execute(
         select(User).where(
             User.id == ctx.user_id,
-            User.tenant_id == ctx.tenant_id,
         )
     ).scalar_one_or_none()
     if user is None:
         raise ValueError("User not found")
     email = user.email or ""
-    return {"email": email, "user_id": str(user.id), "greeting": f"Hello, {email}!"}
+    return {"email": email, "user_id": user.id, "greeting": f"Hello, {email}!"}
 
 
 def _time_now(_: ToolContext, args: schemas.TimeNowArgs) -> dict[str, Any]:
@@ -168,12 +158,10 @@ def _time_now(_: ToolContext, args: schemas.TimeNowArgs) -> dict[str, Any]:
 
 
 def _create_claim_draft(ctx: ToolContext, args: schemas.CreateClaimDraftArgs) -> dict[str, Any]:
-    filters = [Patient.tenant_id == ctx.tenant_id, Patient.id == args.patient_id]
+    filters = [Patient.id == args.patient_id]
     if ctx.user_id is not None:
-        filters.append(Patient.user_id == ctx.user_id)
-    patient = ctx.db.execute(
-        select(Patient).where(*filters)
-    ).scalar_one_or_none()
+        filters.append(Patient.doctor_id == ctx.user_id)
+    patient = ctx.db.execute(select(Patient).where(*filters)).scalar_one_or_none()
     if patient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
@@ -181,89 +169,75 @@ def _create_claim_draft(ctx: ToolContext, args: schemas.CreateClaimDraftArgs) ->
     if not args.confirm:
         return {"action_required": True, "proposed_changes": proposed}
 
-    agency_id = args.fields.get("agency_id")
-    agency_uuid = None
-    if agency_id:
-        try:
-            agency_uuid = uuid.UUID(str(agency_id))
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Invalid agency_id",
-            ) from None
-
+    insurance_company_id = args.fields.get("insurance_company_id")
+    if insurance_company_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="insurance_company_id is required",
+        )
+    company = ctx.db.get(InsuranceCompany, insurance_company_id)
+    if company is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Insurance company not found",
+        )
     claim = Claim(
-        tenant_id=ctx.tenant_id,
+        id=next_id(ctx.db, Claim),
+        doctor_id=patient.doctor_id,
         patient_id=patient.id,
-        agency_id=agency_uuid,
-        status=ClaimStatus.DRAFT,
+        insurance_company_id=insurance_company_id,
+        claim_status=ClaimStatus.DRAFT.value,
         claim_number=args.fields.get("claim_number"),
-        service_from=args.fields.get("service_from"),
-        service_to=args.fields.get("service_to"),
-        amount_cents=args.fields.get("amount_cents"),
-        description=args.fields.get("description"),
-        extra=args.fields,
+        service_date=args.fields.get("service_date"),
+        claim_date=args.fields.get("claim_date"),
+        billed_amount_total=args.fields.get("billed_amount_total"),
+        allowed_amount_total=args.fields.get("allowed_amount_total"),
+        coinsurance_amount_total=args.fields.get("coinsurance_amount_total"),
+        copay_amount_total=args.fields.get("copay_amount_total"),
+        deductible_amount_total=args.fields.get("deductible_amount_total"),
+        created_at=utcnow(),
     )
     ctx.db.add(claim)
-    ctx.db.flush()
-    ctx.db.add(
-        ClaimEvent(
-            tenant_id=ctx.tenant_id,
-            claim_id=claim.id,
-            user_id=ctx.user_id,
-            chat_session_id=ctx.chat_session_id,
-            event_type="create_claim_draft",
-            payload=proposed,
-        )
-    )
     ctx.db.commit()
-    return {"claim_id": str(claim.id)}
+    return {"claim_id": claim.id}
 
 
 def _update_claim_fields(ctx: ToolContext, args: schemas.UpdateClaimFieldsArgs) -> dict[str, Any]:
-    filters = [Claim.tenant_id == ctx.tenant_id, Claim.id == args.claim_id]
+    filters = [Claim.id == args.claim_id]
     if ctx.user_id is not None:
-        filters.append(Patient.user_id == ctx.user_id)
+        filters.append(Patient.doctor_id == ctx.user_id)
     claim = ctx.db.execute(
         select(Claim)
         .join(Patient)
         .where(
             *filters,
-            Patient.tenant_id == ctx.tenant_id,
         )
     ).scalar_one_or_none()
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
 
     allowed_fields = {
-        "status",
-        "amount_cents",
-        "description",
+        "claim_status",
         "claim_number",
-        "service_from",
-        "service_to",
+        "service_date",
+        "claim_date",
+        "billed_amount_total",
+        "allowed_amount_total",
+        "coinsurance_amount_total",
+        "copay_amount_total",
+        "deductible_amount_total",
     }
     patch = {key: value for key, value in args.patch.items() if key in allowed_fields}
-    if "status" in patch and isinstance(patch["status"], str):
-        status_value = patch["status"].strip().upper()
+    if "claim_status" in patch and isinstance(patch["claim_status"], str):
+        status_value = patch["claim_status"].strip().upper()
         if status_value in ClaimStatus.__members__:
-            patch["status"] = ClaimStatus[status_value]
+            patch["claim_status"] = ClaimStatus[status_value].value
     proposed = {"claim_id": str(args.claim_id), "patch": patch}
     if not args.confirm:
         return {"action_required": True, "proposed_changes": proposed}
 
     for key, value in patch.items():
         setattr(claim, key, value)
-    ctx.db.add(
-        ClaimEvent(
-            tenant_id=ctx.tenant_id,
-            claim_id=claim.id,
-            user_id=ctx.user_id,
-            chat_session_id=ctx.chat_session_id,
-            event_type="update_claim_fields",
-            payload=proposed,
-        )
-    )
     ctx.db.commit()
     return {"updated": True}
 

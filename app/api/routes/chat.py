@@ -49,7 +49,6 @@ def chat(
         "chat_request",
         {
             "request_id": request_id,
-            "tenant_id": str(orchestrator.user.tenant_id),
             "user_id": str(orchestrator.user.id),
             "chat_session_id": str(payload.session_id) if payload.session_id else None,
             "path": request.url.path,
@@ -59,14 +58,12 @@ def chat(
     result = orchestrator.run(
         message=payload.message,
         session_id=payload.session_id,
-        claim_id=payload.claim_id,
     )
     latency_ms = (time.monotonic() - start) * 1000
     log_chat_event(
         "chat_response",
         {
             "request_id": request_id,
-            "tenant_id": str(orchestrator.user.tenant_id),
             "user_id": str(orchestrator.user.id),
             "chat_session_id": str(result.session_id),
             "path": request.url.path,

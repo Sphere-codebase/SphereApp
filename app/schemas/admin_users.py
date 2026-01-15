@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -12,27 +11,26 @@ class AdminUserCreateRequest(BaseModel):
     email: EmailStr
     full_name: str | None = None
     password: str = Field(min_length=1)
-    is_admin: bool = False
+    roles: list[str] | None = None
     is_active: bool = True
 
 
 class AdminUserUpdateRequest(BaseModel):
     email: EmailStr | None = None
     full_name: str | None = None
-    is_admin: bool | None = None
+    roles: list[str] | None = None
     is_active: bool | None = None
 
 
 class AdminUserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: int
     email: EmailStr
     full_name: str | None
-    tenant_id: uuid.UUID
     is_active: bool
-    is_admin: bool
-    created_at: datetime
+    roles: list[str]
+    created_at: datetime | None
 
 
 class AdminUserResetPasswordRequest(BaseModel):

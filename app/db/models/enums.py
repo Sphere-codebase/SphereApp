@@ -10,8 +10,3 @@ class ClaimStatus(str, Enum):
     SUBMITTED = "SUBMITTED"
     PAID = "PAID"
     DENIED = "DENIED"
-
-
-class PolicyLinkStatus(str, Enum):
-    ACTIVE = "ACTIVE"
-    INACTIVE = "INACTIVE"

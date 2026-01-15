@@ -1,98 +1,79 @@
-import uuid
-
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash
+from app.db.id_utils import next_id
 from app.db.models import (
-    Agency,
-    AgencyProcedurePolicyLink,
     Claim,
-    ClaimProcedure,
-    ClaimStatus,
+    ClaimMcpCode,
+    InsuranceCompany,
+    McpCode,
     Patient,
-    PolicyLinkStatus,
-    ProcedureCode,
-    Tenant,
+    PolicyLink,
+    Role,
     User,
+    UserRole,
 )
 from app.db.session import get_db
 from app.main import app
+from app.utils.time import utcnow
 
 
 def _seed_claim(db_session: Session) -> tuple[User, Claim]:
-    tenant = Tenant(id=uuid.uuid4(), name="Tenant Policies")
+    doctor_role = db_session.execute(
+        select(Role).where(Role.code == "doctor")
+    ).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
+
     user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
+        id=next_id(db_session, User),
         email="doctor@example.com",
-        hashed_password=get_password_hash("secret"),
+        password_hash=get_password_hash("secret"),
         is_active=True,
+        created_at=utcnow(),
     )
-    agency = Agency(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        name="Agency A",
-        slug="agency-a",
-        is_active=True,
-    )
+    company = InsuranceCompany(id=next_id(db_session, InsuranceCompany), name="Company A")
     patient = Patient(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        user_id=user.id,
+        id=next_id(db_session, Patient),
+        doctor_id=user.id,
         first_name="Jane",
         last_name="Doe",
-        full_name="Jane Doe",
+        created_at=utcnow(),
     )
     claim = Claim(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        agency_id=agency.id,
+        id=next_id(db_session, Claim),
+        doctor_id=user.id,
         patient_id=patient.id,
-        status=ClaimStatus.DRAFT,
+        insurance_company_id=company.id,
+        claim_status="DRAFT",
+        created_at=utcnow(),
     )
-    db_session.add_all([tenant, user, agency, patient, claim])
+    db_session.add_all([user, UserRole(user_id=user.id, role_id=doctor_role.id), company, patient, claim])
     db_session.commit()
     return user, claim
 
 
 def test_policy_links_resolution(db_session: Session) -> None:
     user, claim = _seed_claim(db_session)
-    code_a = ProcedureCode(
-        id=uuid.uuid4(),
-        tenant_id=claim.tenant_id,
-        code="99213",
-        title="Office Visit",
-    )
-    code_b = ProcedureCode(
-        id=uuid.uuid4(),
-        tenant_id=claim.tenant_id,
-        code="93000",
-        title="EKG",
-    )
+    code_a = McpCode(code="99213", description="Office Visit")
+    code_b = McpCode(code="93000", description="EKG")
     db_session.add_all([code_a, code_b])
     db_session.commit()
 
     db_session.add_all(
         [
-            ClaimProcedure(
-                tenant_id=claim.tenant_id,
-                claim_id=claim.id,
-                procedure_code_id=code_a.id,
-                units=1,
-            ),
-            ClaimProcedure(
-                tenant_id=claim.tenant_id,
-                claim_id=claim.id,
-                procedure_code_id=code_b.id,
-                units=2,
-            ),
-            AgencyProcedurePolicyLink(
-                tenant_id=claim.tenant_id,
-                agency_id=claim.agency_id,
-                procedure_code_id=code_a.id,
+            ClaimMcpCode(claim_id=claim.id, mcp_code=code_a.code),
+            ClaimMcpCode(claim_id=claim.id, mcp_code=code_b.code),
+            PolicyLink(
+                id=next_id(db_session, PolicyLink),
+                insurance_company_id=claim.insurance_company_id,
+                mcp_code=code_a.code,
                 policy_url="https://example.com/policy-a",
-                status=PolicyLinkStatus.ACTIVE,
+                created_at=utcnow(),
             ),
         ]
     )
@@ -113,7 +94,7 @@ def test_policy_links_resolution(db_session: Session) -> None:
         assert response.status_code == 200
         payload = response.json()
         assert len(payload) == 2
-        by_code = {item["procedure_code"]["code"]: item for item in payload}
+        by_code = {item["mcp_code"]["code"]: item for item in payload}
         assert by_code["99213"]["policy_url"] == "https://example.com/policy-a"
         assert by_code["99213"]["missing_policy_link"] is False
         assert by_code["93000"]["policy_url"] is None

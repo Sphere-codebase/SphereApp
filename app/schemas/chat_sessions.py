@@ -2,29 +2,28 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
 
 class ChatSessionCreateRequest(BaseModel):
-    claim_id: uuid.UUID | None = None
+    title: str | None = None
 
 
 class ChatSessionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
-    claim_id: uuid.UUID | None = None
-    created_at: datetime
+    id: int
+    doctor_id: int
+    created_at: datetime | None
     title: str | None = None
 
 
 class ChatMessageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: int
     role: str
-    content: str | None = None
-    created_at: datetime
+    content: str
+    created_at: datetime | None

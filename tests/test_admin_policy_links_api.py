@@ -1,60 +1,49 @@
-import uuid
-
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash
-from app.db.models import Agency, ProcedureCode, Tenant, User
+from app.db.id_utils import next_id
+from app.db.models import InsuranceCompany, McpCode, Role, User, UserRole
 from app.db.session import get_db
 from app.main import app
-
-
-def _seed_admin(db_session: Session) -> User:
-    tenant = Tenant(id=uuid.uuid4(), name="Tenant Admin Policies")
-    user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        email="admin@example.com",
-        hashed_password=get_password_hash("secret"),
-        is_active=True,
-        is_admin=True,
-    )
-    db_session.add_all([tenant, user])
-    db_session.commit()
-    return user
+from app.utils.time import utcnow
 
 
 def _seed_user(db_session: Session, is_admin: bool) -> User:
-    tenant = Tenant(id=uuid.uuid4(), name="Tenant Policy Links")
+    admin_role = db_session.execute(select(Role).where(Role.code == "admin")).scalar_one_or_none()
+    if admin_role is None:
+        admin_role = Role(id=next_id(db_session, Role), code="admin", description="Admin")
+        db_session.add(admin_role)
+    doctor_role = db_session.execute(
+        select(Role).where(Role.code == "doctor")
+    ).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+    db_session.flush()
+
     user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
+        id=next_id(db_session, User),
         email="admin@example.com" if is_admin else "member@example.com",
-        hashed_password=get_password_hash("secret"),
+        password_hash=get_password_hash("secret"),
         is_active=True,
-        is_admin=is_admin,
+        created_at=utcnow(),
     )
-    db_session.add_all([tenant, user])
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(UserRole(user_id=user.id, role_id=doctor_role.id))
+    if is_admin:
+        db_session.add(UserRole(user_id=user.id, role_id=admin_role.id))
     db_session.commit()
     return user
 
 
-def test_policy_link_unique_active(db_session: Session) -> None:
-    user = _seed_admin(db_session)
-    agency = Agency(
-        id=uuid.uuid4(),
-        tenant_id=user.tenant_id,
-        name="Agency A",
-        slug="agency-a",
-        is_active=True,
-    )
-    code = ProcedureCode(
-        id=uuid.uuid4(),
-        tenant_id=user.tenant_id,
-        code="99213",
-        title="Office Visit",
-    )
-    db_session.add_all([agency, code])
+def test_policy_link_unique(db_session: Session) -> None:
+    user = _seed_user(db_session, is_admin=True)
+    company = InsuranceCompany(id=next_id(db_session, InsuranceCompany), name="Company A")
+    code = McpCode(code="99213", description="Office Visit")
+    db_session.add_all([company, code])
     db_session.commit()
 
     token = create_access_token(str(user.id))
@@ -66,10 +55,9 @@ def test_policy_link_unique_active(db_session: Session) -> None:
     client = TestClient(app)
     try:
         payload = {
-            "agency_id": str(agency.id),
-            "procedure_code_id": str(code.id),
+            "insurance_company_id": company.id,
+            "mcp_code": code.code,
             "policy_url": "https://example.com/policy",
-            "status": "ACTIVE",
         }
         first = client.post(
             "/api/admin/policy-links",
@@ -90,7 +78,7 @@ def test_policy_link_unique_active(db_session: Session) -> None:
 
 
 def test_policy_link_invalid_fk_returns_404(db_session: Session) -> None:
-    user = _seed_admin(db_session)
+    user = _seed_user(db_session, is_admin=True)
     token = create_access_token(str(user.id))
 
     def override_get_db():
@@ -100,10 +88,9 @@ def test_policy_link_invalid_fk_returns_404(db_session: Session) -> None:
     client = TestClient(app)
     try:
         payload = {
-            "agency_id": str(uuid.uuid4()),
-            "procedure_code_id": str(uuid.uuid4()),
+            "insurance_company_id": 999,
+            "mcp_code": "99999",
             "policy_url": "https://example.com/policy",
-            "status": "ACTIVE",
         }
         response = client.post(
             "/api/admin/policy-links",
@@ -117,20 +104,9 @@ def test_policy_link_invalid_fk_returns_404(db_session: Session) -> None:
 
 def test_policy_links_require_admin(db_session: Session) -> None:
     user = _seed_user(db_session, is_admin=False)
-    agency = Agency(
-        id=uuid.uuid4(),
-        tenant_id=user.tenant_id,
-        name="Agency A",
-        slug="agency-a",
-        is_active=True,
-    )
-    code = ProcedureCode(
-        id=uuid.uuid4(),
-        tenant_id=user.tenant_id,
-        code="99213",
-        title="Office Visit",
-    )
-    db_session.add_all([agency, code])
+    company = InsuranceCompany(id=next_id(db_session, InsuranceCompany), name="Company A")
+    code = McpCode(code="99213", description="Office Visit")
+    db_session.add_all([company, code])
     db_session.commit()
 
     token = create_access_token(str(user.id))
@@ -142,10 +118,9 @@ def test_policy_links_require_admin(db_session: Session) -> None:
     client = TestClient(app)
     try:
         payload = {
-            "agency_id": str(agency.id),
-            "procedure_code_id": str(code.id),
+            "insurance_company_id": company.id,
+            "mcp_code": code.code,
             "policy_url": "https://example.com/policy",
-            "status": "ACTIVE",
         }
         response = client.post(
             "/api/admin/policy-links",

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -10,13 +9,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
-from app.db.models import ChatMessage, ChatSession, Claim, Patient, User
+from app.db.id_utils import next_id
+from app.db.models import ChatMessage, ChatSession, User
 from app.db.session import get_db
 from app.schemas.chat_sessions import (
     ChatMessageResponse,
     ChatSessionCreateRequest,
     ChatSessionResponse,
 )
+from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/chat/sessions", tags=["chat_sessions"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
@@ -29,8 +30,7 @@ def list_sessions(db: DbSessionDep, current_user: CurrentUserDep) -> list[ChatSe
         db.execute(
             select(ChatSession)
             .where(
-                ChatSession.tenant_id == current_user.tenant_id,
-                ChatSession.user_id == current_user.id,
+                ChatSession.doctor_id == current_user.id,
             )
             .order_by(ChatSession.created_at.desc())
         )
@@ -42,15 +42,14 @@ def list_sessions(db: DbSessionDep, current_user: CurrentUserDep) -> list[ChatSe
 
 @router.get("/{session_id}", response_model=ChatSessionResponse)
 def get_session(
-    session_id: uuid.UUID,
+    session_id: int,
     db: DbSessionDep,
     current_user: CurrentUserDep,
 ) -> ChatSessionResponse:
     session = db.execute(
         select(ChatSession).where(
             ChatSession.id == session_id,
-            ChatSession.tenant_id == current_user.tenant_id,
-            ChatSession.user_id == current_user.id,
+            ChatSession.doctor_id == current_user.id,
         )
     ).scalar_one_or_none()
     if session is None:
@@ -64,24 +63,11 @@ def create_session(
     db: DbSessionDep,
     current_user: CurrentUserDep,
 ) -> ChatSessionResponse:
-    if payload.claim_id:
-        claim = db.execute(
-            select(Claim)
-            .join(Patient)
-            .where(
-                Claim.id == payload.claim_id,
-                Claim.tenant_id == current_user.tenant_id,
-                Patient.id == Claim.patient_id,
-                Patient.user_id == current_user.id,
-            )
-        ).scalar_one_or_none()
-        if claim is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
-
     session = ChatSession(
-        tenant_id=current_user.tenant_id,
-        user_id=current_user.id,
-        claim_id=payload.claim_id,
+        id=next_id(db, ChatSession),
+        doctor_id=current_user.id,
+        title=payload.title,
+        created_at=utcnow(),
     )
     db.add(session)
     db.commit()
@@ -96,20 +82,22 @@ def create_session(
     response_model=None,
 )
 def delete_session(
-    session_id: uuid.UUID,
+    session_id: int,
     db: DbSessionDep,
     current_user: CurrentUserDep,
 ) -> Response:
     session = db.execute(
         select(ChatSession).where(
             ChatSession.id == session_id,
-            ChatSession.tenant_id == current_user.tenant_id,
-            ChatSession.user_id == current_user.id,
+            ChatSession.doctor_id == current_user.id,
         )
     ).scalar_one_or_none()
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
+    db.execute(
+        ChatMessage.__table__.delete().where(ChatMessage.session_id == session.id)
+    )
     db.delete(session)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -117,15 +105,14 @@ def delete_session(
 
 @router.get("/{session_id}/messages", response_model=list[ChatMessageResponse])
 def list_messages(
-    session_id: uuid.UUID,
+    session_id: int,
     db: DbSessionDep,
     current_user: CurrentUserDep,
 ) -> list[ChatMessageResponse]:
     session = db.execute(
         select(ChatSession).where(
             ChatSession.id == session_id,
-            ChatSession.tenant_id == current_user.tenant_id,
-            ChatSession.user_id == current_user.id,
+            ChatSession.doctor_id == current_user.id,
         )
     ).scalar_one_or_none()
     if session is None:
@@ -136,7 +123,6 @@ def list_messages(
             select(ChatMessage)
             .where(
                 ChatMessage.session_id == session.id,
-                ChatMessage.tenant_id == current_user.tenant_id,
                 ChatMessage.role.in_(["user", "assistant"]),
             )
             .order_by(ChatMessage.created_at.asc())

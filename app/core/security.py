@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, cast
 
@@ -62,8 +61,8 @@ def get_current_user(credentials: CredentialsDep, db: DbSessionDep) -> User:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
     try:
-        user_id = uuid.UUID(subject)
-    except ValueError as exc:
+        user_id = int(subject)
+    except (TypeError, ValueError) as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
         ) from exc

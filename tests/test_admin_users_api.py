@@ -1,63 +1,47 @@
-import uuid
-
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash, verify_password
-from app.db.models import Tenant, User
+from app.db.id_utils import next_id
+from app.db.models import Role, User, UserRole
 from app.db.session import get_db
 from app.main import app
+from app.utils.time import utcnow
 
 
-def _seed_admin(db_session: Session) -> User:
-    tenant = Tenant(id=uuid.uuid4(), name="Tenant Admin")
-    admin = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        email="admin@example.com",
-        full_name="Admin User",
-        hashed_password=get_password_hash("secret"),
-        is_active=True,
-        is_admin=True,
-    )
-    db_session.add_all([tenant, admin])
-    db_session.commit()
-    return admin
+def _seed_user(db_session: Session, email: str, is_admin: bool) -> User:
+    admin_role = db_session.execute(select(Role).where(Role.code == "admin")).scalar_one_or_none()
+    if admin_role is None:
+        admin_role = Role(id=next_id(db_session, Role), code="admin", description="Admin")
+        db_session.add(admin_role)
+    doctor_role = db_session.execute(
+        select(Role).where(Role.code == "doctor")
+    ).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+    db_session.flush()
 
-
-def _seed_user(db_session: Session) -> User:
-    tenant = Tenant(id=uuid.uuid4(), name="Tenant Member")
     user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
-        email="member@example.com",
-        full_name="Member User",
-        hashed_password=get_password_hash("secret"),
-        is_active=True,
-        is_admin=False,
-    )
-    db_session.add_all([tenant, user])
-    db_session.commit()
-    return user
-
-
-def _seed_secondary_user(db_session: Session, tenant_id: uuid.UUID, email: str) -> User:
-    user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant_id,
+        id=next_id(db_session, User),
         email=email,
-        full_name="Secondary User",
-        hashed_password=get_password_hash("secret"),
+        full_name="User",
+        password_hash=get_password_hash("secret"),
         is_active=True,
-        is_admin=False,
+        created_at=utcnow(),
     )
     db_session.add(user)
+    db_session.flush()
+    db_session.add(UserRole(user_id=user.id, role_id=doctor_role.id))
+    if is_admin:
+        db_session.add(UserRole(user_id=user.id, role_id=admin_role.id))
     db_session.commit()
     return user
 
 
 def test_non_admin_cannot_list_users(db_session: Session) -> None:
-    user = _seed_user(db_session)
+    user = _seed_user(db_session, "member@example.com", is_admin=False)
     token = create_access_token(str(user.id))
 
     def override_get_db():
@@ -77,7 +61,7 @@ def test_non_admin_cannot_list_users(db_session: Session) -> None:
 
 
 def test_admin_create_user_success(db_session: Session) -> None:
-    admin = _seed_admin(db_session)
+    admin = _seed_user(db_session, "admin@example.com", is_admin=True)
     token = create_access_token(str(admin.id))
 
     def override_get_db():
@@ -92,7 +76,7 @@ def test_admin_create_user_success(db_session: Session) -> None:
                 "email": "newuser@example.com",
                 "full_name": "New User",
                 "password": "secret",
-                "is_admin": False,
+                "roles": ["doctor"],
                 "is_active": True,
             },
             headers={"Authorization": f"Bearer {token}"},
@@ -101,21 +85,19 @@ def test_admin_create_user_success(db_session: Session) -> None:
         assert response.headers.get("X-Request-ID") is not None
         payload = response.json()
         assert payload["email"] == "newuser@example.com"
-        assert payload["is_admin"] is False
         assert payload["is_active"] is True
+        assert "doctor" in payload["roles"]
 
-        created = db_session.get(User, uuid.UUID(payload["id"]))
+        created = db_session.get(User, int(payload["id"]))
         assert created is not None
-        assert created.tenant_id == admin.tenant_id
         assert created.full_name == "New User"
-        assert created.is_admin is False
     finally:
         app.dependency_overrides.clear()
 
 
 def test_admin_update_user_success(db_session: Session) -> None:
-    admin = _seed_admin(db_session)
-    target = _seed_secondary_user(db_session, admin.tenant_id, "target@example.com")
+    admin = _seed_user(db_session, "admin@example.com", is_admin=True)
+    target = _seed_user(db_session, "target@example.com", is_admin=False)
     token = create_access_token(str(admin.id))
 
     def override_get_db():
@@ -126,22 +108,22 @@ def test_admin_update_user_success(db_session: Session) -> None:
     try:
         response = client.patch(
             f"/api/admin/users/{target.id}",
-            json={"full_name": "Updated Name", "is_active": False, "is_admin": True},
+            json={"full_name": "Updated Name", "roles": ["admin", "doctor"], "is_active": False},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
         payload = response.json()
         assert payload["full_name"] == "Updated Name"
         assert payload["is_active"] is False
-        assert payload["is_admin"] is True
+        assert "admin" in payload["roles"]
     finally:
         app.dependency_overrides.clear()
 
 
 def test_admin_update_email_conflict_returns_409(db_session: Session) -> None:
-    admin = _seed_admin(db_session)
-    user_a = _seed_secondary_user(db_session, admin.tenant_id, "a@example.com")
-    user_b = _seed_secondary_user(db_session, admin.tenant_id, "b@example.com")
+    admin = _seed_user(db_session, "admin@example.com", is_admin=True)
+    user_a = _seed_user(db_session, "a@example.com", is_admin=False)
+    user_b = _seed_user(db_session, "b@example.com", is_admin=False)
     token = create_access_token(str(admin.id))
 
     def override_get_db():
@@ -162,7 +144,7 @@ def test_admin_update_email_conflict_returns_409(db_session: Session) -> None:
 
 
 def test_admin_self_demote_blocked_when_last_admin(db_session: Session) -> None:
-    admin = _seed_admin(db_session)
+    admin = _seed_user(db_session, "admin@example.com", is_admin=True)
     token = create_access_token(str(admin.id))
 
     def override_get_db():
@@ -173,7 +155,7 @@ def test_admin_self_demote_blocked_when_last_admin(db_session: Session) -> None:
     try:
         response = client.patch(
             f"/api/admin/users/{admin.id}",
-            json={"is_admin": False},
+            json={"roles": ["doctor"]},
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 409
@@ -183,9 +165,9 @@ def test_admin_self_demote_blocked_when_last_admin(db_session: Session) -> None:
 
 
 def test_admin_reset_password_updates_hash(db_session: Session) -> None:
-    admin = _seed_admin(db_session)
-    target = _seed_secondary_user(db_session, admin.tenant_id, "reset@example.com")
-    old_hash = target.hashed_password
+    admin = _seed_user(db_session, "admin@example.com", is_admin=True)
+    target = _seed_user(db_session, "reset@example.com", is_admin=False)
+    old_hash = target.password_hash
     token = create_access_token(str(admin.id))
 
     def override_get_db():
@@ -201,27 +183,7 @@ def test_admin_reset_password_updates_hash(db_session: Session) -> None:
         )
         assert response.status_code == 204
         db_session.refresh(target)
-        assert target.hashed_password != old_hash
-        assert verify_password("newsecret", target.hashed_password) is True
-    finally:
-        app.dependency_overrides.clear()
-
-
-def test_admin_user_tenant_isolation(db_session: Session) -> None:
-    admin = _seed_admin(db_session)
-    other_user = _seed_user(db_session)
-    token = create_access_token(str(admin.id))
-
-    def override_get_db():
-        yield db_session
-
-    app.dependency_overrides[get_db] = override_get_db
-    client = TestClient(app)
-    try:
-        response = client.get(
-            f"/api/admin/users/{other_user.id}",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        assert response.status_code == 404
+        assert target.password_hash != old_hash
+        assert verify_password("newsecret", target.password_hash) is True
     finally:
         app.dependency_overrides.clear()

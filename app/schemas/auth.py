@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
-
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
@@ -16,12 +14,11 @@ class AdminCreateUserRequest(BaseModel):
     email: EmailStr
     full_name: str | None = None
     password: str = Field(min_length=1)
-    role: str | None = None
-    tenant_name: str | None = None
+    roles: list[str] | None = None
 
 
 class DevTokenRequest(BaseModel):
-    user_id: uuid.UUID
+    user_id: int
 
 
 class TokenResponse(BaseModel):
@@ -32,16 +29,15 @@ class TokenResponse(BaseModel):
 class AdminCreateUserResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    user_id: uuid.UUID
-    tenant_id: uuid.UUID
+    user_id: int
     email: EmailStr
+    roles: list[str]
 
 
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: int
     email: EmailStr
-    tenant_id: uuid.UUID
     is_active: bool
-    is_admin: bool
+    roles: list[str] = []

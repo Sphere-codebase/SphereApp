@@ -7,10 +7,10 @@ import {
   adminClaimSummarySchema,
   adminPatientSchema,
   adminUserSchema,
-  agencySchema,
-  diagnosisSchema,
+  diagnosisCodeSchema,
+  insuranceCompanySchema,
+  mcpCodeSchema,
   policyLinkSchema,
-  procedureCodeSchema,
   type AdminClaimDetail,
   type AdminClaimSummary,
   type AdminPatient,
@@ -18,18 +18,18 @@ import {
   type AdminUserCreateInput,
   type AdminUserResetInput,
   type AdminUserUpdateInput,
-  type Agency,
-  type AgencyCreateInput,
-  type AgencyUpdateInput,
-  type Diagnosis,
-  type DiagnosisCreateInput,
-  type DiagnosisUpdateInput,
+  type DiagnosisCode,
+  type DiagnosisCodeCreateInput,
+  type DiagnosisCodeUpdateInput,
+  type InsuranceCompany,
+  type InsuranceCompanyCreateInput,
+  type InsuranceCompanyUpdateInput,
+  type McpCode,
+  type McpCodeCreateInput,
+  type McpCodeUpdateInput,
   type PolicyLink,
   type PolicyLinkCreateInput,
   type PolicyLinkUpdateInput,
-  type ProcedureCode,
-  type ProcedureCodeCreateInput,
-  type ProcedureCodeUpdateInput,
 } from "./schemas";
 
 function parseWithSchema<T>(schema: z.ZodType<T>, data: unknown, label: string): T {
@@ -41,121 +41,124 @@ function parseWithSchema<T>(schema: z.ZodType<T>, data: unknown, label: string):
   return parsed.data;
 }
 
-function buildQuery(params: Record<string, string | null | undefined>): string {
+function buildQuery(params: Record<string, string | number | null | undefined>): string {
   const query = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
-    if (value) {
-      query.set(key, value);
+    if (value !== null && value !== undefined && value !== "") {
+      query.set(key, String(value));
     }
   });
   const text = query.toString();
   return text ? `?${text}` : "";
 }
 
-const agenciesSchema = z.array(agencySchema);
-const procedureCodesSchema = z.array(procedureCodeSchema);
-const diagnosesSchema = z.array(diagnosisSchema);
+const insuranceCompaniesSchema = z.array(insuranceCompanySchema);
+const mcpCodesSchema = z.array(mcpCodeSchema);
+const diagnosisCodesSchema = z.array(diagnosisCodeSchema);
 const policyLinksSchema = z.array(policyLinkSchema);
 const adminUsersSchema = z.array(adminUserSchema);
 const adminPatientsSchema = z.array(adminPatientSchema);
 const adminClaimsSchema = z.array(adminClaimSummarySchema);
 
-export async function listAgencies(): Promise<Agency[]> {
-  const data = await requestJson<unknown>("/api/admin/agencies");
-  return parseWithSchema(agenciesSchema, data, "list agencies");
+export async function listInsuranceCompanies(): Promise<InsuranceCompany[]> {
+  const data = await requestJson<unknown>("/api/admin/insurance-companies");
+  return parseWithSchema(insuranceCompaniesSchema, data, "list insurance companies");
 }
 
-export async function createAgency(input: AgencyCreateInput): Promise<Agency> {
-  const data = await requestJson<unknown>("/api/admin/agencies", {
+export async function createInsuranceCompany(
+  input: InsuranceCompanyCreateInput
+): Promise<InsuranceCompany> {
+  const data = await requestJson<unknown>("/api/admin/insurance-companies", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  return parseWithSchema(agencySchema, data, "create agency");
+  return parseWithSchema(insuranceCompanySchema, data, "create insurance company");
 }
 
-export async function updateAgency(id: string, input: AgencyUpdateInput): Promise<Agency> {
-  const data = await requestJson<unknown>(`/api/admin/agencies/${id}`, {
+export async function updateInsuranceCompany(
+  id: number,
+  input: InsuranceCompanyUpdateInput
+): Promise<InsuranceCompany> {
+  const data = await requestJson<unknown>(`/api/admin/insurance-companies/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  return parseWithSchema(agencySchema, data, "update agency");
+  return parseWithSchema(insuranceCompanySchema, data, "update insurance company");
 }
 
-export async function deleteAgency(id: string): Promise<void> {
-  await requestVoid(`/api/admin/agencies/${id}`, { method: "DELETE" });
+export async function deleteInsuranceCompany(id: number): Promise<void> {
+  await requestVoid(`/api/admin/insurance-companies/${id}`, { method: "DELETE" });
 }
 
-export async function listProcedureCodes(query?: string): Promise<ProcedureCode[]> {
+export async function listMcpCodes(query?: string): Promise<McpCode[]> {
+  const data = await requestJson<unknown>(`/api/admin/mcp-codes${buildQuery({ query })}`);
+  return parseWithSchema(mcpCodesSchema, data, "list mcp codes");
+}
+
+export async function createMcpCode(input: McpCodeCreateInput): Promise<McpCode> {
+  const data = await requestJson<unknown>("/api/admin/mcp-codes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseWithSchema(mcpCodeSchema, data, "create mcp code");
+}
+
+export async function updateMcpCode(
+  code: string,
+  input: McpCodeUpdateInput
+): Promise<McpCode> {
+  const data = await requestJson<unknown>(`/api/admin/mcp-codes/${code}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseWithSchema(mcpCodeSchema, data, "update mcp code");
+}
+
+export async function deleteMcpCode(code: string): Promise<void> {
+  await requestVoid(`/api/admin/mcp-codes/${code}`, { method: "DELETE" });
+}
+
+export async function listDiagnosisCodes(query?: string): Promise<DiagnosisCode[]> {
   const data = await requestJson<unknown>(
-    `/api/admin/procedure-codes${buildQuery({ query })}`
+    `/api/admin/diagnosis-codes${buildQuery({ query })}`
   );
-  return parseWithSchema(procedureCodesSchema, data, "list procedure codes");
+  return parseWithSchema(diagnosisCodesSchema, data, "list diagnosis codes");
 }
 
-export async function createProcedureCode(
-  input: ProcedureCodeCreateInput
-): Promise<ProcedureCode> {
-  const data = await requestJson<unknown>("/api/admin/procedure-codes", {
+export async function createDiagnosisCode(
+  input: DiagnosisCodeCreateInput
+): Promise<DiagnosisCode> {
+  const data = await requestJson<unknown>("/api/admin/diagnosis-codes", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  return parseWithSchema(procedureCodeSchema, data, "create procedure code");
+  return parseWithSchema(diagnosisCodeSchema, data, "create diagnosis code");
 }
 
-export async function updateProcedureCode(
-  id: string,
-  input: ProcedureCodeUpdateInput
-): Promise<ProcedureCode> {
-  const data = await requestJson<unknown>(`/api/admin/procedure-codes/${id}`, {
+export async function updateDiagnosisCode(
+  code: string,
+  input: DiagnosisCodeUpdateInput
+): Promise<DiagnosisCode> {
+  const data = await requestJson<unknown>(`/api/admin/diagnosis-codes/${code}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(input),
   });
-  return parseWithSchema(procedureCodeSchema, data, "update procedure code");
+  return parseWithSchema(diagnosisCodeSchema, data, "update diagnosis code");
 }
 
-export async function deleteProcedureCode(id: string): Promise<void> {
-  await requestVoid(`/api/admin/procedure-codes/${id}`, { method: "DELETE" });
-}
-
-export async function listDiagnoses(query?: string): Promise<Diagnosis[]> {
-  const data = await requestJson<unknown>(
-    `/api/admin/diagnoses${buildQuery({ query })}`
-  );
-  return parseWithSchema(diagnosesSchema, data, "list diagnoses");
-}
-
-export async function createDiagnosis(input: DiagnosisCreateInput): Promise<Diagnosis> {
-  const data = await requestJson<unknown>("/api/admin/diagnoses", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  return parseWithSchema(diagnosisSchema, data, "create diagnosis");
-}
-
-export async function updateDiagnosis(
-  id: string,
-  input: DiagnosisUpdateInput
-): Promise<Diagnosis> {
-  const data = await requestJson<unknown>(`/api/admin/diagnoses/${id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  return parseWithSchema(diagnosisSchema, data, "update diagnosis");
-}
-
-export async function deleteDiagnosis(id: string): Promise<void> {
-  await requestVoid(`/api/admin/diagnoses/${id}`, { method: "DELETE" });
+export async function deleteDiagnosisCode(code: string): Promise<void> {
+  await requestVoid(`/api/admin/diagnosis-codes/${code}`, { method: "DELETE" });
 }
 
 export async function listPolicyLinks(filters: {
-  agency_id?: string;
-  procedure_code_id?: string;
+  insurance_company_id?: number;
+  mcp_code?: string;
   query?: string;
 }): Promise<PolicyLink[]> {
   const data = await requestJson<unknown>(
@@ -176,7 +179,7 @@ export async function createPolicyLink(
 }
 
 export async function updatePolicyLink(
-  id: string,
+  id: number,
   input: PolicyLinkUpdateInput
 ): Promise<PolicyLink> {
   const data = await requestJson<unknown>(`/api/admin/policy-links/${id}`, {
@@ -187,20 +190,20 @@ export async function updatePolicyLink(
   return parseWithSchema(policyLinkSchema, data, "update policy link");
 }
 
-export async function deletePolicyLink(id: string): Promise<void> {
+export async function deletePolicyLink(id: number): Promise<void> {
   await requestVoid(`/api/admin/policy-links/${id}`, { method: "DELETE" });
 }
 
 export async function listAdminUsers(filters: {
   query?: string;
   is_active?: boolean;
-  is_admin?: boolean;
+  role?: string;
 }): Promise<AdminUser[]> {
   const data = await requestJson<unknown>(
     `/api/admin/users${buildQuery({
       query: filters.query,
       is_active: filters.is_active === undefined ? undefined : String(filters.is_active),
-      is_admin: filters.is_admin === undefined ? undefined : String(filters.is_admin),
+      role: filters.role,
     })}`
   );
   return parseWithSchema(adminUsersSchema, data, "list admin users");
@@ -216,7 +219,7 @@ export async function createAdminUser(input: AdminUserCreateInput): Promise<Admi
 }
 
 export async function updateAdminUser(
-  id: string,
+  id: number,
   input: AdminUserUpdateInput
 ): Promise<AdminUser> {
   const data = await requestJson<unknown>(`/api/admin/users/${id}`, {
@@ -228,7 +231,7 @@ export async function updateAdminUser(
 }
 
 export async function resetAdminUserPassword(
-  id: string,
+  id: number,
   input: AdminUserResetInput
 ): Promise<void> {
   await requestVoid(`/api/admin/users/${id}/reset-password`, {
@@ -246,8 +249,8 @@ export async function listAdminPatients(query?: string): Promise<AdminPatient[]>
 }
 
 export async function listAdminClaims(filters: {
-  patient_id?: string;
-  agency_id?: string;
+  patient_id?: number;
+  insurance_company_id?: number;
   status?: string;
   service_from?: string;
   service_to?: string;
@@ -258,7 +261,7 @@ export async function listAdminClaims(filters: {
   return parseWithSchema(adminClaimsSchema, data, "list admin claims");
 }
 
-export async function getAdminClaimDetail(id: string): Promise<AdminClaimDetail> {
+export async function getAdminClaimDetail(id: number): Promise<AdminClaimDetail> {
   const data = await requestJson<unknown>(`/api/admin/claims/${id}`);
   return parseWithSchema(adminClaimDetailSchema, data, "claim detail");
 }
@@ -271,16 +274,16 @@ export type {
   AdminUserCreateInput,
   AdminUserResetInput,
   AdminUserUpdateInput,
-  Agency,
-  AgencyCreateInput,
-  AgencyUpdateInput,
-  Diagnosis,
-  DiagnosisCreateInput,
-  DiagnosisUpdateInput,
+  DiagnosisCode,
+  DiagnosisCodeCreateInput,
+  DiagnosisCodeUpdateInput,
+  InsuranceCompany,
+  InsuranceCompanyCreateInput,
+  InsuranceCompanyUpdateInput,
+  McpCode,
+  McpCodeCreateInput,
+  McpCodeUpdateInput,
   PolicyLink,
   PolicyLinkCreateInput,
   PolicyLinkUpdateInput,
-  ProcedureCode,
-  ProcedureCodeCreateInput,
-  ProcedureCodeUpdateInput,
 };

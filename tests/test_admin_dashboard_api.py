@@ -1,101 +1,91 @@
-import uuid
-from datetime import UTC, datetime
+from datetime import date
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash
+from app.db.id_utils import next_id
 from app.db.models import (
-    Agency,
     Claim,
-    ClaimDiagnosis,
-    ClaimProcedure,
-    ClaimProcedurePayment,
-    ClaimStatus,
-    Diagnosis,
+    ClaimDiagnosisCode,
+    ClaimProcedureFact,
+    DiagnosisCode,
+    InsuranceCompany,
+    McpCode,
     Patient,
-    ProcedureCode,
-    Tenant,
+    Role,
     User,
+    UserRole,
 )
 from app.db.session import get_db
 from app.main import app
+from app.utils.time import utcnow
 
 
 def _seed_admin(db_session: Session, is_admin: bool) -> User:
-    tenant = Tenant(id=uuid.uuid4(), name="Tenant Admin Dashboard")
+    admin_role = db_session.execute(select(Role).where(Role.code == "admin")).scalar_one_or_none()
+    if admin_role is None:
+        admin_role = Role(id=next_id(db_session, Role), code="admin", description="Admin")
+        db_session.add(admin_role)
+    doctor_role = db_session.execute(
+        select(Role).where(Role.code == "doctor")
+    ).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+    db_session.flush()
+
     user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
+        id=next_id(db_session, User),
         email="admin@example.com" if is_admin else "member@example.com",
-        hashed_password=get_password_hash("secret"),
+        password_hash=get_password_hash("secret"),
         is_active=True,
-        is_admin=is_admin,
+        created_at=utcnow(),
     )
-    db_session.add_all([tenant, user])
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(UserRole(user_id=user.id, role_id=doctor_role.id))
+    if is_admin:
+        db_session.add(UserRole(user_id=user.id, role_id=admin_role.id))
     db_session.commit()
     return user
 
 
 def _seed_claim_data(db_session: Session, admin: User) -> Claim:
-    agency = Agency(
-        id=uuid.uuid4(),
-        tenant_id=admin.tenant_id,
-        name="Agency A",
-        slug="agency-a",
-        is_active=True,
-    )
+    company = InsuranceCompany(id=next_id(db_session, InsuranceCompany), name="Company A")
     patient = Patient(
-        id=uuid.uuid4(),
-        tenant_id=admin.tenant_id,
-        user_id=admin.id,
+        id=next_id(db_session, Patient),
+        doctor_id=admin.id,
         first_name="Jane",
         last_name="Doe",
-        full_name="Jane Doe",
+        created_at=utcnow(),
     )
     claim = Claim(
-        id=uuid.uuid4(),
-        tenant_id=admin.tenant_id,
-        agency_id=agency.id,
+        id=next_id(db_session, Claim),
+        doctor_id=admin.id,
         patient_id=patient.id,
-        status=ClaimStatus.DRAFT,
-        service_from=datetime(2024, 1, 1, tzinfo=UTC).date(),
+        insurance_company_id=company.id,
+        claim_status="DRAFT",
+        service_date=date(2024, 1, 1),
+        created_at=utcnow(),
     )
-    code = ProcedureCode(
-        id=uuid.uuid4(),
-        tenant_id=admin.tenant_id,
-        code="99213",
-        title="Office Visit",
-    )
-    diagnosis = Diagnosis(
-        id=uuid.uuid4(),
-        tenant_id=admin.tenant_id,
-        code="A00",
-        title="Cholera",
-    )
-    procedure = ClaimProcedure(
-        id=uuid.uuid4(),
-        tenant_id=admin.tenant_id,
+    code = McpCode(code="99213", description="Office Visit")
+    diagnosis = DiagnosisCode(code="A00", description="Cholera")
+    procedure = ClaimProcedureFact(
+        id=next_id(db_session, ClaimProcedureFact),
         claim_id=claim.id,
-        procedure_code_id=code.id,
+        patient_id=patient.id,
+        insurance_company_id=company.id,
+        mcp_code=code.code,
         units=1,
-        paid_amount_cents=1200,
+        paid_amount=12.0,
+        created_at=utcnow(),
     )
-    payment = ClaimProcedurePayment(
-        id=uuid.uuid4(),
-        tenant_id=admin.tenant_id,
-        claim_procedure_id=procedure.id,
-        paid_amount_cents=1200,
-        paid_at=datetime(2024, 1, 5, tzinfo=UTC),
-    )
-    link = ClaimDiagnosis(
-        tenant_id=admin.tenant_id,
-        claim_id=claim.id,
-        diagnosis_id=diagnosis.id,
-    )
-    db_session.add_all(
-        [agency, patient, claim, code, diagnosis, procedure, payment, link]
-    )
+    db_session.add_all([company, patient, claim, code, diagnosis, procedure])
+    db_session.flush()
+    link = ClaimDiagnosisCode(claim_id=claim.id, diagnosis_code=diagnosis.code)
+    db_session.add(link)
     db_session.commit()
     return claim
 
@@ -116,7 +106,7 @@ def test_admin_claims_and_patients_readonly(db_session: Session) -> None:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert patients_response.status_code == 200
-        assert patients_response.json()[0]["full_name"] == "Jane Doe"
+        assert patients_response.json()[0]["first_name"] == "Jane"
 
         claims_response = client.get(
             "/api/admin/claims",
@@ -124,7 +114,7 @@ def test_admin_claims_and_patients_readonly(db_session: Session) -> None:
         )
         assert claims_response.status_code == 200
         claim_items = claims_response.json()
-        assert claim_items[0]["id"] == str(claim.id)
+        assert claim_items[0]["id"] == claim.id
         assert claim_items[0]["patient_name"] == "Jane Doe"
 
         detail_response = client.get(
@@ -133,8 +123,7 @@ def test_admin_claims_and_patients_readonly(db_session: Session) -> None:
         )
         assert detail_response.status_code == 200
         detail = detail_response.json()
-        assert detail["procedures"][0]["procedure_code"]["code"] == "99213"
-        assert detail["procedures"][0]["payments"][0]["paid_amount_cents"] == 1200
+        assert detail["procedures"][0]["mcp_code"]["code"] == "99213"
         assert detail["diagnoses"][0]["code"] == "A00"
     finally:
         app.dependency_overrides.clear()

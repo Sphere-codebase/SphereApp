@@ -1,47 +1,58 @@
-import uuid
-
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash
-from app.db.models import ChatMessage, ChatSession, Tenant, User
+from app.db.id_utils import next_id
+from app.db.models import ChatMessage, ChatSession, Role, User, UserRole
 from app.db.session import get_db
 from app.main import app
+from app.utils.time import utcnow
 
 
 def _seed_user(db_session: Session, name: str) -> User:
-    tenant = Tenant(id=uuid.uuid4(), name=f"Tenant {name}")
+    doctor_role = db_session.execute(
+        select(Role).where(Role.code == "doctor")
+    ).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
     user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
+        id=next_id(db_session, User),
         email=f"doctor-{name.lower()}@example.com",
-        hashed_password=get_password_hash("secret"),
+        password_hash=get_password_hash("secret"),
         is_active=True,
+        created_at=utcnow(),
     )
-    db_session.add_all([tenant, user])
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(UserRole(user_id=user.id, role_id=doctor_role.id))
     db_session.commit()
     return user
 
 
 def test_delete_session_removes_messages(db_session: Session) -> None:
     user = _seed_user(db_session, "Delete")
-    session = ChatSession(tenant_id=user.tenant_id, user_id=user.id)
+    session = ChatSession(id=next_id(db_session, ChatSession), doctor_id=user.id, created_at=utcnow())
     db_session.add(session)
     db_session.flush()
+    first_message_id = next_id(db_session, ChatMessage)
     db_session.add_all(
         [
             ChatMessage(
-                tenant_id=user.tenant_id,
+                id=first_message_id,
                 session_id=session.id,
                 role="user",
                 content="Hello",
+                created_at=utcnow(),
             ),
             ChatMessage(
-                tenant_id=user.tenant_id,
+                id=first_message_id + 1,
                 session_id=session.id,
                 role="assistant",
                 content="Hi",
+                created_at=utcnow(),
             ),
         ]
     )
@@ -72,18 +83,11 @@ def test_delete_session_removes_messages(db_session: Session) -> None:
         app.dependency_overrides.clear()
 
 
-def test_delete_session_cross_tenant_404(db_session: Session) -> None:
+def test_delete_session_other_user_404(db_session: Session) -> None:
     user_a = _seed_user(db_session, "A")
-    tenant_b = Tenant(id=uuid.uuid4(), name="Tenant B")
-    user_b = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant_b.id,
-        email="doctor-b@example.com",
-        hashed_password=get_password_hash("secret"),
-        is_active=True,
-    )
-    session_b = ChatSession(tenant_id=tenant_b.id, user_id=user_b.id)
-    db_session.add_all([tenant_b, user_b, session_b])
+    user_b = _seed_user(db_session, "B")
+    session_b = ChatSession(id=next_id(db_session, ChatSession), doctor_id=user_b.id)
+    db_session.add(session_b)
     db_session.commit()
 
     token = create_access_token(str(user_a.id))

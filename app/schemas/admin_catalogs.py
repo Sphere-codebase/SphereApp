@@ -2,107 +2,76 @@
 
 from __future__ import annotations
 
-import uuid
-from datetime import date, datetime
+from datetime import datetime
 
 from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 
-from app.db.models.enums import PolicyLinkStatus
 
-
-class AgencyCreateRequest(BaseModel):
+class InsuranceCompanyCreateRequest(BaseModel):
     name: str = Field(..., min_length=1)
-    slug: str | None = None
-    is_active: bool = True
 
 
-class AgencyUpdateRequest(BaseModel):
+class InsuranceCompanyUpdateRequest(BaseModel):
     name: str | None = Field(None, min_length=1)
-    slug: str | None = None
-    is_active: bool | None = None
 
 
-class AgencyResponse(BaseModel):
+class InsuranceCompanyResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
+    id: int
     name: str
-    slug: str | None
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None
 
 
-class ProcedureCodeCreateRequest(BaseModel):
+class McpCodeCreateRequest(BaseModel):
     code: str = Field(..., min_length=1)
-    title: str | None = None
+    description: str | None = None
 
 
-class ProcedureCodeUpdateRequest(BaseModel):
-    code: str | None = Field(None, min_length=1)
-    title: str | None = None
+class McpCodeUpdateRequest(BaseModel):
+    description: str | None = None
 
 
-class ProcedureCodeResponse(BaseModel):
+class McpCodeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
     code: str
-    title: str | None
-    created_at: datetime
-    updated_at: datetime
+    description: str | None
 
 
 class PolicyLinkCreateRequest(BaseModel):
-    agency_id: uuid.UUID
-    procedure_code_id: uuid.UUID
+    insurance_company_id: int
+    mcp_code: str = Field(..., min_length=1)
     policy_url: AnyUrl
-    effective_from: date | None = None
-    effective_to: date | None = None
-    status: PolicyLinkStatus = PolicyLinkStatus.ACTIVE
-    notes: str | None = None
 
 
 class PolicyLinkUpdateRequest(BaseModel):
-    agency_id: uuid.UUID | None = None
-    procedure_code_id: uuid.UUID | None = None
+    insurance_company_id: int | None = None
+    mcp_code: str | None = None
     policy_url: AnyUrl | None = None
-    effective_from: date | None = None
-    effective_to: date | None = None
-    status: PolicyLinkStatus | None = None
-    notes: str | None = None
 
 
 class PolicyLinkResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
-    agency_id: uuid.UUID
-    procedure_code_id: uuid.UUID
+    id: int
+    insurance_company_id: int
+    mcp_code: str
     policy_url: AnyUrl
-    effective_from: date | None
-    effective_to: date | None
-    status: PolicyLinkStatus
-    notes: str | None
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None
 
 
-class DiagnosisCreateRequest(BaseModel):
+class DiagnosisCodeCreateRequest(BaseModel):
     code: str = Field(..., min_length=1)
-    title: str | None = None
+    description: str | None = None
 
 
-class DiagnosisUpdateRequest(BaseModel):
-    code: str | None = Field(None, min_length=1)
-    title: str | None = None
+class DiagnosisCodeUpdateRequest(BaseModel):
+    description: str | None = None
 
 
-class DiagnosisResponse(BaseModel):
+class DiagnosisCodeResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
     code: str
-    title: str | None
-    created_at: datetime
-    updated_at: datetime
+    description: str | None

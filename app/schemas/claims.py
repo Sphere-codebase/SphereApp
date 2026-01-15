@@ -2,80 +2,73 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models.enums import ClaimStatus
-
 
 class ClaimCreateRequest(BaseModel):
-    agency_id: uuid.UUID
-    patient_id: uuid.UUID
+    patient_id: int
+    insurance_company_id: int
     claim_number: str | None = None
-    status: ClaimStatus = ClaimStatus.DRAFT
-    service_from: date | None = None
-    service_to: date | None = None
+    claim_status: str | None = None
+    service_date: date | None = None
+    claim_date: date | None = None
+    billed_amount_total: float | None = None
+    allowed_amount_total: float | None = None
+    coinsurance_amount_total: float | None = None
+    copay_amount_total: float | None = None
+    deductible_amount_total: float | None = None
 
 
 class ClaimUpdateRequest(BaseModel):
-    agency_id: uuid.UUID | None = None
+    patient_id: int | None = None
+    insurance_company_id: int | None = None
     claim_number: str | None = None
-    status: ClaimStatus | None = None
-    service_from: date | None = None
-    service_to: date | None = None
+    claim_status: str | None = None
+    service_date: date | None = None
+    claim_date: date | None = None
+    billed_amount_total: float | None = None
+    allowed_amount_total: float | None = None
+    coinsurance_amount_total: float | None = None
+    copay_amount_total: float | None = None
+    deductible_amount_total: float | None = None
 
 
 class ClaimResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: uuid.UUID
-    agency_id: uuid.UUID | None
-    patient_id: uuid.UUID
+    id: int
+    doctor_id: int
+    patient_id: int
+    insurance_company_id: int
+    service_date: date | None
+    created_at: datetime | None
     claim_number: str | None
-    status: ClaimStatus
-    service_from: date | None
-    service_to: date | None
-    created_at: datetime
-    updated_at: datetime
+    claim_status: str | None
+    claim_date: date | None
+    billed_amount_total: float | None
+    allowed_amount_total: float | None
+    coinsurance_amount_total: float | None
+    copay_amount_total: float | None
+    deductible_amount_total: float | None
 
 
-class ClaimVisitAttachRequest(BaseModel):
-    visit_ids: list[uuid.UUID] = Field(default_factory=list)
+class ClaimMcpCodeCreateRequest(BaseModel):
+    mcp_codes: list[str] = Field(default_factory=list)
 
 
-class ClaimProcedureInput(BaseModel):
-    procedure_code_id: uuid.UUID
-    units: int = Field(default=1, ge=1)
-    modifier: str | None = None
-    price: float | None = None
+class ClaimMcpCodeResponse(BaseModel):
+    claim_id: int
+    mcp_code: str
 
 
-class ClaimProcedureCreateRequest(BaseModel):
-    procedures: list[ClaimProcedureInput] = Field(default_factory=list)
-
-
-class ClaimProcedureResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    claim_id: uuid.UUID
-    procedure_code_id: uuid.UUID
-    units: int
-    modifier: str | None
-    price: float | None
-    created_at: datetime
-    updated_at: datetime
-
-
-class ProcedureCodeSummary(BaseModel):
-    id: uuid.UUID
+class McpCodeSummary(BaseModel):
     code: str
-    title: str | None
+    description: str | None
 
 
 class ClaimPolicyLinkItem(BaseModel):
-    procedure_code: ProcedureCodeSummary
+    mcp_code: McpCodeSummary
     policy_url: str | None
     missing_policy_link: bool

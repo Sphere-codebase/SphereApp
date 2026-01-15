@@ -1,34 +1,44 @@
-import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.routes.chat import get_llm_client
 from app.core.security import create_access_token, get_password_hash
-from app.db.models import ChatMessage, ChatSession, Tenant, User
+from app.db.id_utils import next_id
+from app.db.models import ChatMessage, ChatSession, Role, User, UserRole
 from app.db.session import get_db
 from app.llm.client import ChatCompletionResult
 from app.main import app
+from app.utils.time import utcnow
 
 
 def _seed_user(db_session: Session) -> User:
-    tenant = Tenant(id=uuid.uuid4(), name="Tenant Messages")
+    doctor_role = db_session.execute(
+        select(Role).where(Role.code == "doctor")
+    ).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
     user = User(
-        id=uuid.uuid4(),
-        tenant_id=tenant.id,
+        id=next_id(db_session, User),
         email="doctor@example.com",
-        hashed_password=get_password_hash("secret"),
+        password_hash=get_password_hash("secret"),
         is_active=True,
+        created_at=utcnow(),
     )
-    db_session.add_all([tenant, user])
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(UserRole(user_id=user.id, role_id=doctor_role.id))
     db_session.commit()
     return user
 
 
 def test_messages_requires_auth() -> None:
     client = TestClient(app)
-    response = client.get(f"/api/chat/sessions/{uuid.uuid4()}/messages")
+    response = client.get("/api/chat/sessions/1/messages")
 
     assert response.status_code == 401
     assert response.headers.get("X-Request-ID") is not None
@@ -36,30 +46,31 @@ def test_messages_requires_auth() -> None:
 
 def test_messages_returns_ordered_with_timestamps(db_session: Session) -> None:
     user = _seed_user(db_session)
-    session = ChatSession(id=uuid.uuid4(), tenant_id=user.tenant_id, user_id=user.id)
+    session = ChatSession(id=next_id(db_session, ChatSession), doctor_id=user.id, created_at=utcnow())
     db_session.add(session)
     db_session.commit()
 
-    base_time = datetime.now(tz=UTC) - timedelta(hours=1)
+    base_time = datetime.utcnow() - timedelta(hours=1)
+    first_message_id = next_id(db_session, ChatMessage)
     msg1 = ChatMessage(
-        tenant_id=user.tenant_id,
+        id=first_message_id,
         session_id=session.id,
         role="user",
         content="First",
         created_at=base_time,
     )
     msg2 = ChatMessage(
-        tenant_id=user.tenant_id,
+        id=first_message_id + 1,
         session_id=session.id,
         role="assistant",
         content="Second",
         created_at=base_time + timedelta(minutes=5),
     )
     tool_msg = ChatMessage(
-        tenant_id=user.tenant_id,
+        id=first_message_id + 2,
         session_id=session.id,
         role="tool",
-        content=None,
+        content="[tool] noop",
         created_at=base_time + timedelta(minutes=10),
     )
     db_session.add_all([msg1, msg2, tool_msg])
@@ -86,22 +97,19 @@ def test_messages_returns_ordered_with_timestamps(db_session: Session) -> None:
         app.dependency_overrides.clear()
 
 
-def test_messages_cross_tenant_session_404(db_session: Session) -> None:
+def test_messages_other_user_session_404(db_session: Session) -> None:
     user = _seed_user(db_session)
-    other_tenant = Tenant(id=uuid.uuid4(), name="Tenant Other")
-    other_user = User(
-        id=uuid.uuid4(),
-        tenant_id=other_tenant.id,
+    other = User(
+        id=next_id(db_session, User),
         email="other@example.com",
-        hashed_password=get_password_hash("secret"),
+        password_hash=get_password_hash("secret"),
         is_active=True,
+        created_at=utcnow(),
     )
-    other_session = ChatSession(
-        id=uuid.uuid4(),
-        tenant_id=other_tenant.id,
-        user_id=other_user.id,
-    )
-    db_session.add_all([other_tenant, other_user, other_session])
+    db_session.add(other)
+    db_session.flush()
+    session = ChatSession(id=next_id(db_session, ChatSession), doctor_id=other.id)
+    db_session.add(session)
     db_session.commit()
 
     token = create_access_token(str(user.id))
@@ -113,7 +121,7 @@ def test_messages_cross_tenant_session_404(db_session: Session) -> None:
     client = TestClient(app)
     try:
         response = client.get(
-            f"/api/chat/sessions/{other_session.id}/messages",
+            f"/api/chat/sessions/{session.id}/messages",
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 404
