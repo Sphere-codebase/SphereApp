@@ -4,14 +4,27 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated
+from typing import Tuple
+import time
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import get_db
 from app.llm.client import LLMClient, LLMUnavailable
+
+
+_LAST: dict[str, object] = {
+    "checks": {"db": "err", "llm": "err"},
+    "details": {"db": None, "llm": None},
+    "ok": False,
+    "ts": 0.0,
+}
+
+SKIP_PING_TTL_SECONDS = 10.0
 
 router = APIRouter(tags=["health"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
@@ -50,18 +63,74 @@ def _readiness(db: Session, llm_client: LLMClient) -> tuple[bool, bool | None, s
     return True, None, None
 
 
+def check_db(db: DbSessionDep) -> Tuple[str, str | None]:
+    try:
+        db.execute(text("SELECT 1"))
+        return "ok", None
+    except Exception as exc:
+        return "err", str(exc)
+
+
+def check_llm(llm_client: LlmClientDep) -> Tuple[str, str | None]:
+    try:
+        llm_client.health_check()
+        return "ok", None
+    except Exception as exc:
+        return "err", str(exc)
+
+
 @router.get("/ready")
-def ready(db: DbSessionDep, llm_client: LlmClientDep) -> dict[str, str]:
-    db_ready, llm_ready, reason = _readiness(db, llm_client)
-    if not db_ready:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database not ready"
+def ready(db: DbSessionDep, llm_client: LlmClientDep) -> dict[str, object]:
+    print(float(_LAST["ts"]))
+    last_checks = _LAST["checks"]
+    assert isinstance(last_checks, dict)
+
+    if (
+        last_checks.get("db") == "ok"
+        and last_checks.get("llm") == "ok"
+        and float(_LAST["ts"]) < SKIP_PING_TTL_SECONDS
+    ):
+        _LAST["ts"] += 0.1
+        payload = {
+            "ok": bool(_LAST["ok"]),
+            "checks": dict(_LAST["checks"]),
+            "details": dict(_LAST["details"]),
+        }
+        return payload
+    print(2)
+
+    checks: dict[str, str] = {"db": "err", "llm": "err"}
+    details: dict[str, str | None] = {"db": None, "llm": None}
+
+    db_status, db_err = check_db(db)
+    checks["db"] = db_status
+    details["db"] = db_err
+
+    if db_status == "ok":
+        llm_status, llm_err = check_llm(llm_client)
+        checks["llm"] = llm_status
+        details["llm"] = llm_err
+    else:
+        checks["llm"] = "err"
+        details["llm"] = "skipped"
+
+    overall_ok = checks["db"] == "ok" and checks["llm"] == "ok"
+
+    payload = {"ok": overall_ok, "checks": checks, "details": details}
+
+    _LAST["checks"] = checks
+    _LAST["details"] = details
+    _LAST["ok"] = overall_ok
+    _LAST["ts"] = 9
+
+    print(_LAST)
+    if not overall_ok:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=payload,
         )
-    if settings.ready_check_llm and llm_ready is False:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="LLM unavailable"
-        )
-    return {"status": "ready"}
+
+    return payload
 
 
 @router.get("/api/status")

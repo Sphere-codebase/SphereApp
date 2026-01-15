@@ -65,6 +65,14 @@ export async function listInsuranceCompanies(): Promise<InsuranceCompany[]> {
   return parseWithSchema(insuranceCompaniesSchema, data, "list insurance companies");
 }
 
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+
+export function apiUrl(path: string) {
+  if (!API_BASE) return path; // use Vite proxy
+  return `${API_BASE}${path}`;
+}
+
+
 export async function createInsuranceCompany(
   input: InsuranceCompanyCreateInput
 ): Promise<InsuranceCompany> {

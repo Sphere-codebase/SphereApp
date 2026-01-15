@@ -29,6 +29,30 @@ body {
   font-family: "Inter", "Segoe UI", system-ui, sans-serif;
 }
 
+@keyframes status-hud-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes status-hud-blink {
+  0%   { opacity: 1;   transform: scale(1); }
+  40%  { opacity: 0.15; transform: scale(0.7); }
+  70%  { opacity: 1;   transform: scale(1.25); }
+  100% { opacity: 1;   transform: scale(1); }
+}
+
+.status-hud-blink {
+  animation: status-hud-blink 0.45s linear infinite;
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+
 .dark {
   --background: 222.2 47.4% 7%;
   --foreground: 210 40% 96%;

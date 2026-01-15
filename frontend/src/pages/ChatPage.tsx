@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Conversation } from "@/components/ai/conversation";
 import type { MessageProps } from "@/components/ai/message";
 import { PromptInput } from "@/components/ai/prompt-input";
+import ChatStatusHud from "@/components/chat/ChatStatusHud";
 import ErrorNotice from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +49,7 @@ function ChatShell() {
     messages,
     isLoadingSessions,
     isLoadingMessages,
+    isSending,
     actionRequired,
     proposedChanges,
     error,
@@ -105,15 +107,7 @@ function ChatShell() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void createNewSession()}
-              disabled={isLoadingSessions}
-            >
-              <Plus className="h-4 w-4" />
-              New chat
-            </Button>
+            <ChatStatusHud busy={isSending} />
             <Button
               type="button"
               variant="outline"
