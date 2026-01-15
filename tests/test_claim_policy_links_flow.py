@@ -54,7 +54,7 @@ def test_policy_links_flow(db_session: Session) -> None:
 
         code_response = client.post(
             "/api/admin/procedure-codes",
-            json={"code": "99213", "title": "Office Visit", "category": "Evaluation"},
+            json={"code": "99213", "title": "Office Visit"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert code_response.status_code == 201
@@ -62,7 +62,7 @@ def test_policy_links_flow(db_session: Session) -> None:
 
         missing_code_response = client.post(
             "/api/admin/procedure-codes",
-            json={"code": "93000", "title": "EKG", "category": "Cardiology"},
+            json={"code": "93000", "title": "EKG"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert missing_code_response.status_code == 201

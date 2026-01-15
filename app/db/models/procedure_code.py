@@ -23,7 +23,6 @@ class ProcedureCode(UpdatedTimestampMixin, Base):
     )
     code: Mapped[str] = mapped_column(String(32), nullable=False)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    category: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     tenant = relationship("Tenant", backref="procedure_codes")
     policy_links = relationship("AgencyProcedurePolicyLink", back_populates="procedure_code")

@@ -63,7 +63,6 @@ describe("admin ui", () => {
         id: "code-1",
         code: "99213",
         title: "Office visit",
-        category: "Evaluation",
         created_at: "2026-01-01T00:00:00",
         updated_at: "2026-01-01T00:00:00",
       },
@@ -88,13 +87,11 @@ describe("admin ui", () => {
         const parsed = JSON.parse(bodyText) as {
           code: string;
           title?: string | null;
-          category?: string | null;
         };
         const created: ProcedureCode = {
           id: "code-2",
           code: parsed.code,
           title: parsed.title ?? null,
-          category: parsed.category ?? null,
           created_at: "2026-01-02T00:00:00",
           updated_at: "2026-01-02T00:00:00",
         };
@@ -135,7 +132,6 @@ describe("admin ui", () => {
         id: "code-1",
         code: "99213",
         title: "Office visit",
-        category: "Evaluation",
         created_at: "2026-01-01T00:00:00",
         updated_at: "2026-01-01T00:00:00",
       },
@@ -190,5 +186,65 @@ describe("admin ui", () => {
     await waitFor(() => {
       expect(screen.getByText("https://example.com/policy")).toBeInTheDocument();
     });
+  });
+
+  test("agency create hides slug field and submits without it", async () => {
+    const agencies: Agency[] = [];
+    const procedureCodes: ProcedureCode[] = [];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: adminUser }));
+      }
+      if (url.endsWith("/api/admin/agencies") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: agencies }));
+      }
+      if (url.endsWith("/api/admin/agencies") && method === "POST") {
+        const bodyText = typeof init?.body === "string" ? init.body : "{}";
+        const parsed = JSON.parse(bodyText) as { name: string; is_active?: boolean };
+        const created: Agency = {
+          id: "agency-1",
+          name: parsed.name,
+          slug: "alpha-health",
+          is_active: parsed.is_active ?? true,
+          created_at: "2026-01-03T00:00:00",
+          updated_at: "2026-01-03T00:00:00",
+        };
+        agencies.push(created);
+        return Promise.resolve(buildJsonResponse({ status: 201, body: created }));
+      }
+      if (url.includes("/api/admin/procedure-codes") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: procedureCodes }));
+      }
+      if (url.includes("/api/admin/policy-links") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    renderWithProviders(["/app/admin"]);
+
+    const agenciesTab = await screen.findByRole("button", {
+      name: /agencies & policies/i,
+    });
+    await userEvent.click(agenciesTab);
+
+    await userEvent.click(await screen.findByRole("button", { name: "New" }));
+
+    expect(screen.getByLabelText("Name")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Slug")).not.toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText("Name"), "Alpha Health");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    const agencyLabels = await screen.findAllByText("Alpha Health");
+    expect(agencyLabels.length).toBeGreaterThan(0);
   });
 });

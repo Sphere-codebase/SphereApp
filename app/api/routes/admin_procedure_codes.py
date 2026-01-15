@@ -67,9 +67,8 @@ def create_procedure_code(
         )
     code = ProcedureCode(
         tenant_id=current_user.tenant_id,
-        code=payload.code,
+        code=payload.code.strip(),
         title=payload.title,
-        category=payload.category,
     )
     db.add(code)
     db.commit()
@@ -98,11 +97,12 @@ def update_procedure_code(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Procedure code not found",
         )
-    if payload.code and payload.code != code.code:
+    new_code = payload.code.strip() if payload.code is not None else None
+    if new_code and new_code != code.code:
         existing = (
             db.execute(
                 select(ProcedureCode).where(
-                    ProcedureCode.code == payload.code,
+                    ProcedureCode.code == new_code,
                     ProcedureCode.tenant_id == current_user.tenant_id,
                 )
             )
@@ -114,10 +114,13 @@ def update_procedure_code(
                 content=error_payload(
                     code="PROCEDURE_CODE_EXISTS",
                     message="Procedure code already exists",
-                    details={"code": payload.code},
+                    details={"code": new_code},
                 ),
             )
+        code.code = new_code
     for field, value in payload.model_dump(exclude_unset=True).items():
+        if field == "code":
+            continue
         setattr(code, field, value)
     db.add(code)
     db.commit()

@@ -338,7 +338,6 @@ def resolve_policy_links(
             id=code.id,
             code=code.code,
             title=code.title,
-            category=code.category,
         )
         policy_url = link.policy_url if link else None
         items.append(

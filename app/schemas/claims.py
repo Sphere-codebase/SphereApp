@@ -73,7 +73,6 @@ class ProcedureCodeSummary(BaseModel):
     id: uuid.UUID
     code: str
     title: str | None
-    category: str | None
 
 
 class ClaimPolicyLinkItem(BaseModel):

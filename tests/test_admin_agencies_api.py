@@ -71,3 +71,97 @@ def test_create_agency_duplicate_slug(db_session: Session) -> None:
         assert second.json()["error"]["code"] == "AGENCY_EXISTS"
     finally:
         app.dependency_overrides.clear()
+
+
+def test_create_agency_generates_unique_slug(db_session: Session) -> None:
+    user = _seed_user(db_session, is_admin=True)
+    token = create_access_token(str(user.id))
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        first = client.post(
+            "/api/admin/agencies",
+            json={"name": "Aetna Insurance", "is_active": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert first.status_code == 201
+        assert first.json()["slug"] == "aetna-insurance"
+
+        second = client.post(
+            "/api/admin/agencies",
+            json={"name": "Aetna Insurance", "is_active": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert second.status_code == 201
+        assert second.json()["slug"] == "aetna-insurance-2"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_agency_name_does_not_change_slug(db_session: Session) -> None:
+    user = _seed_user(db_session, is_admin=True)
+    token = create_access_token(str(user.id))
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        created = client.post(
+            "/api/admin/agencies",
+            json={"name": "Agency A", "slug": "agency-a", "is_active": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert created.status_code == 201
+        agency_id = created.json()["id"]
+
+        updated = client.patch(
+            f"/api/admin/agencies/{agency_id}",
+            json={"name": "Agency A Updated"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["slug"] == "agency-a"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_update_agency_duplicate_slug_returns_409(db_session: Session) -> None:
+    user = _seed_user(db_session, is_admin=True)
+    token = create_access_token(str(user.id))
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        first = client.post(
+            "/api/admin/agencies",
+            json={"name": "Agency One", "slug": "agency-one", "is_active": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert first.status_code == 201
+
+        second = client.post(
+            "/api/admin/agencies",
+            json={"name": "Agency Two", "slug": "agency-two", "is_active": True},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert second.status_code == 201
+        agency_id = second.json()["id"]
+
+        conflict = client.patch(
+            f"/api/admin/agencies/{agency_id}",
+            json={"slug": "agency-one"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert conflict.status_code == 409
+        assert conflict.json()["error"]["code"] == "AGENCY_EXISTS"
+    finally:
+        app.dependency_overrides.clear()

@@ -20,7 +20,7 @@ class Agency(UpdatedTimestampMixin, Base):
         UUID(as_uuid=True), ForeignKey("tenants.id"), index=True, nullable=False
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    slug: Mapped[str] = mapped_column(String(100), nullable=False)
+    slug: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     tenant = relationship("Tenant", backref="agencies")

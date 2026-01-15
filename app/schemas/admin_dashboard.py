@@ -29,7 +29,7 @@ class AdminAgencySummary(BaseModel):
 
     id: uuid.UUID
     name: str
-    slug: str
+    slug: str | None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -68,7 +68,6 @@ class ProcedureCodeSummary(BaseModel):
     id: uuid.UUID
     code: str
     title: str | None
-    category: str | None
 
 
 class AdminClaimProcedurePaymentResponse(BaseModel):

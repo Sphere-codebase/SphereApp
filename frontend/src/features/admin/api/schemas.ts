@@ -6,7 +6,7 @@ const optionalDate = z.string().nullable().optional();
 export const agencySchema = z.object({
   id: z.string(),
   name: z.string(),
-  slug: z.string(),
+  slug: z.string().nullable(),
   is_active: z.boolean(),
   created_at: dateString,
   updated_at: dateString,
@@ -14,8 +14,8 @@ export const agencySchema = z.object({
 
 export const agencyCreateSchema = z.object({
   name: z.string(),
-  slug: z.string(),
-  is_active: z.boolean(),
+  slug: z.string().nullable().optional(),
+  is_active: z.boolean().optional(),
 });
 
 export const agencyUpdateSchema = agencyCreateSchema.partial();
@@ -24,7 +24,6 @@ export const procedureCodeSchema = z.object({
   id: z.string(),
   code: z.string(),
   title: z.string().nullable().optional(),
-  category: z.string().nullable().optional(),
   created_at: dateString,
   updated_at: dateString,
 });
@@ -32,7 +31,6 @@ export const procedureCodeSchema = z.object({
 export const procedureCodeCreateSchema = z.object({
   code: z.string(),
   title: z.string().nullable().optional(),
-  category: z.string().nullable().optional(),
 });
 
 export const procedureCodeUpdateSchema = procedureCodeCreateSchema.partial();
@@ -145,7 +143,6 @@ export const procedureCodeSummarySchema = z.object({
   id: z.string(),
   code: z.string(),
   title: z.string().nullable(),
-  category: z.string().nullable(),
 });
 
 export const adminClaimProcedurePaymentSchema = z.object({

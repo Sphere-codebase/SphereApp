@@ -62,14 +62,12 @@ type ReferenceTab = "procedure-codes" | "diagnoses";
 
 type AgencyFormState = {
   name: string;
-  slug: string;
   is_active: boolean;
 };
 
 type ProcedureCodeFormState = {
   code: string;
   title: string;
-  category: string;
 };
 
 type DiagnosisFormState = {
@@ -110,14 +108,12 @@ type ClaimsFilters = {
 
 const emptyAgencyForm: AgencyFormState = {
   name: "",
-  slug: "",
   is_active: true,
 };
 
 const emptyProcedureForm: ProcedureCodeFormState = {
   code: "",
   title: "",
-  category: "",
 };
 
 const emptyDiagnosisForm: DiagnosisFormState = {
@@ -448,7 +444,6 @@ export default function AdminPage() {
       agency
         ? {
             name: agency.name,
-            slug: agency.slug,
             is_active: agency.is_active,
           }
         : emptyAgencyForm
@@ -463,7 +458,6 @@ export default function AdminPage() {
         ? {
             code: procedure.code,
             title: procedure.title ?? "",
-            category: procedure.category ?? "",
           }
         : emptyProcedureForm
     );
@@ -536,10 +530,9 @@ export default function AdminPage() {
     setError(null);
     const payload: AgencyCreateInput = {
       name: agencyForm.name.trim(),
-      slug: agencyForm.slug.trim(),
       is_active: agencyForm.is_active,
     };
-    if (!payload.name || !payload.slug) {
+    if (!payload.name) {
       return;
     }
     try {
@@ -560,7 +553,6 @@ export default function AdminPage() {
     const payload = {
       code: procedureForm.code.trim(),
       title: procedureForm.title.trim() || null,
-      category: procedureForm.category.trim() || null,
     };
     if (!payload.code) {
       return;
@@ -891,11 +883,6 @@ export default function AdminPage() {
                       key: "title",
                       header: "Title",
                       cell: (row) => row.title ?? "—",
-                    },
-                    {
-                      key: "category",
-                      header: "Category",
-                      cell: (row) => row.category ?? "—",
                     },
                     {
                       key: "actions",
@@ -1447,16 +1434,6 @@ export default function AdminPage() {
             }
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Slug
-          <input
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-            value={agencyForm.slug}
-            onChange={(event) =>
-              setAgencyForm((prev) => ({ ...prev, slug: event.target.value }))
-            }
-          />
-        </label>
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
@@ -1493,16 +1470,6 @@ export default function AdminPage() {
             value={procedureForm.title}
             onChange={(event) =>
               setProcedureForm((prev) => ({ ...prev, title: event.target.value }))
-            }
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Category
-          <input
-            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-            value={procedureForm.category}
-            onChange={(event) =>
-              setProcedureForm((prev) => ({ ...prev, category: event.target.value }))
             }
           />
         </label>

@@ -12,13 +12,13 @@ from app.db.models.enums import PolicyLinkStatus
 
 class AgencyCreateRequest(BaseModel):
     name: str = Field(..., min_length=1)
-    slug: str = Field(..., min_length=1)
+    slug: str | None = None
     is_active: bool = True
 
 
 class AgencyUpdateRequest(BaseModel):
     name: str | None = Field(None, min_length=1)
-    slug: str | None = Field(None, min_length=1)
+    slug: str | None = None
     is_active: bool | None = None
 
 
@@ -27,7 +27,7 @@ class AgencyResponse(BaseModel):
 
     id: uuid.UUID
     name: str
-    slug: str
+    slug: str | None
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -36,13 +36,11 @@ class AgencyResponse(BaseModel):
 class ProcedureCodeCreateRequest(BaseModel):
     code: str = Field(..., min_length=1)
     title: str | None = None
-    category: str | None = None
 
 
 class ProcedureCodeUpdateRequest(BaseModel):
     code: str | None = Field(None, min_length=1)
     title: str | None = None
-    category: str | None = None
 
 
 class ProcedureCodeResponse(BaseModel):
@@ -51,7 +49,6 @@ class ProcedureCodeResponse(BaseModel):
     id: uuid.UUID
     code: str
     title: str | None
-    category: str | None
     created_at: datetime
     updated_at: datetime
 

@@ -164,7 +164,6 @@ def get_claim(
                     id=code.id,
                     code=code.code,
                     title=code.title,
-                    category=code.category,
                 ),
                 units=procedure.units,
                 modifier=procedure.modifier,
