@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 
 import ErrorNotice from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/lib/auth/AuthContext";
 import type { AdminCreateUserRequest } from "@/lib/api/types";
+import { useAuth } from "@/lib/auth/AuthContext";
 
 export default function BootstrapPage() {
   const navigate = useNavigate();

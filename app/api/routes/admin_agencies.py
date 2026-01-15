@@ -26,8 +26,16 @@ AdminUserDep = Annotated[User, Depends(require_admin)]
 
 
 @router.get("", response_model=list[AgencyResponse])
-def list_agencies(db: DbSessionDep, _: AdminUserDep) -> list[AgencyResponse]:
-    agencies = db.execute(select(Agency).order_by(Agency.name.asc())).scalars().all()
+def list_agencies(db: DbSessionDep, current_user: AdminUserDep) -> list[AgencyResponse]:
+    agencies = (
+        db.execute(
+            select(Agency)
+            .where(Agency.tenant_id == current_user.tenant_id)
+            .order_by(Agency.name.asc())
+        )
+        .scalars()
+        .all()
+    )
     return [AgencyResponse.model_validate(agency) for agency in agencies]
 
 
@@ -35,9 +43,14 @@ def list_agencies(db: DbSessionDep, _: AdminUserDep) -> list[AgencyResponse]:
 def create_agency(
     payload: AgencyCreateRequest,
     db: DbSessionDep,
-    _: AdminUserDep,
+    current_user: AdminUserDep,
 ) -> AgencyResponse | JSONResponse:
-    existing = db.execute(select(Agency).where(Agency.slug == payload.slug)).scalar_one_or_none()
+    existing = db.execute(
+        select(Agency).where(
+            Agency.slug == payload.slug,
+            Agency.tenant_id == current_user.tenant_id,
+        )
+    ).scalar_one_or_none()
     if existing is not None:
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
@@ -47,7 +60,12 @@ def create_agency(
                 details={"slug": payload.slug},
             ),
         )
-    agency = Agency(name=payload.name, slug=payload.slug, is_active=payload.is_active)
+    agency = Agency(
+        tenant_id=current_user.tenant_id,
+        name=payload.name,
+        slug=payload.slug,
+        is_active=payload.is_active,
+    )
     db.add(agency)
     db.commit()
     db.refresh(agency)
@@ -58,9 +76,14 @@ def create_agency(
 def get_agency(
     agency_id: uuid.UUID,
     db: DbSessionDep,
-    _: AdminUserDep,
+    current_user: AdminUserDep,
 ) -> AgencyResponse:
-    agency = db.execute(select(Agency).where(Agency.id == agency_id)).scalar_one_or_none()
+    agency = db.execute(
+        select(Agency).where(
+            Agency.id == agency_id,
+            Agency.tenant_id == current_user.tenant_id,
+        )
+    ).scalar_one_or_none()
     if agency is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agency not found")
     return AgencyResponse.model_validate(agency)
@@ -71,14 +94,24 @@ def update_agency(
     agency_id: uuid.UUID,
     payload: AgencyUpdateRequest,
     db: DbSessionDep,
-    _: AdminUserDep,
+    current_user: AdminUserDep,
 ) -> AgencyResponse | JSONResponse:
-    agency = db.execute(select(Agency).where(Agency.id == agency_id)).scalar_one_or_none()
+    agency = db.execute(
+        select(Agency).where(
+            Agency.id == agency_id,
+            Agency.tenant_id == current_user.tenant_id,
+        )
+    ).scalar_one_or_none()
     if agency is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agency not found")
     if payload.slug and payload.slug != agency.slug:
         existing = (
-            db.execute(select(Agency).where(Agency.slug == payload.slug))
+            db.execute(
+                select(Agency).where(
+                    Agency.slug == payload.slug,
+                    Agency.tenant_id == current_user.tenant_id,
+                )
+            )
             .scalar_one_or_none()
         )
         if existing is not None:
@@ -102,9 +135,14 @@ def update_agency(
 def delete_agency(
     agency_id: uuid.UUID,
     db: DbSessionDep,
-    _: AdminUserDep,
+    current_user: AdminUserDep,
 ) -> Response:
-    agency = db.execute(select(Agency).where(Agency.id == agency_id)).scalar_one_or_none()
+    agency = db.execute(
+        select(Agency).where(
+            Agency.id == agency_id,
+            Agency.tenant_id == current_user.tenant_id,
+        )
+    ).scalar_one_or_none()
     if agency is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agency not found")
     agency.is_active = False

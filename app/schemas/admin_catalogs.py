@@ -89,3 +89,23 @@ class PolicyLinkResponse(BaseModel):
     notes: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class DiagnosisCreateRequest(BaseModel):
+    code: str = Field(..., min_length=1)
+    title: str | None = None
+
+
+class DiagnosisUpdateRequest(BaseModel):
+    code: str | None = Field(None, min_length=1)
+    title: str | None = None
+
+
+class DiagnosisResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    code: str
+    title: str | None
+    created_at: datetime
+    updated_at: datetime

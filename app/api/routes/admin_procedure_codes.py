@@ -28,10 +28,10 @@ AdminUserDep = Annotated[User, Depends(require_admin)]
 @router.get("", response_model=list[ProcedureCodeResponse])
 def list_procedure_codes(
     db: DbSessionDep,
-    _: AdminUserDep,
+    current_user: AdminUserDep,
     query: Annotated[str | None, Query()] = None,
 ) -> list[ProcedureCodeResponse]:
-    stmt = select(ProcedureCode)
+    stmt = select(ProcedureCode).where(ProcedureCode.tenant_id == current_user.tenant_id)
     if query:
         like = f"%{query}%"
         stmt = stmt.where(
@@ -45,10 +45,15 @@ def list_procedure_codes(
 def create_procedure_code(
     payload: ProcedureCodeCreateRequest,
     db: DbSessionDep,
-    _: AdminUserDep,
+    current_user: AdminUserDep,
 ) -> ProcedureCodeResponse | JSONResponse:
     existing = (
-        db.execute(select(ProcedureCode).where(ProcedureCode.code == payload.code))
+        db.execute(
+            select(ProcedureCode).where(
+                ProcedureCode.code == payload.code,
+                ProcedureCode.tenant_id == current_user.tenant_id,
+            )
+        )
         .scalar_one_or_none()
     )
     if existing is not None:
@@ -60,7 +65,12 @@ def create_procedure_code(
                 details={"code": payload.code},
             ),
         )
-    code = ProcedureCode(code=payload.code, title=payload.title, category=payload.category)
+    code = ProcedureCode(
+        tenant_id=current_user.tenant_id,
+        code=payload.code,
+        title=payload.title,
+        category=payload.category,
+    )
     db.add(code)
     db.commit()
     db.refresh(code)
@@ -72,10 +82,15 @@ def update_procedure_code(
     procedure_code_id: uuid.UUID,
     payload: ProcedureCodeUpdateRequest,
     db: DbSessionDep,
-    _: AdminUserDep,
+    current_user: AdminUserDep,
 ) -> ProcedureCodeResponse | JSONResponse:
     code = (
-        db.execute(select(ProcedureCode).where(ProcedureCode.id == procedure_code_id))
+        db.execute(
+            select(ProcedureCode).where(
+                ProcedureCode.id == procedure_code_id,
+                ProcedureCode.tenant_id == current_user.tenant_id,
+            )
+        )
         .scalar_one_or_none()
     )
     if code is None:
@@ -85,7 +100,12 @@ def update_procedure_code(
         )
     if payload.code and payload.code != code.code:
         existing = (
-            db.execute(select(ProcedureCode).where(ProcedureCode.code == payload.code))
+            db.execute(
+                select(ProcedureCode).where(
+                    ProcedureCode.code == payload.code,
+                    ProcedureCode.tenant_id == current_user.tenant_id,
+                )
+            )
             .scalar_one_or_none()
         )
         if existing is not None:
@@ -114,10 +134,15 @@ def update_procedure_code(
 def delete_procedure_code(
     procedure_code_id: uuid.UUID,
     db: DbSessionDep,
-    _: AdminUserDep,
+    current_user: AdminUserDep,
 ) -> Response:
     code = (
-        db.execute(select(ProcedureCode).where(ProcedureCode.id == procedure_code_id))
+        db.execute(
+            select(ProcedureCode).where(
+                ProcedureCode.id == procedure_code_id,
+                ProcedureCode.tenant_id == current_user.tenant_id,
+            )
+        )
         .scalar_one_or_none()
     )
     if code is None:

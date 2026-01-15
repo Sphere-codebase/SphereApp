@@ -3,6 +3,8 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
+import importPlugin from "eslint-plugin-import";
+import prettierConfig from "eslint-config-prettier";
 
 const typeCheckedConfigs = tseslint.configs.recommendedTypeChecked.map((config) => ({
     ...config,
@@ -43,11 +45,37 @@ export default tseslint.config(
         plugins: {
             "react-hooks": reactHooks,
             "react-refresh": reactRefresh,
+            import: importPlugin,
         },
         rules: {
             ...reactHooks.configs.recommended.rules,
             "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
             "@typescript-eslint/no-explicit-any": "error",
+            "import/order": [
+                "error",
+                {
+                    "alphabetize": { order: "asc", caseInsensitive: true },
+                    "newlines-between": "always",
+                    "groups": [
+                        "builtin",
+                        "external",
+                        "internal",
+                        "parent",
+                        "sibling",
+                        "index",
+                        "object",
+                        "type",
+                    ],
+                    "pathGroups": [
+                        {
+                            pattern: "@/**",
+                            group: "internal",
+                        },
+                    ],
+                    "pathGroupsExcludedImportTypes": ["builtin"],
+                },
+            ],
         },
-    }
+    },
+    prettierConfig
 );

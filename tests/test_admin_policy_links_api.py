@@ -41,8 +41,19 @@ def _seed_user(db_session: Session, is_admin: bool) -> User:
 
 def test_policy_link_unique_active(db_session: Session) -> None:
     user = _seed_admin(db_session)
-    agency = Agency(id=uuid.uuid4(), name="Agency A", slug="agency-a", is_active=True)
-    code = ProcedureCode(id=uuid.uuid4(), code="99213", title="Office Visit")
+    agency = Agency(
+        id=uuid.uuid4(),
+        tenant_id=user.tenant_id,
+        name="Agency A",
+        slug="agency-a",
+        is_active=True,
+    )
+    code = ProcedureCode(
+        id=uuid.uuid4(),
+        tenant_id=user.tenant_id,
+        code="99213",
+        title="Office Visit",
+    )
     db_session.add_all([agency, code])
     db_session.commit()
 
@@ -106,8 +117,19 @@ def test_policy_link_invalid_fk_returns_404(db_session: Session) -> None:
 
 def test_policy_links_require_admin(db_session: Session) -> None:
     user = _seed_user(db_session, is_admin=False)
-    agency = Agency(id=uuid.uuid4(), name="Agency A", slug="agency-a", is_active=True)
-    code = ProcedureCode(id=uuid.uuid4(), code="99213", title="Office Visit")
+    agency = Agency(
+        id=uuid.uuid4(),
+        tenant_id=user.tenant_id,
+        name="Agency A",
+        slug="agency-a",
+        is_active=True,
+    )
+    code = ProcedureCode(
+        id=uuid.uuid4(),
+        tenant_id=user.tenant_id,
+        code="99213",
+        title="Office Visit",
+    )
     db_session.add_all([agency, code])
     db_session.commit()
 

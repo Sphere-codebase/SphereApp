@@ -1,3 +1,4 @@
+import { CloudUpload, Moon, Plus, Sun, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -5,12 +6,11 @@ import { Conversation } from "@/components/ai/conversation";
 import type { MessageProps } from "@/components/ai/message";
 import { PromptInput } from "@/components/ai/prompt-input";
 import ErrorNotice from "@/components/ErrorNotice";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { useChat, ChatProvider } from "@/lib/chat/ChatContext";
+import { ChatProvider, useChat } from "@/lib/chat/ChatContext";
 import { cn } from "@/lib/utils";
-import { CloudUpload, Moon, Plus, Sun, Trash2 } from "lucide-react";
 
 type ThemeMode = "light" | "dark";
 

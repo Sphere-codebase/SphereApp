@@ -32,7 +32,13 @@ def _seed_claim(db_session: Session) -> tuple[User, Claim]:
         hashed_password=get_password_hash("secret"),
         is_active=True,
     )
-    agency = Agency(id=uuid.uuid4(), name="Agency A", slug="agency-a", is_active=True)
+    agency = Agency(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        name="Agency A",
+        slug="agency-a",
+        is_active=True,
+    )
     patient = Patient(
         id=uuid.uuid4(),
         tenant_id=tenant.id,

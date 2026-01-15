@@ -29,7 +29,13 @@ def _seed_claim(db_session: Session) -> tuple[User, Claim]:
         hashed_password=get_password_hash("secret"),
         is_active=True,
     )
-    agency = Agency(id=uuid.uuid4(), name="Agency A", slug="agency-a", is_active=True)
+    agency = Agency(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        name="Agency A",
+        slug="agency-a",
+        is_active=True,
+    )
     patient = Patient(
         id=uuid.uuid4(),
         tenant_id=tenant.id,
@@ -52,8 +58,18 @@ def _seed_claim(db_session: Session) -> tuple[User, Claim]:
 
 def test_policy_links_resolution(db_session: Session) -> None:
     user, claim = _seed_claim(db_session)
-    code_a = ProcedureCode(id=uuid.uuid4(), code="99213", title="Office Visit")
-    code_b = ProcedureCode(id=uuid.uuid4(), code="93000", title="EKG")
+    code_a = ProcedureCode(
+        id=uuid.uuid4(),
+        tenant_id=claim.tenant_id,
+        code="99213",
+        title="Office Visit",
+    )
+    code_b = ProcedureCode(
+        id=uuid.uuid4(),
+        tenant_id=claim.tenant_id,
+        code="93000",
+        title="EKG",
+    )
     db_session.add_all([code_a, code_b])
     db_session.commit()
 
@@ -72,6 +88,7 @@ def test_policy_links_resolution(db_session: Session) -> None:
                 units=2,
             ),
             AgencyProcedurePolicyLink(
+                tenant_id=claim.tenant_id,
                 agency_id=claim.agency_id,
                 procedure_code_id=code_a.id,
                 policy_url="https://example.com/policy-a",

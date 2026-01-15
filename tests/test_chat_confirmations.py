@@ -32,7 +32,13 @@ def _seed_claim(db_session: Session) -> tuple[User, Claim]:
         hashed_password=get_password_hash("secret"),
         is_active=True,
     )
-    agency = Agency(id=uuid.uuid4(), name="Agency Confirm", slug="agency-confirm", is_active=True)
+    agency = Agency(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        name="Agency Confirm",
+        slug="agency-confirm",
+        is_active=True,
+    )
     patient = Patient(
         id=uuid.uuid4(),
         tenant_id=tenant.id,
@@ -168,6 +174,7 @@ def test_cross_tenant_update_returns_404(db_session: Session) -> None:
     )
     agency_b = Agency(
         id=uuid.uuid4(),
+        tenant_id=tenant_b.id,
         name="Agency B",
         slug="agency-b",
         is_active=True,

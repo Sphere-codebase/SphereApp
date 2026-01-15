@@ -15,7 +15,13 @@ def test_migrations_and_crud(db_session: Session) -> None:
         hashed_password="hashed",
         is_active=True,
     )
-    agency = Agency(id=uuid.uuid4(), name="Agency A", slug="agency-a", is_active=True)
+    agency = Agency(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        name="Agency A",
+        slug="agency-a",
+        is_active=True,
+    )
     patient = Patient(
         id=uuid.uuid4(),
         tenant_id=tenant.id,

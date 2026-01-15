@@ -70,8 +70,13 @@ def _require_patient(db: Session, patient_id: uuid.UUID, current_user: User) -> 
     return patient
 
 
-def _require_agency(db: Session, agency_id: uuid.UUID) -> Agency:
-    agency = db.execute(select(Agency).where(Agency.id == agency_id)).scalar_one_or_none()
+def _require_agency(db: Session, agency_id: uuid.UUID, current_user: User) -> Agency:
+    agency = db.execute(
+        select(Agency).where(
+            Agency.id == agency_id,
+            Agency.tenant_id == current_user.tenant_id,
+        )
+    ).scalar_one_or_none()
     if agency is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agency not found")
     return agency
@@ -111,7 +116,7 @@ def create_claim(
     current_user: CurrentUserDep,
 ) -> ClaimResponse | JSONResponse:
     patient = _require_patient(db, payload.patient_id, current_user)
-    _require_agency(db, payload.agency_id)
+    _require_agency(db, payload.agency_id, current_user)
     if payload.claim_number:
         existing = db.execute(
             select(Claim).where(
@@ -163,7 +168,7 @@ def update_claim(
     claim = _get_claim_or_404(db, claim_id, current_user)
     data = payload.model_dump(exclude_unset=True)
     if "agency_id" in data and data["agency_id"] is not None:
-        _require_agency(db, data["agency_id"])
+        _require_agency(db, data["agency_id"], current_user)
     if "claim_number" in data and data["claim_number"]:
         existing = db.execute(
             select(Claim).where(
@@ -248,9 +253,16 @@ def add_procedures(
     if not payload.procedures:
         return []
     procedure_ids = [item.procedure_code_id for item in payload.procedures]
-    codes = db.execute(
-        select(ProcedureCode).where(ProcedureCode.id.in_(procedure_ids))
-    ).scalars().all()
+    codes = (
+        db.execute(
+            select(ProcedureCode).where(
+                ProcedureCode.id.in_(procedure_ids),
+                ProcedureCode.tenant_id == current_user.tenant_id,
+            )
+        )
+        .scalars()
+        .all()
+    )
     code_by_id = {code.id: code for code in codes}
     missing = [pid for pid in procedure_ids if pid not in code_by_id]
     if missing:
@@ -264,6 +276,7 @@ def add_procedures(
         existing = db.execute(
             select(ClaimProcedure).where(
                 ClaimProcedure.claim_id == claim.id,
+                ClaimProcedure.tenant_id == current_user.tenant_id,
                 ClaimProcedure.procedure_code_id == item.procedure_code_id,
                 ClaimProcedure.modifier == item.modifier,
             )
@@ -310,9 +323,14 @@ def resolve_policy_links(
             AgencyProcedurePolicyLink,
             (AgencyProcedurePolicyLink.agency_id == claim.agency_id)
             & (AgencyProcedurePolicyLink.procedure_code_id == ProcedureCode.id)
-            & (AgencyProcedurePolicyLink.status == PolicyLinkStatus.ACTIVE),
+            & (AgencyProcedurePolicyLink.status == PolicyLinkStatus.ACTIVE)
+            & (AgencyProcedurePolicyLink.tenant_id == current_user.tenant_id),
         )
-        .where(ClaimProcedure.claim_id == claim.id)
+        .where(
+            ClaimProcedure.claim_id == claim.id,
+            ClaimProcedure.tenant_id == current_user.tenant_id,
+            ProcedureCode.tenant_id == current_user.tenant_id,
+        )
     ).all()
     items: list[ClaimPolicyLinkItem] = []
     for _claim_proc, code, link in procedures:

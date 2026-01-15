@@ -3,8 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import AppRoutes from "@/routes/AppRoutes";
 import { AuthProvider } from "@/lib/auth/AuthContext";
+import AppRoutes from "@/routes/AppRoutes";
 
 type JsonResponseInit = {
   status: number;

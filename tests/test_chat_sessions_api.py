@@ -109,7 +109,13 @@ def test_create_session_cross_tenant_claim_returns_404(db_session: Session) -> N
         hashed_password=get_password_hash("secret"),
         is_active=True,
     )
-    agency = Agency(id=uuid.uuid4(), name="Agency Other", slug="agency-other", is_active=True)
+    agency = Agency(
+        id=uuid.uuid4(),
+        tenant_id=other_tenant.id,
+        name="Agency Other",
+        slug="agency-other",
+        is_active=True,
+    )
     patient = Patient(
         id=uuid.uuid4(),
         tenant_id=other_tenant.id,

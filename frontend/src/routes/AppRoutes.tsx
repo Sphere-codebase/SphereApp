@@ -1,9 +1,10 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
-import BootstrapPage from "@/pages/BootstrapPage";
 import AdminPage from "@/pages/AdminPage";
+import BootstrapPage from "@/pages/BootstrapPage";
 import ChatPage from "@/pages/ChatPage";
 import LoginPage from "@/pages/LoginPage";
+import AdminRoute from "@/routes/AdminRoute";
 import ProtectedRoute from "@/routes/ProtectedRoute";
 
 export default function AppRoutes() {
@@ -22,9 +23,9 @@ export default function AppRoutes() {
       <Route
         path="/app/admin"
         element={
-          <ProtectedRoute>
+          <AdminRoute>
             <AdminPage />
-          </ProtectedRoute>
+          </AdminRoute>
         }
       />
       <Route path="*" element={<Navigate to="/login" replace />} />

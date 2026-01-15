@@ -2,6 +2,9 @@
 
 from app.api.routes.admin import router as admin_router
 from app.api.routes.admin_agencies import router as admin_agencies_router
+from app.api.routes.admin_claims import router as admin_claims_router
+from app.api.routes.admin_diagnoses import router as admin_diagnoses_router
+from app.api.routes.admin_patients import router as admin_patients_router
 from app.api.routes.admin_policy_links import router as admin_policy_links_router
 from app.api.routes.admin_procedure_codes import router as admin_procedure_codes_router
 from app.api.routes.auth import router as auth_router
@@ -14,6 +17,9 @@ from app.api.routes.patients import router as patients_router
 __all__ = [
     "admin_router",
     "admin_agencies_router",
+    "admin_claims_router",
+    "admin_diagnoses_router",
+    "admin_patients_router",
     "admin_policy_links_router",
     "admin_procedure_codes_router",
     "auth_router",

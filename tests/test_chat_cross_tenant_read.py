@@ -36,7 +36,13 @@ def test_cross_tenant_claim_read_returns_404(db_session: Session) -> None:
         hashed_password=get_password_hash("secret"),
         is_active=True,
     )
-    agency_b = Agency(id=uuid.uuid4(), name="Agency B", slug="agency-b", is_active=True)
+    agency_b = Agency(
+        id=uuid.uuid4(),
+        tenant_id=tenant_b.id,
+        name="Agency B",
+        slug="agency-b",
+        is_active=True,
+    )
     patient_b = Patient(
         id=uuid.uuid4(),
         tenant_id=tenant_b.id,

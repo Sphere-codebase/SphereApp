@@ -32,7 +32,13 @@ def _seed_claim_context(
         hashed_password="hashed",
         is_active=True,
     )
-    agency = Agency(id=uuid.uuid4(), name="Agency ML", slug="agency-ml", is_active=True)
+    agency = Agency(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        name="Agency ML",
+        slug="agency-ml",
+        is_active=True,
+    )
     patient = Patient(
         id=uuid.uuid4(),
         tenant_id=tenant.id,
@@ -48,8 +54,13 @@ def _seed_claim_context(
         patient_id=patient.id,
         status=ClaimStatus.DRAFT,
     )
-    code = ProcedureCode(id=uuid.uuid4(), code="99213", title="Office Visit")
-    diagnosis = Diagnosis(id=uuid.uuid4(), code="A00", title="Cholera")
+    code = ProcedureCode(
+        id=uuid.uuid4(),
+        tenant_id=tenant.id,
+        code="99213",
+        title="Office Visit",
+    )
+    diagnosis = Diagnosis(id=uuid.uuid4(), tenant_id=tenant.id, code="A00", title="Cholera")
     db_session.add_all([tenant, user, agency, patient, claim, code, diagnosis])
     db_session.commit()
     return tenant, claim, code, diagnosis, agency

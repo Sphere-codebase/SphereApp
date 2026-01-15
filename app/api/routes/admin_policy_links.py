@@ -33,6 +33,7 @@ AdminUserDep = Annotated[User, Depends(require_admin)]
 
 def _ensure_active_unique(
     db: Session,
+    tenant_id: uuid.UUID,
     agency_id: uuid.UUID,
     procedure_code_id: uuid.UUID,
     status_value: PolicyLinkStatus,
@@ -41,6 +42,7 @@ def _ensure_active_unique(
     if status_value != PolicyLinkStatus.ACTIVE:
         return None
     stmt = select(AgencyProcedurePolicyLink).where(
+        AgencyProcedurePolicyLink.tenant_id == tenant_id,
         AgencyProcedurePolicyLink.agency_id == agency_id,
         AgencyProcedurePolicyLink.procedure_code_id == procedure_code_id,
         AgencyProcedurePolicyLink.status == PolicyLinkStatus.ACTIVE,
@@ -63,12 +65,14 @@ def _ensure_active_unique(
 @router.get("", response_model=list[PolicyLinkResponse])
 def list_policy_links(
     db: DbSessionDep,
-    _: AdminUserDep,
+    current_user: AdminUserDep,
     agency_id: Annotated[uuid.UUID | None, Query()] = None,
     procedure_code_id: Annotated[uuid.UUID | None, Query()] = None,
     query: Annotated[str | None, Query()] = None,
 ) -> list[PolicyLinkResponse]:
-    stmt = select(AgencyProcedurePolicyLink)
+    stmt = select(AgencyProcedurePolicyLink).where(
+        AgencyProcedurePolicyLink.tenant_id == current_user.tenant_id
+    )
     if agency_id:
         stmt = stmt.where(AgencyProcedurePolicyLink.agency_id == agency_id)
     if procedure_code_id:
@@ -76,9 +80,9 @@ def list_policy_links(
     if query:
         like = f"%{query}%"
         stmt = stmt.join(ProcedureCode).where(
-            AgencyProcedurePolicyLink.policy_url.ilike(like)
-            | AgencyProcedurePolicyLink.notes.ilike(like)
-            | ProcedureCode.code.ilike(like)
+            (AgencyProcedurePolicyLink.policy_url.ilike(like))
+            | (AgencyProcedurePolicyLink.notes.ilike(like))
+            | (ProcedureCode.code.ilike(like))
         )
     links = db.execute(stmt.order_by(AgencyProcedurePolicyLink.updated_at.desc())).scalars().all()
     return [PolicyLinkResponse.model_validate(link) for link in links]
@@ -88,24 +92,37 @@ def list_policy_links(
 def create_policy_link(
     payload: PolicyLinkCreateRequest,
     db: DbSessionDep,
-    _: AdminUserDep,
+    current_user: AdminUserDep,
 ) -> PolicyLinkResponse | JSONResponse:
-    agency = db.execute(select(Agency).where(Agency.id == payload.agency_id)).scalar_one_or_none()
+    agency = db.execute(
+        select(Agency).where(
+            Agency.id == payload.agency_id,
+            Agency.tenant_id == current_user.tenant_id,
+        )
+    ).scalar_one_or_none()
     if agency is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agency not found")
     procedure_code = db.execute(
-        select(ProcedureCode).where(ProcedureCode.id == payload.procedure_code_id)
+        select(ProcedureCode).where(
+            ProcedureCode.id == payload.procedure_code_id,
+            ProcedureCode.tenant_id == current_user.tenant_id,
+        )
     ).scalar_one_or_none()
     if procedure_code is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Procedure code not found"
         )
     conflict = _ensure_active_unique(
-        db, payload.agency_id, payload.procedure_code_id, payload.status
+        db,
+        current_user.tenant_id,
+        payload.agency_id,
+        payload.procedure_code_id,
+        payload.status,
     )
     if conflict is not None:
         return conflict
     link = AgencyProcedurePolicyLink(
+        tenant_id=current_user.tenant_id,
         agency_id=payload.agency_id,
         procedure_code_id=payload.procedure_code_id,
         policy_url=str(payload.policy_url),
@@ -125,10 +142,13 @@ def update_policy_link(
     policy_link_id: uuid.UUID,
     payload: PolicyLinkUpdateRequest,
     db: DbSessionDep,
-    _: AdminUserDep,
+    current_user: AdminUserDep,
 ) -> PolicyLinkResponse | JSONResponse:
     link = db.execute(
-        select(AgencyProcedurePolicyLink).where(AgencyProcedurePolicyLink.id == policy_link_id)
+        select(AgencyProcedurePolicyLink).where(
+            AgencyProcedurePolicyLink.id == policy_link_id,
+            AgencyProcedurePolicyLink.tenant_id == current_user.tenant_id,
+        )
     ).scalar_one_or_none()
     if link is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy link not found")
@@ -137,18 +157,33 @@ def update_policy_link(
     procedure_code_id = data.get("procedure_code_id", link.procedure_code_id)
     status_value = data.get("status", link.status)
     if "agency_id" in data:
-        agency = db.execute(select(Agency).where(Agency.id == agency_id)).scalar_one_or_none()
+        agency = db.execute(
+            select(Agency).where(
+                Agency.id == agency_id,
+                Agency.tenant_id == current_user.tenant_id,
+            )
+        ).scalar_one_or_none()
         if agency is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agency not found")
     if "procedure_code_id" in data:
         procedure_code = db.execute(
-            select(ProcedureCode).where(ProcedureCode.id == procedure_code_id)
+            select(ProcedureCode).where(
+                ProcedureCode.id == procedure_code_id,
+                ProcedureCode.tenant_id == current_user.tenant_id,
+            )
         ).scalar_one_or_none()
         if procedure_code is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Procedure code not found"
             )
-    conflict = _ensure_active_unique(db, agency_id, procedure_code_id, status_value, link.id)
+    conflict = _ensure_active_unique(
+        db,
+        current_user.tenant_id,
+        agency_id,
+        procedure_code_id,
+        status_value,
+        link.id,
+    )
     if conflict is not None:
         return conflict
     if "policy_url" in data and data["policy_url"] is not None:
@@ -170,10 +205,13 @@ def update_policy_link(
 def delete_policy_link(
     policy_link_id: uuid.UUID,
     db: DbSessionDep,
-    _: AdminUserDep,
+    current_user: AdminUserDep,
 ) -> Response:
     link = db.execute(
-        select(AgencyProcedurePolicyLink).where(AgencyProcedurePolicyLink.id == policy_link_id)
+        select(AgencyProcedurePolicyLink).where(
+            AgencyProcedurePolicyLink.id == policy_link_id,
+            AgencyProcedurePolicyLink.tenant_id == current_user.tenant_id,
+        )
     ).scalar_one_or_none()
     if link is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy link not found")

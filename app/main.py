@@ -11,6 +11,9 @@ from tenacity import RetryError
 
 from app.api.routes import (
     admin_agencies_router,
+    admin_claims_router,
+    admin_diagnoses_router,
+    admin_patients_router,
     admin_policy_links_router,
     admin_procedure_codes_router,
     admin_router,
@@ -62,8 +65,11 @@ app.add_exception_handler(
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(admin_agencies_router)
+app.include_router(admin_diagnoses_router)
 app.include_router(admin_procedure_codes_router)
 app.include_router(admin_policy_links_router)
+app.include_router(admin_patients_router)
+app.include_router(admin_claims_router)
 app.include_router(chat_router)
 app.include_router(chat_sessions_router)
 app.include_router(patients_router)

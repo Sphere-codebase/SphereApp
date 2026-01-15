@@ -17,6 +17,9 @@ class AgencyProcedurePolicyLink(UpdatedTimestampMixin, Base):
     __tablename__ = "agency_procedure_policy_links"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("tenants.id"), index=True, nullable=False
+    )
     agency_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=False
     )
@@ -31,5 +34,6 @@ class AgencyProcedurePolicyLink(UpdatedTimestampMixin, Base):
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    tenant = relationship("Tenant", backref="policy_links")
     agency = relationship("Agency", back_populates="policy_links")
     procedure_code = relationship("ProcedureCode", back_populates="policy_links")
