@@ -33,6 +33,8 @@ from app.utils.time import utcnow
 router = APIRouter(prefix="/auth", tags=["auth"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
 def get_admin_token(
     x_admin_token: Annotated[str | None, Header(alias="X-Admin-Token")] = None,
 ) -> str | None:

@@ -155,11 +155,7 @@ def add_mcp_codes(
     claim = _get_claim_or_404(db, claim_id, current_user)
     if not payload.mcp_codes:
         return []
-    codes = (
-        db.execute(select(McpCode).where(McpCode.code.in_(payload.mcp_codes)))
-        .scalars()
-        .all()
-    )
+    codes = db.execute(select(McpCode).where(McpCode.code.in_(payload.mcp_codes))).scalars().all()
     code_by_value = {code.code: code for code in codes}
     missing = [code for code in payload.mcp_codes if code not in code_by_value]
     if missing:
@@ -195,24 +191,25 @@ def resolve_policy_links(
     current_user: CurrentUserDep,
 ) -> list[ClaimPolicyLinkItem]:
     claim = _get_claim_or_404(db, claim_id, current_user)
-    codes = (
-        db.execute(
-            select(ClaimMcpCode, McpCode)
-            .join(McpCode, ClaimMcpCode.mcp_code == McpCode.code)
-            .where(ClaimMcpCode.claim_id == claim.id)
-        )
-        .all()
-    )
+    codes = db.execute(
+        select(ClaimMcpCode, McpCode)
+        .join(McpCode, ClaimMcpCode.mcp_code == McpCode.code)
+        .where(ClaimMcpCode.claim_id == claim.id)
+    ).all()
     items: list[ClaimPolicyLinkItem] = []
-    for link, code in codes:
-        policy_link = db.execute(
-            select(PolicyLink)
-            .where(
-                PolicyLink.insurance_company_id == claim.insurance_company_id,
-                PolicyLink.mcp_code == code.code,
+    for _link, code in codes:
+        policy_link = (
+            db.execute(
+                select(PolicyLink)
+                .where(
+                    PolicyLink.insurance_company_id == claim.insurance_company_id,
+                    PolicyLink.mcp_code == code.code,
+                )
+                .order_by(PolicyLink.created_at.desc())
             )
-            .order_by(PolicyLink.created_at.desc())
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         policy_url = policy_link.policy_url if policy_link else None
         items.append(
             ClaimPolicyLinkItem(

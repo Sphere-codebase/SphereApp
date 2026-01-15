@@ -31,9 +31,9 @@ def list_insurance_companies(
     db: DbSessionDep,
     current_user: AdminUserDep,
 ) -> list[InsuranceCompanyResponse]:
-    companies = db.execute(
-        select(InsuranceCompany).order_by(InsuranceCompany.name.asc())
-    ).scalars().all()
+    companies = (
+        db.execute(select(InsuranceCompany).order_by(InsuranceCompany.name.asc())).scalars().all()
+    )
     return [InsuranceCompanyResponse.model_validate(company) for company in companies]
 
 

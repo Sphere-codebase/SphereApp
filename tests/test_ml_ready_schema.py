@@ -91,10 +91,7 @@ def test_ml_ready_schema_tables_and_columns(db_session: Session) -> None:
     prediction_indexes = {
         index["name"] for index in inspector.get_indexes("mcp_payment_predictions")
     }
-    assert (
-        "uq_mcp_payment_predictions_company_code_date"
-        in prediction_indexes
-    )
+    assert "uq_mcp_payment_predictions_company_code_date" in prediction_indexes
 
 
 def test_claim_procedure_diagnosis_unique_constraint(db_session: Session) -> None:

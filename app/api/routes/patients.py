@@ -24,9 +24,7 @@ DbSessionDep = Annotated[Session, Depends(get_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
-def _get_patient_or_404(
-    db: Session, patient_id: int, current_user: User
-) -> Patient:
+def _get_patient_or_404(db: Session, patient_id: int, current_user: User) -> Patient:
     patient = db.execute(
         select(Patient).where(
             Patient.id == patient_id,

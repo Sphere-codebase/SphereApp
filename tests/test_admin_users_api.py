@@ -15,9 +15,7 @@ def _seed_user(db_session: Session, email: str, is_admin: bool) -> User:
     if admin_role is None:
         admin_role = Role(id=next_id(db_session, Role), code="admin", description="Admin")
         db_session.add(admin_role)
-    doctor_role = db_session.execute(
-        select(Role).where(Role.code == "doctor")
-    ).scalar_one_or_none()
+    doctor_role = db_session.execute(select(Role).where(Role.code == "doctor")).scalar_one_or_none()
     if doctor_role is None:
         doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
         db_session.add(doctor_role)

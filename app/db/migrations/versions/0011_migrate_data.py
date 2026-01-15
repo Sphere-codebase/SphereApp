@@ -46,7 +46,11 @@ def upgrade() -> None:
                     CASE
                         WHEN o.rn = 1 THEN o.email
                         WHEN POSITION('@' IN o.email) > 1 THEN
-                            SPLIT_PART(o.email, '@', 1) || '+dup' || o.rn || '@' || SPLIT_PART(o.email, '@', 2)
+                            SPLIT_PART(o.email, '@', 1)
+                            || '+dup'
+                            || o.rn
+                            || '@'
+                            || SPLIT_PART(o.email, '@', 2)
                         ELSE o.email || '+dup' || o.rn
                     END AS email_unique
                 FROM ordered o
@@ -541,29 +545,21 @@ def upgrade() -> None:
     sessions_old_count = _count("SELECT COUNT(*) FROM chat_sessions_old")
     sessions_count = _count("SELECT COUNT(*) FROM chat_sessions")
     if sessions_old_count != sessions_count:
-        raise ValueError(
-            f"chat_sessions count mismatch: {sessions_old_count} -> {sessions_count}"
-        )
+        raise ValueError(f"chat_sessions count mismatch: {sessions_old_count} -> {sessions_count}")
 
     messages_old_count = _count("SELECT COUNT(*) FROM chat_messages_old")
     messages_count = _count("SELECT COUNT(*) FROM chat_messages")
     if messages_old_count != messages_count:
-        raise ValueError(
-            f"chat_messages count mismatch: {messages_old_count} -> {messages_count}"
-        )
+        raise ValueError(f"chat_messages count mismatch: {messages_old_count} -> {messages_count}")
 
     agencies_old_count = _count("SELECT COUNT(*) FROM agencies")
     companies_count = _count("SELECT COUNT(*) FROM insurance_companies")
     if agencies_old_count > 0 and companies_count == 0:
         raise ValueError("insurance_companies migration produced 0 rows")
     if companies_count > agencies_old_count:
-        raise ValueError(
-            "insurance_companies count exceeds agencies count, expected dedupe only"
-        )
+        raise ValueError("insurance_companies count exceeds agencies count, expected dedupe only")
 
-    null_claim_company = _count(
-        "SELECT COUNT(*) FROM claims WHERE insurance_company_id IS NULL"
-    )
+    null_claim_company = _count("SELECT COUNT(*) FROM claims WHERE insurance_company_id IS NULL")
     if null_claim_company > 0:
         raise ValueError("claims have NULL insurance_company_id after migration")
 

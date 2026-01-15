@@ -9,9 +9,7 @@ def test_ml_ready_tables_and_columns(db_session: Session) -> None:
     assert "ml_predictions" in tables
     assert "mcp_payment_predictions" in tables
 
-    training_columns = {
-        column["name"] for column in inspector.get_columns("ml_training_examples")
-    }
+    training_columns = {column["name"] for column in inspector.get_columns("ml_training_examples")}
     for column in {
         "created_at",
         "input_json",

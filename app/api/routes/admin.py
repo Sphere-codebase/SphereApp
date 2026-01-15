@@ -164,10 +164,7 @@ def update_user(
             role_codes.add("doctor")
         if user.id == current_user.id and "admin" not in role_codes:
             admin_count = db.execute(
-                select(func.count())
-                .select_from(UserRole)
-                .join(Role)
-                .where(Role.code == "admin")
+                select(func.count()).select_from(UserRole).join(Role).where(Role.code == "admin")
             ).scalar_one()
             if int(admin_count or 0) <= 1:
                 return JSONResponse(
@@ -178,9 +175,7 @@ def update_user(
                         details={"user_id": str(user.id)},
                     ),
                 )
-        db.execute(
-            UserRole.__table__.delete().where(UserRole.user_id == user.id)
-        )
+        db.execute(UserRole.__table__.delete().where(UserRole.user_id == user.id))
         for code in sorted(role_codes):
             role = _ensure_role(db, code, code.capitalize())
             db.add(UserRole(user_id=user.id, role_id=role.id))

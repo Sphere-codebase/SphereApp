@@ -18,9 +18,7 @@ def upgrade() -> None:
     op.add_column("claims", sa.Column("billed_total_cents", sa.Integer(), nullable=True))
     op.add_column("claims", sa.Column("allowed_total_cents", sa.Integer(), nullable=True))
     op.add_column("claims", sa.Column("paid_total_cents", sa.Integer(), nullable=True))
-    op.add_column(
-        "claims", sa.Column("patient_responsibility_cents", sa.Integer(), nullable=True)
-    )
+    op.add_column("claims", sa.Column("patient_responsibility_cents", sa.Integer(), nullable=True))
     op.create_index("ix_claims_tenant_patient", "claims", ["tenant_id", "patient_id"])
     op.create_index("ix_claims_tenant_agency", "claims", ["tenant_id", "agency_id"])
     op.create_index("ix_claims_tenant_status", "claims", ["tenant_id", "status"])
@@ -49,27 +47,19 @@ def upgrade() -> None:
         "claim_procedures",
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=True),
     )
-    op.add_column(
-        "claim_procedures", sa.Column("billed_amount_cents", sa.Integer(), nullable=True)
-    )
+    op.add_column("claim_procedures", sa.Column("billed_amount_cents", sa.Integer(), nullable=True))
     op.add_column(
         "claim_procedures", sa.Column("allowed_amount_cents", sa.Integer(), nullable=True)
     )
     op.add_column(
         "claim_procedures", sa.Column("coinsurance_amount_cents", sa.Integer(), nullable=True)
     )
-    op.add_column(
-        "claim_procedures", sa.Column("copay_amount_cents", sa.Integer(), nullable=True)
-    )
+    op.add_column("claim_procedures", sa.Column("copay_amount_cents", sa.Integer(), nullable=True))
     op.add_column(
         "claim_procedures", sa.Column("deductible_amount_cents", sa.Integer(), nullable=True)
     )
-    op.add_column(
-        "claim_procedures", sa.Column("paid_amount_cents", sa.Integer(), nullable=True)
-    )
-    op.add_column(
-        "claim_procedures", sa.Column("denial_reason_code", sa.Text(), nullable=True)
-    )
+    op.add_column("claim_procedures", sa.Column("paid_amount_cents", sa.Integer(), nullable=True))
+    op.add_column("claim_procedures", sa.Column("denial_reason_code", sa.Text(), nullable=True))
     op.add_column("claim_procedures", sa.Column("line_number", sa.Integer(), nullable=True))
 
     op.execute(
@@ -298,9 +288,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_check_constraint(
-        "ck_proc_price_agency_claims_count_gte_0", "procedure_price_by_agency"
-    )
+    op.drop_check_constraint("ck_proc_price_agency_claims_count_gte_0", "procedure_price_by_agency")
     op.drop_check_constraint(
         "ck_proc_price_agency_max_paid_cents_gte_0", "procedure_price_by_agency"
     )
@@ -321,12 +309,8 @@ def downgrade() -> None:
     op.drop_check_constraint(
         "ck_claim_proc_payments_paid_amount_cents_gte_0", "claim_procedure_payments"
     )
-    op.drop_index(
-        "ix_claim_proc_payments_tenant_paid_at", table_name="claim_procedure_payments"
-    )
-    op.drop_index(
-        "ix_claim_proc_payments_tenant_claim_proc", table_name="claim_procedure_payments"
-    )
+    op.drop_index("ix_claim_proc_payments_tenant_paid_at", table_name="claim_procedure_payments")
+    op.drop_index("ix_claim_proc_payments_tenant_claim_proc", table_name="claim_procedure_payments")
     op.drop_table("claim_procedure_payments")
 
     op.drop_index("ix_claim_diagnoses_tenant_diagnosis", table_name="claim_diagnoses")
@@ -337,18 +321,12 @@ def downgrade() -> None:
     op.drop_check_constraint(
         "ck_claim_procedures_deductible_amount_cents_gte_0", "claim_procedures"
     )
-    op.drop_check_constraint(
-        "ck_claim_procedures_copay_amount_cents_gte_0", "claim_procedures"
-    )
+    op.drop_check_constraint("ck_claim_procedures_copay_amount_cents_gte_0", "claim_procedures")
     op.drop_check_constraint(
         "ck_claim_procedures_coinsurance_amount_cents_gte_0", "claim_procedures"
     )
-    op.drop_check_constraint(
-        "ck_claim_procedures_allowed_amount_cents_gte_0", "claim_procedures"
-    )
-    op.drop_check_constraint(
-        "ck_claim_procedures_billed_amount_cents_gte_0", "claim_procedures"
-    )
+    op.drop_check_constraint("ck_claim_procedures_allowed_amount_cents_gte_0", "claim_procedures")
+    op.drop_check_constraint("ck_claim_procedures_billed_amount_cents_gte_0", "claim_procedures")
     op.drop_check_constraint("ck_claim_procedures_units_gte_1", "claim_procedures")
     op.drop_index("ix_claim_procedures_tenant_procedure", table_name="claim_procedures")
     op.drop_index("ix_claim_procedures_tenant_claim", table_name="claim_procedures")

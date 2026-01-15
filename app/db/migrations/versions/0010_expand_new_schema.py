@@ -284,7 +284,9 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["insurance_company_id"], ["insurance_companies.id"]),
     )
     op.create_index("ix_ml_predictions_model_version", "ml_predictions", ["model_version"])
-    op.create_index("ix_ml_predictions_claim_id_mcp_code", "ml_predictions", ["claim_id", "mcp_code"])
+    op.create_index(
+        "ix_ml_predictions_claim_id_mcp_code", "ml_predictions", ["claim_id", "mcp_code"]
+    )
     op.create_index(
         "ix_ml_predictions_insurance_company_id_mcp_code",
         "ml_predictions",

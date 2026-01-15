@@ -43,9 +43,7 @@ class ChatOrchestrator:
         self.user = user
         self.llm_client = llm_client or LLMClient()
 
-    def run(
-        self, message: str, session_id: int | None
-    ) -> ChatResult:
+    def run(self, message: str, session_id: int | None) -> ChatResult:
         session = self._get_or_create_session(session_id)
         self._store_message(session.id, role="user", content=message)
 
@@ -232,9 +230,7 @@ class ChatOrchestrator:
         self.db.add(message)
         self.db.commit()
 
-    def _store_tool_result(
-        self, session_id: int, tool_name: str, result: dict[str, Any]
-    ) -> None:
+    def _store_tool_result(self, session_id: int, tool_name: str, result: dict[str, Any]) -> None:
         if not tool_name or result is None:
             return
         rendered = json.dumps(result, sort_keys=True, default=str)

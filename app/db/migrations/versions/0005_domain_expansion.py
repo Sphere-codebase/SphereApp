@@ -219,9 +219,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["patient_id"], ["patients.id"], name="fk_visits_patient_id_patients"
         ),
-        sa.ForeignKeyConstraint(
-            ["tenant_id"], ["tenants.id"], name="fk_visits_tenant_id_tenants"
-        ),
+        sa.ForeignKeyConstraint(["tenant_id"], ["tenants.id"], name="fk_visits_tenant_id_tenants"),
     )
     op.create_index("ix_visits_patient_id", "visits", ["patient_id"])
     op.create_index("ix_visits_visited_at", "visits", ["visited_at"])

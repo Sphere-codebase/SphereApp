@@ -15,9 +15,7 @@ from app.utils.time import utcnow
 
 
 def _seed_user(db_session: Session) -> User:
-    doctor_role = db_session.execute(
-        select(Role).where(Role.code == "doctor")
-    ).scalar_one_or_none()
+    doctor_role = db_session.execute(select(Role).where(Role.code == "doctor")).scalar_one_or_none()
     if doctor_role is None:
         doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
         db_session.add(doctor_role)
@@ -46,7 +44,9 @@ def test_messages_requires_auth() -> None:
 
 def test_messages_returns_ordered_with_timestamps(db_session: Session) -> None:
     user = _seed_user(db_session)
-    session = ChatSession(id=next_id(db_session, ChatSession), doctor_id=user.id, created_at=utcnow())
+    session = ChatSession(
+        id=next_id(db_session, ChatSession), doctor_id=user.id, created_at=utcnow()
+    )
     db_session.add(session)
     db_session.commit()
 

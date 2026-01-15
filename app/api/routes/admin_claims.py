@@ -106,17 +106,14 @@ def get_claim(
     db: DbSessionDep,
     current_user: AdminUserDep,
 ) -> AdminClaimDetailResponse:
-    claim_row = (
-        db.execute(
-            select(Claim, Patient, InsuranceCompany)
-            .join(Patient, Claim.patient_id == Patient.id)
-            .join(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
-            .where(
-                Claim.id == claim_id,
-            )
+    claim_row = db.execute(
+        select(Claim, Patient, InsuranceCompany)
+        .join(Patient, Claim.patient_id == Patient.id)
+        .join(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
+        .where(
+            Claim.id == claim_id,
         )
-        .all()
-    )
+    ).all()
     if not claim_row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
     claim, patient, company = claim_row[0]
@@ -175,9 +172,7 @@ def get_claim(
     return AdminClaimDetailResponse(
         id=claim.id,
         patient=AdminPatientSummary.model_validate(patient),
-        insurance_company=AdminInsuranceCompanySummary.model_validate(company)
-        if company
-        else None,
+        insurance_company=AdminInsuranceCompanySummary.model_validate(company) if company else None,
         claim_number=claim.claim_number,
         claim_status=claim.claim_status,
         service_date=claim.service_date,

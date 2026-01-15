@@ -55,9 +55,7 @@ def _search_patients(ctx: ToolContext, args: schemas.SearchPatientsArgs) -> dict
             "id": patient.id,
             "first_name": patient.first_name,
             "last_name": patient.last_name,
-            "date_of_birth": patient.date_of_birth.isoformat()
-            if patient.date_of_birth
-            else None,
+            "date_of_birth": patient.date_of_birth.isoformat() if patient.date_of_birth else None,
         }
         for patient in rows
     ]
@@ -76,18 +74,18 @@ def _get_patient(ctx: ToolContext, args: schemas.GetPatientArgs) -> dict[str, An
             "id": patient.id,
             "first_name": patient.first_name,
             "last_name": patient.last_name,
-            "date_of_birth": patient.date_of_birth.isoformat()
-            if patient.date_of_birth
-            else None,
+            "date_of_birth": patient.date_of_birth.isoformat() if patient.date_of_birth else None,
         }
     }
 
 
 def _get_claim(ctx: ToolContext, args: schemas.GetClaimArgs) -> dict[str, Any]:
     claim = ctx.db.execute(
-        select(Claim, Patient).join(Patient).where(
+        select(Claim, Patient)
+        .join(Patient)
+        .where(
             Claim.id == args.claim_id,
-            *( [Patient.doctor_id == ctx.user_id] if ctx.user_id is not None else [] ),
+            *([Patient.doctor_id == ctx.user_id] if ctx.user_id is not None else []),
         )
     ).first()
     if claim is None:
@@ -100,9 +98,7 @@ def _get_claim(ctx: ToolContext, args: schemas.GetClaimArgs) -> dict[str, Any]:
             "claim_status": claim_row.claim_status,
             "claim_number": claim_row.claim_number,
             "insurance_company_id": claim_row.insurance_company_id,
-            "service_date": claim_row.service_date.isoformat()
-            if claim_row.service_date
-            else None,
+            "service_date": claim_row.service_date.isoformat() if claim_row.service_date else None,
             "claim_date": claim_row.claim_date.isoformat() if claim_row.claim_date else None,
             "billed_amount_total": float(claim_row.billed_amount_total)
             if claim_row.billed_amount_total is not None
@@ -117,7 +113,7 @@ def _list_claims(ctx: ToolContext, args: schemas.ListClaimsArgs) -> dict[str, An
         .join(Patient)
         .where(
             Claim.patient_id == args.patient_id,
-            *( [Patient.doctor_id == ctx.user_id] if ctx.user_id is not None else [] ),
+            *([Patient.doctor_id == ctx.user_id] if ctx.user_id is not None else []),
         )
     ).scalars()
     claims = [

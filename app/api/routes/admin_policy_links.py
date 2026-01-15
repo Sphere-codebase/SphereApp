@@ -95,7 +95,9 @@ def update_policy_link(
     db: DbSessionDep,
     current_user: AdminUserDep,
 ) -> PolicyLinkResponse | JSONResponse:
-    link = db.execute(select(PolicyLink).where(PolicyLink.id == policy_link_id)).scalar_one_or_none()
+    link = db.execute(
+        select(PolicyLink).where(PolicyLink.id == policy_link_id)
+    ).scalar_one_or_none()
     if link is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy link not found")
     data = payload.model_dump(exclude_unset=True)
@@ -152,7 +154,9 @@ def delete_policy_link(
     db: DbSessionDep,
     current_user: AdminUserDep,
 ) -> Response:
-    link = db.execute(select(PolicyLink).where(PolicyLink.id == policy_link_id)).scalar_one_or_none()
+    link = db.execute(
+        select(PolicyLink).where(PolicyLink.id == policy_link_id)
+    ).scalar_one_or_none()
     if link is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy link not found")
     db.delete(link)

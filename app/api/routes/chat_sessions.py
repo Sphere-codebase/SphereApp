@@ -95,9 +95,7 @@ def delete_session(
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
-    db.execute(
-        ChatMessage.__table__.delete().where(ChatMessage.session_id == session.id)
-    )
+    db.execute(ChatMessage.__table__.delete().where(ChatMessage.session_id == session.id))
     db.delete(session)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

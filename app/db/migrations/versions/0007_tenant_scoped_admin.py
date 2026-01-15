@@ -57,9 +57,7 @@ def upgrade() -> None:
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=True),
     )
     bind.execute(
-        sa.text(
-            "UPDATE procedure_codes SET tenant_id = :tenant_id WHERE tenant_id IS NULL"
-        ),
+        sa.text("UPDATE procedure_codes SET tenant_id = :tenant_id WHERE tenant_id IS NULL"),
         {"tenant_id": default_tenant_id},
     )
     op.alter_column("procedure_codes", "tenant_id", nullable=False)
@@ -112,9 +110,7 @@ def upgrade() -> None:
         ["tenant_id"],
         ["id"],
     )
-    op.create_index(
-        "ix_policy_links_tenant_id", "agency_procedure_policy_links", ["tenant_id"]
-    )
+    op.create_index("ix_policy_links_tenant_id", "agency_procedure_policy_links", ["tenant_id"])
     op.drop_index("uq_policy_links_active", table_name="agency_procedure_policy_links")
     op.create_index(
         "uq_policy_links_active_tenant",

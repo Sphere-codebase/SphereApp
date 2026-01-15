@@ -68,9 +68,7 @@ def test_chat_file_logs_created_and_redacted(tmp_path, monkeypatch) -> None:
         assert log_path.exists()
 
         logger = logging.getLogger(CHAT_LOGGER_NAME)
-        handler_paths = [
-            getattr(handler, "baseFilename", None) for handler in logger.handlers
-        ]
+        handler_paths = [getattr(handler, "baseFilename", None) for handler in logger.handlers]
         handler_paths = [path for path in handler_paths if path]
         assert handler_paths
         contents = ""

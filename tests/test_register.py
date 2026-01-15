@@ -70,9 +70,7 @@ def test_admin_create_user_success(db_session: Session, monkeypatch) -> None:
 
 def test_normal_user_cannot_create_others(db_session: Session, monkeypatch) -> None:
     monkeypatch.setattr(settings, "admin_api_key", "admin-secret")
-    doctor_role = db_session.execute(
-        select(Role).where(Role.code == "doctor")
-    ).scalar_one_or_none()
+    doctor_role = db_session.execute(select(Role).where(Role.code == "doctor")).scalar_one_or_none()
     if doctor_role is None:
         doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
         db_session.add(doctor_role)

@@ -17,9 +17,5 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     bind = op.get_bind()
-    bind.execute(
-        sa.text(
-            "UPDATE agencies SET slug = CONCAT('agency-', id) WHERE slug IS NULL"
-        )
-    )
+    bind.execute(sa.text("UPDATE agencies SET slug = CONCAT('agency-', id) WHERE slug IS NULL"))
     op.alter_column("agencies", "slug", existing_type=sa.String(length=100), nullable=False)

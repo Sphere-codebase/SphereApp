@@ -11,9 +11,5 @@ from app.db.models.base import Base
 class UserRole(Base):
     __tablename__ = "user_roles"
 
-    user_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("users.id"), primary_key=True
-    )
-    role_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("roles.id"), primary_key=True
-    )
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), primary_key=True)
+    role_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("roles.id"), primary_key=True)
