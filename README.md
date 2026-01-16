@@ -31,7 +31,10 @@ make install         # install backend deps (incl dev)
 make db-up           # start Postgres (docker compose)
 make db-down         # stop Postgres
 make db-logs         # follow Postgres logs
+make db-wait         # wait for postgres health
 make db-upgrade      # run Alembic migrations against compose DB
+make db-dump         # dump data to backups/ directory
+make db-restore      # restore data from SQL file (requires FILE=...)
 
 make run             # run API (reload)
 make run-prod        # run API (no reload)
@@ -241,6 +244,22 @@ Local Docker smoke (build + run + health/ready + stop):
 ```bash
 make docker-ci
 ```
+
+## Database Backups
+
+You can dump the local Docker-based database to the `backups/` directory:
+
+```bash
+make db-dump
+```
+
+To restore from a dump, specify the file path:
+
+```bash
+make db-restore FILE=backups/dump_20230101_120000.sql
+```
+
+_(Note: This drops/recreates data depending on the dump content, use with caution.)_
 
 ---
 

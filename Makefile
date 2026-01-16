@@ -100,6 +100,21 @@ db-upgrade: db-wait
 migrate:
 	DATABASE_URL="$(DATABASE_URL)" $(VENV)/bin/python -m alembic -c alembic.ini upgrade head
 
+# --- Database Backups ---
+db-dump:
+	@mkdir -p backups
+	@echo "Dumping DB..."
+	@docker exec claims_assistant_postgres pg_dump -U postgres claims_assistant > "backups/dump_$$(date +%Y%m%d_%H%M%S).sql"
+	@echo "Backup saved to backups/dump_$$(date +%Y%m%d_%H%M%S).sql"
+
+db-restore:
+	@if [ -z "$(FILE)" ]; then \
+	  echo "ERROR: FILE is required. Example: make db-restore FILE=backups/foo.sql"; \
+	  exit 1; \
+	fi
+	@echo "Restoring from $(FILE)..."
+	@cat "$(FILE)" | docker exec -i claims_assistant_postgres psql -U postgres claims_assistant
+
 # --- App run ---
 run:
 	$(VENV)/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
