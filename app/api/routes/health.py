@@ -81,7 +81,7 @@ def check_llm(llm_client: LlmClientDep) -> Tuple[str, str | None]:
 
 @router.get("/ready")
 def ready(db: DbSessionDep, llm_client: LlmClientDep) -> dict[str, object]:
-    print(float(_LAST["ts"]))
+    # print(float(_LAST["ts"]))
     last_checks = _LAST["checks"]
     assert isinstance(last_checks, dict)
 
@@ -97,7 +97,6 @@ def ready(db: DbSessionDep, llm_client: LlmClientDep) -> dict[str, object]:
             "details": dict(_LAST["details"]),
         }
         return payload
-    print(2)
 
     checks: dict[str, str] = {"db": "err", "llm": "err"}
     details: dict[str, str | None] = {"db": None, "llm": None}
@@ -105,14 +104,19 @@ def ready(db: DbSessionDep, llm_client: LlmClientDep) -> dict[str, object]:
     db_status, db_err = check_db(db)
     checks["db"] = db_status
     details["db"] = db_err
+    print(f" db_status - {db_status} \n db_err - {db_err} ")
 
-    if db_status == "ok":
-        llm_status, llm_err = check_llm(llm_client)
-        checks["llm"] = llm_status
-        details["llm"] = llm_err
-    else:
-        checks["llm"] = "err"
-        details["llm"] = "skipped"
+    llm_status, llm_err = check_llm(llm_client)
+    checks["llm"] = llm_status
+    details["llm"] = llm_err
+
+    # if db_status == "ok":
+    #     llm_status, llm_err = check_llm(llm_client)
+    #     checks["llm"] = llm_status
+    #     details["llm"] = llm_err
+    # else:
+    #     checks["llm"] = "err"
+    #     details["llm"] = "skipped"
 
     overall_ok = checks["db"] == "ok" and checks["llm"] == "ok"
 
@@ -123,7 +127,7 @@ def ready(db: DbSessionDep, llm_client: LlmClientDep) -> dict[str, object]:
     _LAST["ok"] = overall_ok
     _LAST["ts"] = 9
 
-    print(_LAST)
+    # print(_LAST)
     if not overall_ok:
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

@@ -17,9 +17,7 @@ type ChatStatusHudProps = {
 
 const POLL_INTERVAL_MS = 10000;
 
-// /ready иногда может делать реальный чек LLM — 4s часто мало.
-// 15s — безопаснее для dev и не создаёт ложные "вечные жёлтые".
-const REQUEST_TIMEOUT_MS = 15000;
+const REQUEST_TIMEOUT_MS = 60000;
 
 function normalizeCheck(value: unknown): StatusLevel {
   return value === "ok" ? "ok" : "err";
@@ -79,26 +77,42 @@ export default function ChatStatusHud({ busy }: ChatStatusHudProps) {
     }
   }, []);
 
-  const checkReady = useCallback(async () => {
+const lastReadyRef = useRef<{ db: StatusLevel; llm: StatusLevel }>({
+  db: "err",
+  llm: "idle", // Изначально idle, так как ждет DB
+});
+
+const checkReady = useCallback(async () => {
   try {
-        const response = await fetchWithTimeout(apiUrl("/ready"), REQUEST_TIMEOUT_MS);
+    const response = await fetchWithTimeout(apiUrl("/ready"), REQUEST_TIMEOUT_MS);
+    const data = await parseJsonStrict(response);
+    const checks = data.checks as Record<string, unknown>;
 
-        // читаем JSON ВСЕГДА, даже при 503
-        const data = await parseJsonStrict(response);
-        const checks = data.checks as Record<string, unknown>;
+    if (!checks || checks.db === undefined || checks.llm === undefined) {
+      throw new Error("Invalid checks payload");
+    }
 
-        if (!checks || checks.db === undefined || checks.llm === undefined) {
-          throw new Error("Invalid checks payload");
-        }
+    let dbStatus = normalizeCheck(checks.db);
+    let llmStatus = normalizeCheck(checks.llm);
 
-        return {
-          db: normalizeCheck(checks.db),
-          llm: normalizeCheck(checks.llm),
-        };
-      } catch {
-        return { db: "err", llm: "err" };
-      }
-    }, []);
+//     if (dbStatus === "err") {
+//       llmStatus = "err";
+//     } else if (dbStatus === "ok" && llmStatus !== "err") {
+//       llmStatus = dbStatus;
+//     }
+
+    const next = {
+      db: dbStatus,
+      llm: llmStatus,
+    };
+
+    lastReadyRef.current = next;
+    return next;
+  } catch (error) {
+    console.error("Check ready error:", error);
+    return lastReadyRef.current;
+  }
+}, []);
 
 
 
@@ -124,8 +138,6 @@ export default function ChatStatusHud({ busy }: ChatStatusHudProps) {
   const legend = useMemo(
     () => [
       { label: "Green", value: "Active / ready" },
-      { label: "Gray", value: "Disabled (intentional)" },
-      { label: "Yellow", value: "Degraded / limited" },
       { label: "Red", value: "Offline" },
     ],
     []
