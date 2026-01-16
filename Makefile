@@ -195,27 +195,27 @@ node-install:
 
 # Create (if missing) and install React frontend (Vite + React + TypeScript)
 frontend-install: node-install
-	@test -d frontend || { \
-		echo "Creating Vite React+TS app in ./frontend ..."; \
-		npm create vite@latest frontend -- --template react-ts; \
+	@test -d frontend-dev || { \
+		echo "Creating Vite React+TS app in ./frontend-dev ..."; \
+		npm create vite@latest frontend-dev -- --template react-ts; \
 	}
-	@cd frontend && npm install
+	@cd frontend-dev && npm install
 	@echo "Done. Run: make frontend-dev"
 
 frontend-dev:
-	@cd frontend && npm run dev
+	@cd frontend-dev && npm run dev
 
 frontend-lint:
-	@cd frontend && npm run lint
+	@cd frontend-dev && npm run lint
 
 frontend-typecheck:
-	@cd frontend && npm run typecheck
+	@cd frontend-dev && npm run typecheck
 
 frontend-test:
-	@cd frontend && npm test
+	@cd frontend-dev && npm test
 
 frontend-build:
-	@cd frontend && npm run build
+	@cd frontend-dev && npm run build
 
 .PHONY: help venv install db-up db-down db-logs db-wait docker-wait db-upgrade migrate run run-prod start test fmt fmt-check lint type ci clean \
         docker-build docker-run docker-smoke docker-stop docker-ci \
