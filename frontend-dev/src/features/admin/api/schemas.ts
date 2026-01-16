@@ -58,6 +58,46 @@ export const policyLinkCreateSchema = z.object({
 
 export const policyLinkUpdateSchema = policyLinkCreateSchema.partial();
 
+export const policyRulesParseProposedSchema = z.object({
+  title: z.string().nullable(),
+  next_review_iso: z.string().nullable(),
+  criteria_count: z.number(),
+  notes_count: z.number(),
+  medical_necessity_clean_preview: z.string(),
+});
+
+export const policyRulesParseActionSchema = z.object({
+  action_required: z.literal(true),
+  proposed_changes: policyRulesParseProposedSchema,
+  next_action: z.any().optional(),
+});
+
+export const policyRulesParseStoredSchema = z.object({
+  status: z.literal("stored"),
+  policy_link_id: z.number(),
+  policy_rules_id: z.number(),
+  title: z.string().nullable(),
+  next_review_iso: z.string().nullable(),
+  criteria_count: z.number(),
+  notes_count: z.number(),
+});
+
+export const policyRulesParseResponseSchema = z.union([
+  policyRulesParseActionSchema,
+  policyRulesParseStoredSchema,
+]);
+
+export const policyRuleSchema = z.object({
+  policy_rules_id: z.number(),
+  policy_link_id: z.number(),
+  extracted_at: dateString,
+  title: z.string().nullable(),
+  next_review_iso: z.string().nullable(),
+  criteria_json: z.any().nullable(),
+  notes_json: z.any().nullable(),
+  medical_necessity_clean: z.string().nullable(),
+});
+
 export const adminUserSchema = z.object({
   id: z.number(),
   email: z.string().email(),
@@ -173,6 +213,9 @@ export type DiagnosisCodeUpdateInput = z.infer<typeof diagnosisCodeUpdateSchema>
 export type PolicyLink = z.infer<typeof policyLinkSchema>;
 export type PolicyLinkCreateInput = z.infer<typeof policyLinkCreateSchema>;
 export type PolicyLinkUpdateInput = z.infer<typeof policyLinkUpdateSchema>;
+export type PolicyRulesParseProposed = z.infer<typeof policyRulesParseProposedSchema>;
+export type PolicyRulesParseResponse = z.infer<typeof policyRulesParseResponseSchema>;
+export type PolicyRule = z.infer<typeof policyRuleSchema>;
 export type AdminUser = z.infer<typeof adminUserSchema>;
 export type AdminUserCreateInput = z.infer<typeof adminUserCreateSchema>;
 export type AdminUserUpdateInput = z.infer<typeof adminUserUpdateSchema>;

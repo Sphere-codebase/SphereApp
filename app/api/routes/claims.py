@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import shutil
+import tempfile
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,10 +30,13 @@ from app.schemas.claims import (
     ClaimMcpCodeCreateRequest,
     ClaimMcpCodeResponse,
     ClaimPolicyLinkItem,
+    ClaimPdfIngestResponse,
     ClaimResponse,
     ClaimUpdateRequest,
     McpCodeSummary,
 )
+from app.services.claim_pdf_ingest import ingest_parsed_pdf
+from app.services.pdf_parser_client import parse_pdf_document
 from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/claims", tags=["claims"])
@@ -219,3 +225,30 @@ def resolve_policy_links(
             )
         )
     return items
+
+
+@router.post("/ingest-pdf", response_model=ClaimPdfIngestResponse)
+def ingest_pdf_claim(
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    file: UploadFile = File(...),
+    session_id: int | None = Form(None),
+) -> ClaimPdfIngestResponse:
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Missing PDF")
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        safe_name = Path(file.filename).name
+        file_path = Path(temp_dir) / safe_name
+        with file_path.open("wb") as handle:
+            shutil.copyfileobj(file.file, handle)
+
+        parsed = parse_pdf_document(file_path)
+
+    result = ingest_parsed_pdf(
+        payload=parsed,
+        current_user=current_user,
+        db=db,
+        session_id=session_id,
+    )
+    return ClaimPdfIngestResponse.model_validate(result)

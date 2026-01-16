@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.db.id_utils import next_id
 from app.db.models import Claim, ClaimStatus, InsuranceCompany, Patient, User
 from app.llm.tools import schemas
+from app.services.policy_rules import parse_policy_link_and_store
 from app.utils.time import utcnow
 
 Handler = Callable[["ToolContext", Any], dict[str, Any]]
@@ -238,6 +239,25 @@ def _update_claim_fields(ctx: ToolContext, args: schemas.UpdateClaimFieldsArgs) 
     return {"updated": True}
 
 
+def _require_admin(ctx: ToolContext) -> None:
+    if ctx.user_id is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
+    user = ctx.db.execute(select(User).where(User.id == ctx.user_id)).scalar_one_or_none()
+    if user is None or not any(role.code == "admin" for role in user.roles):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
+
+
+def _parse_policy_link_and_store(
+    ctx: ToolContext, args: schemas.ParsePolicyLinkAndStoreArgs
+) -> dict[str, Any]:
+    _require_admin(ctx)
+    return parse_policy_link_and_store(
+        policy_link_id=args.policy_link_id,
+        confirm=args.confirm,
+        db=ctx.db,
+    )
+
+
 TOOLS: dict[str, ToolDefinition] = {
     "search_patients": ToolDefinition(
         name="search_patients",
@@ -292,6 +312,14 @@ TOOLS: dict[str, ToolDefinition] = {
         description="Update claim fields (requires confirmation).",
         args_model=schemas.UpdateClaimFieldsArgs,
         handler=_update_claim_fields,
+    ),
+    "parse_policy_link_and_store": ToolDefinition(
+        name="parse_policy_link_and_store",
+        description=(
+            "Parse a policy link and optionally store extracted rules (requires confirmation)."
+        ),
+        args_model=schemas.ParsePolicyLinkAndStoreArgs,
+        handler=_parse_policy_link_and_store,
     ),
 }
 

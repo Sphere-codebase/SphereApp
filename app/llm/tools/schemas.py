@@ -45,3 +45,8 @@ class GetAccountArgs(BaseModel):
 
 class TimeNowArgs(BaseModel):
     tz: str = "Asia/Tbilisi"
+
+
+class ParsePolicyLinkAndStoreArgs(BaseModel):
+    policy_link_id: int
+    confirm: bool = False

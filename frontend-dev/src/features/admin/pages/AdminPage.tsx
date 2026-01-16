@@ -1,4 +1,4 @@
-import { Moon, Pencil, Plus, Sun, Trash2 } from "lucide-react";
+import { FileText, Moon, Pencil, Plus, RefreshCcw, Sun, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -31,6 +31,7 @@ import {
   listInsuranceCompanies,
   listMcpCodes,
   listPolicyLinks,
+  parsePolicyLinkRules,
   resetAdminUserPassword,
   updateAdminUser,
   updateDiagnosisCode,
@@ -50,6 +51,7 @@ import {
   type McpCode,
   type PolicyLink,
   type PolicyLinkCreateInput,
+  type PolicyRulesParseProposed,
 } from "@/features/admin/api/client";
 import type { ClaimStatus } from "@/features/admin/api/schemas";
 import DataTable from "@/features/admin/components/DataTable";
@@ -172,6 +174,7 @@ function formatDateOnly(value?: string | null): string {
 export default function AdminPage() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const isAdmin = Boolean(user?.roles?.includes("admin"));
   const [activeTab, setActiveTab] = useState<AdminTab>("reference");
   const [referenceTab, setReferenceTab] = useState<ReferenceTab>("mcp-codes");
   const [error, setError] = useState<unknown>(null);
@@ -186,6 +189,13 @@ export default function AdminPage() {
   const [patients, setPatients] = useState<AdminPatient[]>([]);
   const [claims, setClaims] = useState<AdminClaimSummary[]>([]);
   const [claimDetail, setClaimDetail] = useState<AdminClaimDetail | null>(null);
+  const [policyRefreshDialogOpen, setPolicyRefreshDialogOpen] = useState(false);
+  const [policyRefreshTarget, setPolicyRefreshTarget] = useState<PolicyLink | null>(
+    null
+  );
+  const [policyRefreshProposed, setPolicyRefreshProposed] =
+    useState<PolicyRulesParseProposed | null>(null);
+  const [policyRefreshLoading, setPolicyRefreshLoading] = useState(false);
 
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
   const [claimsFilters, setClaimsFilters] =
@@ -631,6 +641,55 @@ export default function AdminPage() {
       handleApiError(err);
     }
   };
+
+  const handlePolicyRulesRefresh = async (policy: PolicyLink) => {
+    setError(null);
+    setPolicyRefreshLoading(true);
+    setPolicyRefreshTarget(policy);
+    setPolicyRefreshProposed(null);
+    try {
+      const result = await parsePolicyLinkRules(policy.id, false);
+      if ("action_required" in result) {
+        setPolicyRefreshProposed(result.proposed_changes);
+        setPolicyRefreshDialogOpen(true);
+        return;
+      }
+    } catch (err) {
+      handleApiError(err);
+    } finally {
+      setPolicyRefreshLoading(false);
+    }
+  };
+
+  const handlePolicyRulesConfirm = async () => {
+    if (!policyRefreshTarget) {
+      return;
+    }
+    setError(null);
+    setPolicyRefreshLoading(true);
+    try {
+      const result = await parsePolicyLinkRules(policyRefreshTarget.id, true);
+      if ("status" in result) {
+        setPolicyRefreshDialogOpen(false);
+        setPolicyRefreshProposed(null);
+      }
+    } catch (err) {
+      handleApiError(err);
+    } finally {
+      setPolicyRefreshLoading(false);
+    }
+  };
+
+  const openPolicyRulesPage = useCallback(
+    (policy: PolicyLink) => {
+      const params = new URLSearchParams({
+        mcp_code: policy.mcp_code,
+        policy_link_id: String(policy.id),
+      });
+      navigate(`/app/admin/policy-rules?${params.toString()}`);
+    },
+    [navigate]
+  );
 
   const handleUserSubmit = async () => {
     setUserFormError(null);
@@ -1112,6 +1171,34 @@ export default function AdminPage() {
                       header: "",
                       cell: (row) => (
                         <div className="flex items-center justify-end gap-2">
+                          {isAdmin ? (
+                            <>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => void handlePolicyRulesRefresh(row)}
+                                aria-label={`Refresh rules for policy ${row.id}`}
+                                disabled={
+                                  policyRefreshLoading &&
+                                  policyRefreshTarget?.id === row.id
+                                }
+                              >
+                                <RefreshCcw className="h-4 w-4" />
+                                Refresh Rules
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => openPolicyRulesPage(row)}
+                                aria-label={`View rules for policy ${row.id}`}
+                              >
+                                <FileText className="h-4 w-4" />
+                                View Rules
+                              </Button>
+                            </>
+                          ) : null}
                           <Button
                             type="button"
                             size="sm"
@@ -1529,6 +1616,77 @@ export default function AdminPage() {
           />
         </label>
       </EditDialog>
+
+      <Dialog
+        open={policyRefreshDialogOpen}
+        onOpenChange={(open) => {
+          setPolicyRefreshDialogOpen(open);
+          if (!open) {
+            setPolicyRefreshProposed(null);
+            setPolicyRefreshTarget(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Refresh policy rules</DialogTitle>
+            <DialogDescription>
+              Review extracted policy details before storing.
+            </DialogDescription>
+          </DialogHeader>
+          {policyRefreshProposed ? (
+            <div className="space-y-3 text-sm text-slate-700 dark:text-slate-200">
+              <div>
+                <div className="text-xs uppercase text-slate-400">Title</div>
+                <div className="font-medium">
+                  {policyRefreshProposed.title ?? "—"}
+                </div>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                <div>
+                  <div className="text-xs uppercase text-slate-400">Next review</div>
+                  <div>{formatDateOnly(policyRefreshProposed.next_review_iso)}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase text-slate-400">Criteria</div>
+                  <div>{policyRefreshProposed.criteria_count}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase text-slate-400">Notes</div>
+                  <div>{policyRefreshProposed.notes_count}</div>
+                </div>
+              </div>
+              <div>
+                <div className="text-xs uppercase text-slate-400">
+                  Medical necessity (preview)
+                </div>
+                <div className="max-h-32 overflow-y-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100">
+                  {policyRefreshProposed.medical_necessity_clean_preview}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">Preparing policy rules...</p>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setPolicyRefreshDialogOpen(false)}
+              disabled={policyRefreshLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handlePolicyRulesConfirm()}
+              disabled={policyRefreshLoading}
+            >
+              Confirm refresh
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <EditDialog
         open={userDialogOpen}

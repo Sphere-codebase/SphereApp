@@ -11,6 +11,8 @@ import {
   insuranceCompanySchema,
   mcpCodeSchema,
   policyLinkSchema,
+  policyRuleSchema,
+  policyRulesParseResponseSchema,
   type AdminClaimDetail,
   type AdminClaimSummary,
   type AdminPatient,
@@ -30,6 +32,9 @@ import {
   type PolicyLink,
   type PolicyLinkCreateInput,
   type PolicyLinkUpdateInput,
+  type PolicyRule,
+  type PolicyRulesParseProposed,
+  type PolicyRulesParseResponse,
 } from "./schemas";
 
 function parseWithSchema<T>(schema: z.ZodType<T>, data: unknown, label: string): T {
@@ -202,6 +207,28 @@ export async function deletePolicyLink(id: number): Promise<void> {
   await requestVoid(`/api/admin/policy-links/${id}`, { method: "DELETE" });
 }
 
+export async function parsePolicyLinkRules(
+  policyLinkId: number,
+  confirm: boolean
+): Promise<PolicyRulesParseResponse> {
+  const data = await requestJson<unknown>(
+    `/api/admin/policy-links/${policyLinkId}/parse`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm }),
+    }
+  );
+  return parseWithSchema(policyRulesParseResponseSchema, data, "parse policy rules");
+}
+
+export async function getPolicyLinkRules(policyLinkId: number): Promise<PolicyRule> {
+  const data = await requestJson<unknown>(
+    `/api/admin/policy-links/${policyLinkId}/rules`
+  );
+  return parseWithSchema(policyRuleSchema, data, "policy rules");
+}
+
 export async function listAdminUsers(filters: {
   query?: string;
   is_active?: boolean;
@@ -294,4 +321,7 @@ export type {
   PolicyLink,
   PolicyLinkCreateInput,
   PolicyLinkUpdateInput,
+  PolicyRule,
+  PolicyRulesParseProposed,
+  PolicyRulesParseResponse,
 };
