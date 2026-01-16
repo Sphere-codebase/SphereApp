@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Annotated
-from typing import Tuple
-import time
 
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
@@ -15,7 +13,6 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.session import get_db
 from app.llm.client import LLMClient, LLMUnavailable
-
 
 _LAST: dict[str, object] = {
     "checks": {"db": "err", "llm": "err"},
@@ -63,7 +60,7 @@ def _readiness(db: Session, llm_client: LLMClient) -> tuple[bool, bool | None, s
     return True, None, None
 
 
-def check_db(db: DbSessionDep) -> Tuple[str, str | None]:
+def check_db(db: DbSessionDep) -> tuple[str, str | None]:
     try:
         db.execute(text("SELECT 1"))
         return "ok", None
@@ -71,7 +68,7 @@ def check_db(db: DbSessionDep) -> Tuple[str, str | None]:
         return "err", str(exc)
 
 
-def check_llm(llm_client: LlmClientDep) -> Tuple[str, str | None]:
+def check_llm(llm_client: LlmClientDep) -> tuple[str, str | None]:
     try:
         llm_client.health_check()
         return "ok", None
@@ -104,22 +101,11 @@ def ready(db: DbSessionDep, llm_client: LlmClientDep) -> dict[str, object]:
     db_status, db_err = check_db(db)
     checks["db"] = db_status
     details["db"] = db_err
-    print(f" db_status - {db_status} \n db_err - {db_err} ")
 
     llm_status, llm_err = check_llm(llm_client)
     checks["llm"] = llm_status
     details["llm"] = llm_err
-
-    # if db_status == "ok":
-    #     llm_status, llm_err = check_llm(llm_client)
-    #     checks["llm"] = llm_status
-    #     details["llm"] = llm_err
-    # else:
-    #     checks["llm"] = "err"
-    #     details["llm"] = "skipped"
-
     overall_ok = checks["db"] == "ok" and checks["llm"] == "ok"
-
     payload = {"ok": overall_ok, "checks": checks, "details": details}
 
     _LAST["checks"] = checks

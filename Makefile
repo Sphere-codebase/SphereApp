@@ -119,7 +119,7 @@ type:
 	$(VENV)/bin/mypy app
 
 # CI-like pipeline (mirrors what CI does: format check, lint, migrate, tests)
-ci: fmt-check lint migrate test
+ci: fmt-check lint-fix migrate test
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache __pycache__ htmlcov .coverage
