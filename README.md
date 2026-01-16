@@ -7,11 +7,66 @@ FastAPI service with Postgres + Alembic migrations and optional local LLM (LM St
 - Docker (for Postgres)
 - (Optional) LM Studio for local LLM server
 
+## Makefile quick commands
+
+This repo includes a `Makefile` that wraps the most common dev commands.
+
+### Quickstart (backend)
+
+```bash
+make install
+make start
+```
+
+What `make start` does: `db-up` (Postgres) → `db-upgrade` (Alembic) → `run` (Uvicorn with reload).
+
+### Useful targets
+
+```bash
+make help            # list all targets
+
+make venv            # create .venv
+make install         # install backend deps (incl dev)
+
+make db-up           # start Postgres (docker compose)
+make db-down         # stop Postgres
+make db-logs         # follow Postgres logs
+make db-upgrade      # run Alembic migrations against compose DB
+
+make run             # run API (reload)
+make run-prod        # run API (no reload)
+
+make test            # run tests
+make fmt             # ruff format
+make lint            # ruff lint
+make type            # mypy
+make ci              # CI-like: fmt-check + lint + migrate + test
+```
+
+### Frontend targets
+
+```bash
+make frontend-install
+make frontend-dev
+make frontend-lint
+make frontend-typecheck
+make frontend-test
+make frontend-build
+```
+
 ## Local run
+
+If you prefer, you can use `make start` (see above). Manual steps are below.
 
 ### 1) Start Postgres
 ```bash
 docker compose up -d
+```
+
+Makefile equivalent:
+
+```bash
+make db-up
 ```
 
 ### 2) Set env
@@ -30,15 +85,68 @@ export READY_CHECK_LLM="false"
 python -m alembic upgrade head
 ```
 
+Makefile equivalent:
+
+```bash
+make db-upgrade
+```
+
 ### 4) Start API
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+Makefile equivalent:
+
+```bash
+make run
 ```
 
 ### 5) Health checks
 ```bash
 curl -i http://localhost:8000/health
 curl -i http://localhost:8000/ready
+```
+
+## Creating an Admin User
+
+To create a new user with admin privileges, you must use the `ADMIN_API_KEY` backdoor.
+
+### 1. Configure Admin Key
+Ensure your `.env` file (or environment) has the `ADMIN_API_KEY` variable set.
+
+```bash
+# .env
+# Example (development only):
+ADMIN_API_KEY=5b241278440774e6c74d3019bb74f2585d8762b4d66134d17db66b723c8c6709013afc738ef5fa60b685f2bbabd143595dc7751ffb829259041b4526b2d42098
+```
+
+### 2. Create the Admin (or User)
+With the server running (e.g., via `make run`), you can use the `create-admin` or `create-user` make targets. They will automatically pick up `ADMIN_API_KEY` from your `.env`.
+
+**Create an Admin:**
+```bash
+make create-admin EMAIL=admin@example.com PASSWORD=strong_password FULL_NAME="System Admin"
+```
+
+**Create a Standard User:**
+```bash
+make create-user EMAIL=doctor@example.com PASSWORD=secret
+```
+
+_Note: If you don't use `.env`, you can pass the key manually:_
+```bash
+make create-admin ADMIN_API_KEY=secret-key ...
+```
+
+### 3. Verify
+The make command will output the JSON response containing the access token. You can verify login:
+
+```bash
+# Verify login
+curl -s -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"strong_password"}'
 ```
 
 ## Auth quickstart
@@ -109,8 +217,10 @@ export LLM_BASE_URL="http://<LM_IP>:1234/v1"
 
 ## Tests
 ```bash
-pytest -q -rs
+make test
 ```
+
+(Direct: `.venv/bin/pytest -q`)
 
 ## CI
 GitHub Actions workflow:
@@ -119,6 +229,18 @@ GitHub Actions workflow:
 - runs Alembic migrations and tests
 - builds Docker image
 - smoke-tests /health and /ready on port 8000
+
+Local CI-like checks:
+
+```bash
+make ci
+```
+
+Local Docker smoke (build + run + health/ready + stop):
+
+```bash
+make docker-ci
+```
 
 ---
 

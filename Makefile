@@ -1,4 +1,6 @@
 SHELL := /bin/bash
+-include .env
+export
 
 PYTHON ?= python3.11
 VENV ?= .venv
@@ -16,6 +18,13 @@ IMAGE_TAG ?= $(shell echo "$(IMAGE_NAME)" | tr '[:upper:]' '[:lower:]')
 
 HEALTH_URL ?= http://localhost:8000/health
 READY_URL ?= http://localhost:8000/ready
+
+API_URL ?= http://localhost:8000
+ADMIN_API_KEY ?=
+EMAIL ?= user@example.com
+PASSWORD ?= secret
+FULL_NAME ?=
+ROLE ?= user
 
 .DEFAULT_GOAL := help
 
@@ -39,6 +48,8 @@ help:
 	@echo "  make type        - type-check (mypy)"
 	@echo "  make ci          - fmt-check + lint + migrate + test (CI-like)"
 	@echo "  make clean       - remove caches"
+	@echo "  make create-user - create a standard user (requires ADMIN_API_KEY)"
+	@echo "  make create-admin- create an admin user (requires ADMIN_API_KEY)"
 	@echo ""
 	@echo "Docker (CI-like smoke):"
 	@echo "  make docker-build - build docker image ($(IMAGE_TAG):ci)"
@@ -209,3 +220,29 @@ frontend-build:
 .PHONY: help venv install db-up db-down db-logs db-wait docker-wait db-upgrade migrate run run-prod start test fmt fmt-check lint type ci clean \
         docker-build docker-run docker-smoke docker-stop docker-ci \
         frontend-dev frontend-lint frontend-typecheck frontend-test frontend-build
+
+# --- User Management ---
+create-user:
+	@if [ -z "$(ADMIN_API_KEY)" ]; then \
+	  echo "ERROR: ADMIN_API_KEY is required in .env or via argument."; \
+	  echo "  Example locally: make create-user EMAIL=bob@example.com PASSWORD=secret"; \
+	  exit 1; \
+	fi
+	@echo "Creating user: $(EMAIL)"
+	@curl -s -X POST "$(API_URL)/auth/admin/users" \
+	  -H "Content-Type: application/json" \
+	  -H "X-Admin-Token: $(ADMIN_API_KEY)" 	  -d '{"email":"$(EMAIL)","password":"$(PASSWORD)"}' \
+	  | python -m json.tool
+
+create-admin:
+	@if [ -z "$(ADMIN_API_KEY)" ]; then \
+	  echo "ERROR: ADMIN_API_KEY is required in .env or via argument."; \
+	  echo "  Example locally: make create-admin EMAIL=admin@example.com PASSWORD=secret FULL_NAME='System Admin'"; \
+	  exit 1; \
+	fi
+	@echo "Creating admin: $(EMAIL)"
+	@curl -s -X POST "$(API_URL)/auth/admin/users" \
+	  -H "Content-Type: application/json" \
+	  -H "X-Admin-Token: $(ADMIN_API_KEY)" \
+	  -d '{"email":"$(EMAIL)","password":"$(PASSWORD)","full_name":"$(FULL_NAME)","roles":["admin"]}' \
+	  | python -m json.tool
