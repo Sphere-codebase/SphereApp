@@ -32,7 +32,13 @@ class _CorsDotEnvSettingsSource(DotEnvSettingsSource):
 class Settings(BaseSettings):
     env: Literal["dev", "test", "prod"] = Field("dev", alias="ENV")
     log_level: str = Field("INFO", alias="LOG_LEVEL")
-    cors_origins: list[str] = Field(default_factory=list, alias="CORS_ORIGINS")
+    cors_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ],
+        alias="CORS_ORIGINS",
+    )
 
     lmstudio_base_url: str = Field("http://localhost:1234/v1", alias="LMSTUDIO_BASE_URL")
     llm_model: str = Field("local-model", alias="LLM_MODEL")

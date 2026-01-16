@@ -1,86 +1,139 @@
+from __future__ import annotations
+
+import importlib.util
 import json
-from datetime import datetime
+import os
+import sys
 from pathlib import Path
+from typing import Any
 
-import pdfplumber
+_SAMPLE_RESULT: dict[str, Any] = {
+    "user_info": {
+        "account_number": "060391381674",
+        "name": "Lloyd Goldfarb",
+        "date_of_birth": "10/15/1964",
+    },
+    "codes": [
+        {
+            "type": "RA",
+            "code": "F1",
+            "description": "Paid in full",
+        }
+    ],
+    "info": [
+        {
+            "date": "07/09/2025",
+            "cpt": "98925",
+            "dx": ["M46.96"],
+            "reason_codes": [],
+            "billed_amount": "$1,000.00",
+            "allowed_amount": "$120.00",
+            "paid_amount": "$100.00",
+            "ratio": 0.1,
+            "adjustments": [
+                {
+                    "amount": "$3.81",
+                    "type": "Patient Responsibility",
+                    "code": "COIN",
+                    "description": "Coinsurance",
+                }
+            ],
+        },
+        {
+            "date": "07/09/2025",
+            "cpt": "98926",
+            "dx": ["M46.96"],
+            "reason_codes": [],
+            "billed_amount": "$1,000.00",
+            "allowed_amount": "$110.00",
+            "paid_amount": "$90.00",
+            "ratio": 0.09,
+            "adjustments": [
+                {
+                    "amount": "$30.00",
+                    "type": "Patient Responsibility",
+                    "code": "COIN",
+                    "description": "Coinsurance",
+                }
+            ],
+        },
+        {
+            "date": "07/09/2025",
+            "cpt": "98927",
+            "dx": ["M47.816"],
+            "reason_codes": [],
+            "billed_amount": "$900.00",
+            "allowed_amount": "$112.34",
+            "paid_amount": "$91.87",
+            "ratio": 0.102,
+            "adjustments": [
+                {
+                    "amount": "$30.00",
+                    "type": "Patient Responsibility",
+                    "code": "COIN",
+                    "description": "Coinsurance",
+                }
+            ],
+        },
+        {
+            "date": "07/09/2025",
+            "cpt": "98928",
+            "dx": ["M47.816"],
+            "reason_codes": [],
+            "billed_amount": "$800.00",
+            "allowed_amount": "$110.00",
+            "paid_amount": "$80.00",
+            "ratio": 0.1,
+            "adjustments": [
+                {
+                    "amount": "$26.66",
+                    "type": "Patient Responsibility",
+                    "code": "COIN",
+                    "description": "Coinsurance",
+                }
+            ],
+        },
+    ],
+}
 
 
-def parse_data(path_from: Path, path_to: Path) -> dict[str, list]:
-    result_obj = {"user_info": {}, "codes": [], "info": []}
-    info_step = -1
+def _load_real_parser() -> Any:
+    override = os.getenv("PDF_PARSER_PATH", "").strip()
+    if override:
+        real_path = Path(override).expanduser()
+    else:
+        real_path = Path(__file__).resolve().parent / "pdf_parse.py"
+    if real_path.resolve() == Path(__file__).resolve():
+        raise RuntimeError("PDF_PARSER_PATH points to sample parser")
+    if not real_path.exists():
+        raise FileNotFoundError(f"Missing real PDF parser at {real_path}")
+    spec = importlib.util.spec_from_file_location("dlc_modul_pdf_real_parser", real_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load parser module from {real_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    parse_fn = getattr(module, "parse_data", None)
+    if parse_fn is None:
+        parse_fn = getattr(module, "parse_pdf", None)
+    if parse_fn is None:
+        raise AttributeError("parse_data or parse_pdf not found in real parser module")
+    return parse_fn
 
-    if not path_from.exists():
-        return result_obj
 
-    with pdfplumber.open(path_from) as pdf:
-        lines = pdf.pages[0].extract_text_simple().split("\n")[:20]
-        name_taken = False
-        in_codes = False
-        for line in lines:
-            print(line)
-            words = line.split()
-            if " ".join(words[0:3]) == "Patient Account Number":
-                result_obj["user_info"]["account_number"] = words[3]
-            elif words[0] == "Patient" and words[1] != "Information" and not name_taken:
-                gender_list = [index for index, item in enumerate(words) if item == "Gender"]
-                if gender_list:
-                    result_obj["user_info"]["name"] = " ".join(words[1 : gender_list[0]])
-                else:
-                    result_obj["user_info"]["name"] = " ".join(words[1:])
-                name_taken = True
-            elif words[0] == "DOB":
-                result_obj["user_info"]["date_of_birth"] = words[1]
-        for p in pdf.pages:
-            for t in p.extract_tables():
-                for r in t:
-                    check_header = r[0].split("\n")[0].strip()
-                    try:
-                        res = bool(datetime.strptime(check_header, "%m/%d/%Y"))
-                    except ValueError:
-                        res = False
+def parse_data(input_path: Path, output_path: Path) -> dict[str, Any]:
+    """Return a deterministic parse result for the provided PDF path."""
+    # mode = os.getenv("PDF_PARSER_MODE", "").strip().lower()
+    # if mode == "sample":
+    #     output_path.write_text(json.dumps(_SAMPLE_RESULT, indent=2))
+    #     return _SAMPLE_RESULT
 
-                    if in_codes and check_header != "Type":
-                        result_obj["codes"].append({"type": r[0], "code": r[1], "description": r[2].replace("\n", " ")})
-                    elif res:
-                        info_step += 1
-                        result_obj["info"].append(
-                            {
-                                "date": check_header,
-                                "cpt": r[2],
-                                "dx": r[3].split("\n"),
-                                "reason_codes": r[6].split("\n"),
-                                "billed_amount": r[7],
-                                "allowed_amount": r[8],
-                                "paid_amount": r[12],
-                                "ratio": round(
-                                    float(r[8].replace("$", "").replace(",", "")) / float(r[7].replace("$", "").replace(",", "")), 2
-                                ),
-                                "adjustments": [],
-                            }
-                        )
-                    elif check_header == "Adjustments":
-                        adj_values = r[0].removeprefix("Adjustments\nAmount Type Code Quantity Description\n").split()
-                        payment_indexes = [index for index, value in enumerate(adj_values) if value.startswith("$")]
-                        for i in range(len(payment_indexes)):
-                            step_index = payment_indexes[i]
-                            append_obj = {
-                                "amount": adj_values[step_index],
-                                "type": " ".join(adj_values[step_index + 1 : step_index + 3]),
-                                "code": adj_values[step_index + 3],
-                            }
-                            if i == len(payment_indexes) - 1:
-                                append_obj["description"] = " ".join(adj_values[step_index + 4 :]).replace("\n", " ")
-                            else:
-                                append_obj["description"] = " ".join(adj_values[step_index + 4 : payment_indexes[i + 1]]).replace("\n", " ")
-                            result_obj["info"][info_step]["adjustments"].append(append_obj)
-                    elif check_header.startswith("$") and len(r) == 5:
-                        exist_adj = [item for item in result_obj["info"][info_step]["adjustments"] if item["code"] == r[2]]
-                        if len(exist_adj) == 0:
-                            result_obj["info"][info_step]["adjustments"].append(
-                                {"amount": r[0], "type": r[1], "code": r[2], "description": r[4].replace("\n", " ")}
-                            )
-                    elif check_header == "Type" and r[1] == "Code" and r[2] == "Description":
-                        in_codes = True
-    with open(path_to, "w") as json_file:
-        json.dump(result_obj, json_file, indent=4)
-    return result_obj
+    parse_fn = _load_real_parser()
+    result = parse_fn(input_path, output_path)
+    if result is None and output_path.exists():
+        return json.loads(output_path.read_text())
+    if result is None:
+        raise RuntimeError("Real PDF parser did not return output")
+    if not output_path.exists():
+        output_path.write_text(json.dumps(result, indent=2))
+    return result

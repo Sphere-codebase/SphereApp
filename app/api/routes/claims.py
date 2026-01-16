@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -9,9 +11,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.deps import require_admin
 from app.core.logging import error_payload
 from app.core.security import get_current_user
 from app.db.id_utils import next_id
@@ -42,6 +46,13 @@ from app.utils.time import utcnow
 router = APIRouter(prefix="/api/claims", tags=["claims"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+AdminUserDep = Annotated[User, Depends(require_admin)]
+logger = logging.getLogger(__name__)
+
+
+class PdfLocalIngestRequest(BaseModel):
+    file_path: str
+    chat_session_id: int | None = None
 
 
 def _get_claim_or_404(db: Session, claim_id: int, current_user: User) -> Claim:
@@ -242,6 +253,13 @@ def ingest_pdf_claim(
         file_path = Path(temp_dir) / safe_name
         with file_path.open("wb") as handle:
             shutil.copyfileobj(file.file, handle)
+        file_size = file_path.stat().st_size
+        logger.info(
+            "Uploaded PDF filename=%s path=%s size_bytes=%s",
+            file.filename,
+            file_path,
+            file_size,
+        )
 
         parsed = parse_pdf_document(file_path)
 
@@ -252,3 +270,75 @@ def ingest_pdf_claim(
         session_id=session_id,
     )
     return ClaimPdfIngestResponse.model_validate(result)
+
+
+@router.post("/ingest-pdf-local")
+def ingest_pdf_local(
+    payload: PdfLocalIngestRequest,
+    db: DbSessionDep,
+    current_user: AdminUserDep,
+) -> dict[str, object]:
+    """Local debug endpoint; do not enable in production deployments."""
+    file_path = Path(payload.file_path)
+    if not file_path.is_absolute():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file_path must be absolute")
+    if not file_path.exists():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file_path does not exist")
+    if file_path.suffix.lower() != ".pdf":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file_path must end with .pdf")
+
+    logger.info(
+        "Local PDF ingest file_path=%s size_bytes=%s",
+        file_path,
+        file_path.stat().st_size,
+    )
+
+    try:
+        parsed = parse_pdf_document(file_path)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Parser failed: {exc}",
+        ) from exc
+
+    info = parsed.get("pdf", {}).get("info", []) if isinstance(parsed, dict) else []
+    dx_codes = {
+        dx.strip().upper()
+        for item in info
+        if isinstance(item, dict)
+        for dx in (item.get("dx") or [])
+        if isinstance(dx, str) and dx.strip()
+    }
+    user_info = parsed.get("pdf", {}).get("user_info", {}) if isinstance(parsed, dict) else {}
+    patient_name = user_info.get("name")
+    logger.info(
+        "Local PDF parsed parser_mode=%s account_number=%s patient_name=%s service_date=%s cpt_count=%s dx_count=%s",
+        os.getenv("PDF_PARSER_MODE", "").strip() or "real",
+        user_info.get("account_number"),
+        patient_name,
+        info[0].get("date") if info else None,
+        len(info),
+        len(dx_codes),
+    )
+
+    result = ingest_parsed_pdf(
+        payload=parsed,
+        current_user=current_user,
+        db=db,
+        session_id=payload.chat_session_id,
+    )
+
+    # Example:
+    # curl -X POST http://127.0.0.1:8000/api/claims/ingest-pdf-local \
+    #   -H "Content-Type: application/json" \
+    #   -H "Authorization: Bearer <token>" \
+    #   -d '{"file_path":"/Users/user/Developer/pythonProject/policy_parser_app/app/api/pdf/parse/test_claim.pdf"}'
+    # Verify (psql):
+    #   select count(*) from claims;
+    #   select count(*) from claim_mcp_codes;
+    #   select count(*) from claim_diagnosis_codes;
+    return {
+        **result,
+        "cpt_line_count": result.get("line_count"),
+        "dx_code_count": len(dx_codes),
+    }

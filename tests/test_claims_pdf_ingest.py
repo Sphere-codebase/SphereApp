@@ -22,12 +22,18 @@ from app.db.models import (
     User,
 )
 from app.services.claim_pdf_ingest import ingest_parsed_pdf
+from app.services.pdf_parser_client import parse_pdf_document
 from app.utils.time import utcnow
 
+file_for_test = "/Users/user/Developer/pythonProject/SphereApp/tests/test_claim.pdf"
 
 def _load_sample_payload() -> dict:
-    path = Path(__file__).resolve().parents[1] / "dlc-modul" / "example.txt"
-    return json.loads(path.read_text())
+    parsed = parse_pdf_document(Path(file_for_test))
+    assert parsed.get("error_message") is None
+    return parsed
+
+
+file_for_test = "/Users/user/Developer/pythonProject/SphereApp/tests/test_claim.pdf"
 
 
 def _seed_user(db_session: Session) -> User:
@@ -110,3 +116,50 @@ def test_ingest_pdf_rejects_parser_error(db_session: Session) -> None:
         ingest_parsed_pdf(payload=invalid_payload, current_user=user, db=db_session)
 
     assert exc.value.status_code == 422
+
+
+def test_ingest_pdf_inserts_dx_codes_first(db_session: Session) -> None:
+    user = _seed_user(db_session)
+    parsed = parse_pdf_document(Path(file_for_test))
+    assert parsed.get("error_message") is None
+
+    payload = parsed
+    result = ingest_parsed_pdf(payload=payload, current_user=user, db=db_session)
+    claim_id = result["claim_id"]
+
+    info = payload.get("pdf", {}).get("info", []) or []
+    parsed_dx_codes = {
+        dx.strip().upper()
+        for item in info
+        for dx in (item.get("dx") or [])
+        if dx and dx.strip()
+    }
+    assert parsed_dx_codes
+
+    db_dx_codes = {
+        row[0]
+        for row in db_session.execute(
+            select(DiagnosisCode.code).where(DiagnosisCode.code.in_(parsed_dx_codes))
+        ).all()
+    }
+    assert parsed_dx_codes.issubset(db_dx_codes)
+
+    claim_dx_codes = {
+        row[0]
+        for row in db_session.execute(
+            select(ClaimDiagnosisCode.diagnosis_code).where(
+                ClaimDiagnosisCode.claim_id == claim_id
+            )
+        ).all()
+    }
+    assert parsed_dx_codes.issubset(claim_dx_codes)
+
+    dx_count = _count_rows(db_session, DiagnosisCode)
+    claim_dx_count = _count_rows(db_session, ClaimDiagnosisCode)
+    proc_dx_count = _count_rows(db_session, ClaimProcedureDiagnosis)
+
+    second = ingest_parsed_pdf(payload=payload, current_user=user, db=db_session)
+    assert second["claim_id"] == claim_id
+    assert _count_rows(db_session, DiagnosisCode) == dx_count
+    assert _count_rows(db_session, ClaimDiagnosisCode) == claim_dx_count
+    assert _count_rows(db_session, ClaimProcedureDiagnosis) == proc_dx_count
