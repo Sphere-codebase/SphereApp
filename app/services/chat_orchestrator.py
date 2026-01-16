@@ -24,7 +24,17 @@ from app.utils.time import utcnow
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SYSTEM_RULES_PATH = ROOT_DIR / "docs" / "system_rules.md"
 DEVELOPER_POLICY_PATH = ROOT_DIR / "docs" / "developer_policy.md"
+DEFAULT_SYSTEM_RULES = "You are a helpful assistant."
+DEFAULT_DEVELOPER_POLICY = "Follow developer instructions."
 logger = logging.getLogger(__name__)
+
+
+def safe_read(path: Path, default: str) -> str:
+    try:
+        return path.read_text()
+    except FileNotFoundError:
+        logger.warning("Missing prompt file: %s", path)
+        return default
 
 
 @dataclass
@@ -160,8 +170,15 @@ class ChatOrchestrator:
 
     def _build_prompt(self, session_id: int) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
-        messages.append({"role": "system", "content": SYSTEM_RULES_PATH.read_text()})
-        messages.append({"role": "system", "content": DEVELOPER_POLICY_PATH.read_text()})
+        messages.append(
+            {"role": "system", "content": safe_read(SYSTEM_RULES_PATH, DEFAULT_SYSTEM_RULES)}
+        )
+        messages.append(
+            {
+                "role": "system",
+                "content": safe_read(DEVELOPER_POLICY_PATH, DEFAULT_DEVELOPER_POLICY),
+            }
+        )
 
         history = self.db.execute(
             select(ChatMessage)
