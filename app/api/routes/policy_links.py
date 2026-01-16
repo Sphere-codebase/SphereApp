@@ -22,7 +22,7 @@ from app.schemas.admin_catalogs import (
     PolicyRuleResponse,
     PolicyRulesParseRequest,
 )
-from app.services.policy_rules import parse_policy_link_and_store
+from app.services.policy.rules_refresh import parse_policy_link_and_store
 from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/admin/policy-links", tags=["admin_policy_links"])

@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.db.id_utils import next_id
 from app.db.models import Claim, ClaimStatus, InsuranceCompany, Patient, User
 from app.llm.tools import schemas
-from app.services.policy_rules import parse_policy_link_and_store
+from app.services.policy.rules_refresh import parse_policy_link_and_store
 from app.utils.time import utcnow
 
 Handler = Callable[["ToolContext", Any], dict[str, Any]]

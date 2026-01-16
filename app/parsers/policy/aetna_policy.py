@@ -17,7 +17,8 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 from app.core.config import settings
 
-_DLC_PARSERS_DIR = Path(__file__).resolve().parents[2] / "dlc-modul" / "app" / "parsers"
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_DLC_PARSERS_DIR = _PROJECT_ROOT / "dlc-modul" / "app" / "parsers"
 
 _LOCAL_PARSERS: dict[str, Callable[..., Any]] | None = None
 _PREPROCESS_FN: Callable[[str], str] | None = None

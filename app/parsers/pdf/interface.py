@@ -14,8 +14,9 @@ from typing import Any, Callable
 from fastapi import HTTPException, status
 from pydantic import BaseModel, ValidationError
 
-_SAMPLE_PARSER_PATH = Path(__file__).resolve().parents[2] / "dlc-modul" / "aetna_pdf.py"
-_DEFAULT_REAL_PARSER_PATH = Path(__file__).resolve().parents[2] / "dlc-modul" / "pdf_parse.py"
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_SAMPLE_PARSER_PATH = _PROJECT_ROOT / "dlc-modul" / "aetna_pdf.py"
+_DEFAULT_REAL_PARSER_PATH = _PROJECT_ROOT / "dlc-modul" / "pdf_parse.py"
 _PARSE_FN: Callable[[Path, Path], dict[str, Any]] | None = None
 _PARSE_PATH: Path | None = None
 _logger = logging.getLogger(__name__)

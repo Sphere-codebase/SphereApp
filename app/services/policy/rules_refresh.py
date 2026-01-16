@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.db.id_utils import next_id
 from app.db.models import InsuranceCompany, PolicyLink, PolicyRule
 from app.db.session import SessionLocal
-from app.services.policy_parser_client import parse_policy
+from app.parsers.policy.aetna_policy import parse_policy
 from app.utils.time import utcnow
 
 

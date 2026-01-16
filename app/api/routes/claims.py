@@ -39,8 +39,8 @@ from app.schemas.claims import (
     ClaimUpdateRequest,
     McpCodeSummary,
 )
-from app.services.claim_pdf_ingest import ingest_parsed_pdf
-from app.services.pdf_parser_client import parse_pdf_document
+from app.parsers.pdf.interface import parse_pdf_document
+from app.services.claims.ingestion import ingest_parsed_pdf
 from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/claims", tags=["claims"])

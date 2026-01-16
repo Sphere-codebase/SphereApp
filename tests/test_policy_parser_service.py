@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.db.id_utils import next_id
 from app.db.models import InsuranceCompany, McpCode, PolicyLink, PolicyRule
-from app.services import policy_rules
-from app.services.policy_parser_client import ParsedPolicy
+from app.parsers.policy.aetna_policy import ParsedPolicy
+from app.services.policy import rules_refresh as policy_rules
 from app.utils.time import utcnow
 
 SOURCE_URL = "https://www.aetna.com/cpb/medical/data/700_799/0722.html"

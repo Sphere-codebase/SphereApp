@@ -15,7 +15,7 @@ from app.api.routes import (
     admin_insurance_companies_router,
     admin_mcp_codes_router,
     admin_patients_router,
-    admin_policy_links_router,
+    policy_links_router,
     admin_router,
     auth_router,
     chat_router,
@@ -67,7 +67,7 @@ app.include_router(admin_router)
 app.include_router(admin_insurance_companies_router)
 app.include_router(admin_diagnosis_codes_router)
 app.include_router(admin_mcp_codes_router)
-app.include_router(admin_policy_links_router)
+app.include_router(policy_links_router)
 app.include_router(admin_patients_router)
 app.include_router(admin_claims_router)
 app.include_router(chat_router)

@@ -21,8 +21,8 @@ from app.db.models import (
     Patient,
     User,
 )
-from app.services.claim_pdf_ingest import ingest_parsed_pdf
-from app.services.pdf_parser_client import parse_pdf_document
+from app.parsers.pdf.interface import parse_pdf_document
+from app.services.claims.ingestion import ingest_parsed_pdf
 from app.utils.time import utcnow
 
 file_for_test = "/Users/user/Developer/pythonProject/SphereApp/tests/test_claim.pdf"

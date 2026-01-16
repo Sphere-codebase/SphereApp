@@ -18,8 +18,8 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.main import app
-from app.services import policy_rules
-from app.services.policy_parser_client import ParsedPolicy
+from app.parsers.policy.aetna_policy import ParsedPolicy
+from app.services.policy import rules_refresh as policy_rules
 from app.utils.time import utcnow
 
 
