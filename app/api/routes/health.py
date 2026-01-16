@@ -102,10 +102,15 @@ def ready(db: DbSessionDep, llm_client: LlmClientDep) -> dict[str, object]:
     checks["db"] = db_status
     details["db"] = db_err
 
-    llm_status, llm_err = check_llm(llm_client)
-    checks["llm"] = llm_status
-    details["llm"] = llm_err
-    overall_ok = checks["db"] == "ok" and checks["llm"] == "ok"
+    if settings.ready_check_llm:
+        llm_status, llm_err = check_llm(llm_client)
+        checks["llm"] = llm_status
+        details["llm"] = llm_err
+    else:
+        checks["llm"] = "warn"
+        details["llm"] = "LLM check disabled"
+
+    overall_ok = checks["db"] == "ok"
     payload = {"ok": overall_ok, "checks": checks, "details": details}
 
     _LAST["checks"] = checks
@@ -114,7 +119,7 @@ def ready(db: DbSessionDep, llm_client: LlmClientDep) -> dict[str, object]:
     _LAST["ts"] = 9
 
     # print(_LAST)
-    if not overall_ok:
+    if checks["db"] != "ok":
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content=payload,

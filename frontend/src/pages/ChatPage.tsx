@@ -1,6 +1,6 @@
 import { CloudUpload, Moon, Plus, Sun, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { Conversation } from "@/components/ai/conversation";
 import type { MessageProps } from "@/components/ai/message";
@@ -10,6 +10,7 @@ import ErrorNotice from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { canAccessAdmin } from "@/lib/auth/permissions";
 import { ChatProvider, useChat } from "@/lib/chat/ChatContext";
 import { cn } from "@/lib/utils";
 
@@ -61,7 +62,7 @@ function ChatShell() {
     sendMessage,
     clearError,
   } = useChat();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const navigate = useNavigate();
   const [draft, setDraft] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
@@ -108,6 +109,11 @@ function ChatShell() {
           </div>
           <div className="flex items-center gap-2">
             <ChatStatusHud busy={isSending} />
+            {canAccessAdmin(user) ? (
+              <Button asChild type="button" variant="outline">
+                <Link to="/app/admin">Admin</Link>
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="outline"

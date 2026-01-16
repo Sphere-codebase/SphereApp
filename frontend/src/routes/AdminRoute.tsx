@@ -1,6 +1,7 @@
 import { Navigate } from "react-router-dom";
 
 import { useAuth } from "@/lib/auth/AuthContext";
+import { canAccessAdmin } from "@/lib/auth/permissions";
 
 export default function AdminRoute({ children }: { children: JSX.Element }) {
   const { token, user, isLoading } = useAuth();
@@ -21,7 +22,7 @@ export default function AdminRoute({ children }: { children: JSX.Element }) {
     return <Navigate to="/login" replace />;
   }
 
-  if (!user.roles.includes("admin")) {
+  if (!canAccessAdmin(user)) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-2 text-sm text-slate-500">
         <div className="text-lg font-semibold text-slate-900 dark:text-slate-100">

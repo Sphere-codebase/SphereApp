@@ -1,7 +1,8 @@
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Moon, Pencil, Plus, Sun, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import ChatStatusHud from "@/components/chat/ChatStatusHud";
 import ErrorNotice from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,6 +60,23 @@ import { cn } from "@/lib/utils";
 
 type AdminTab = "reference" | "companies" | "dashboard" | "users";
 type ReferenceTab = "mcp-codes" | "diagnosis-codes";
+type ThemeMode = "light" | "dark";
+
+const THEME_STORAGE_KEY = "sphereapp-theme";
+
+function getInitialTheme(): ThemeMode {
+  if (typeof window === "undefined") {
+    return "light";
+  }
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (stored === "light" || stored === "dark") {
+    return stored;
+  }
+  const prefersDark = window.matchMedia
+    ? window.matchMedia("(prefers-color-scheme: dark)").matches
+    : false;
+  return prefersDark ? "dark" : "light";
+}
 
 type InsuranceCompanyFormState = {
   name: string;
@@ -158,6 +176,7 @@ export default function AdminPage() {
   const [referenceTab, setReferenceTab] = useState<ReferenceTab>("mcp-codes");
   const [error, setError] = useState<unknown>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
 
   const [companies, setCompanies] = useState<InsuranceCompany[]>([]);
   const [mcpCodes, setMcpCodes] = useState<McpCode[]>([]);
@@ -227,6 +246,11 @@ export default function AdminPage() {
     },
     [logout, navigate]
   );
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   const loadCompanies = useCallback(async () => {
     setIsLoading(true);
@@ -735,6 +759,7 @@ export default function AdminPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <ChatStatusHud busy={false} />
             <Button type="button" variant="outline" onClick={() => navigate("/app/chat")}>
               Back to chat
             </Button>
@@ -747,6 +772,15 @@ export default function AdminPage() {
               }}
             >
               Logout
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              aria-label="Toggle theme"
+            >
+              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
           </div>
         </header>
