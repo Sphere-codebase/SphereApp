@@ -217,3 +217,4 @@ frontend/.env
 
 # DB Backups
 backups/
+/scripts/
