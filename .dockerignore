@@ -12,6 +12,4 @@ __pycache__
 *.pyd
 *.sqlite3
 *.log
-tests
-docs
 claims_assistant.egg-info
