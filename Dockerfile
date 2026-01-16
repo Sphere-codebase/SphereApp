@@ -8,6 +8,7 @@ WORKDIR /app
 COPY alembic.ini /app/alembic.ini
 COPY app /app/app
 COPY docker/entrypoint.sh /app/docker/entrypoint.sh
+COPY docs /app/docs
 
 RUN python -m pip install --no-cache-dir --upgrade pip && \
     python -m pip install --no-cache-dir \
