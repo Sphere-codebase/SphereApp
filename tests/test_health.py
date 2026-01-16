@@ -27,11 +27,14 @@ def test_ready_ok(db_session) -> None:
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
+    original = settings.ready_check_llm
+    settings.ready_check_llm = False
     client = TestClient(app)
     try:
         response = client.get("/ready")
         assert response.status_code == 200
     finally:
+        settings.ready_check_llm = original
         app.dependency_overrides.clear()
 
 
@@ -49,7 +52,10 @@ def test_ready_llm_unavailable(db_session) -> None:
     client = TestClient(app)
     try:
         response = client.get("/ready")
-        assert response.status_code == 503
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["checks"]["db"] == "ok"
+        assert payload["checks"]["llm"] in ("err", "warn")
     finally:
         settings.ready_check_llm = original
         app.dependency_overrides.clear()

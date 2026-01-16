@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import uuid
-
-from sqlalchemy import ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy import BigInteger, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.models.base import Base, TimestampMixin
@@ -13,38 +10,32 @@ from app.db.models.base import Base, TimestampMixin
 
 class ChatSession(TimestampMixin, Base):
     __tablename__ = "chat_sessions"
+    __table_args__ = (Index("ix_chat_sessions_doctor_id", "doctor_id"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tenants.id"), index=True, nullable=False
-    )
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("users.id"), nullable=False
-    )
-    claim_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("claims.id"), nullable=True
-    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    doctor_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
+    title: Mapped[str | None] = mapped_column(String, nullable=True)
 
-    tenant = relationship("Tenant", backref="chat_sessions")
-    user = relationship("User", backref="chat_sessions")
-    claim = relationship("Claim", backref="chat_sessions")
+    doctor = relationship("User", backref="chat_sessions")
+    messages = relationship(
+        "ChatMessage",
+        back_populates="session",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class ChatMessage(TimestampMixin, Base):
     __tablename__ = "chat_messages"
+    __table_args__ = (Index("ix_chat_messages_session_id", "session_id"),)
 
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("tenants.id"), index=True, nullable=False
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    session_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=False,
     )
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("chat_sessions.id"), nullable=False
-    )
-    role: Mapped[str] = mapped_column(String(50), nullable=False)
-    content: Mapped[str | None] = mapped_column(Text, nullable=True)
-    tool_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    tool_args: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    tool_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    role: Mapped[str] = mapped_column(String, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
 
-    tenant = relationship("Tenant", backref="chat_messages")
-    session = relationship("ChatSession", backref="messages")
+    session = relationship("ChatSession", back_populates="messages")

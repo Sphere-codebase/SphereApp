@@ -3,20 +3,46 @@
 from app.db.models.base import Base
 from app.db.models.chat import ChatMessage, ChatSession
 from app.db.models.claim import Claim
-from app.db.models.claim_event import ClaimEvent
+from app.db.models.claim_diagnosis_code import ClaimDiagnosisCode
+from app.db.models.claim_line_coverage import ClaimLineCoverage
+from app.db.models.claim_mcp_code import ClaimMcpCode
+from app.db.models.claim_procedure_diagnosis import ClaimProcedureDiagnosis
+from app.db.models.claim_procedure_fact import ClaimProcedureFact
+from app.db.models.diagnosis_code import DiagnosisCode
+from app.db.models.enums import ClaimStatus
+from app.db.models.insurance_company import InsuranceCompany
+from app.db.models.mcp_code import McpCode
+from app.db.models.mcp_payment_prediction import McpPaymentPrediction
+from app.db.models.ml_prediction import MlPrediction
+from app.db.models.ml_training_example import MlTrainingExample
 from app.db.models.patient import Patient
-from app.db.models.payment import Payment
-from app.db.models.tenant import Tenant
+from app.db.models.policy_link import PolicyLink
+from app.db.models.policy_rule import PolicyRule
+from app.db.models.role import Role
 from app.db.models.user import User
+from app.db.models.user_role import UserRole
 
 __all__ = [
     "Base",
     "ChatMessage",
     "ChatSession",
     "Claim",
-    "ClaimEvent",
+    "ClaimDiagnosisCode",
+    "ClaimLineCoverage",
+    "ClaimMcpCode",
+    "ClaimProcedureDiagnosis",
+    "ClaimProcedureFact",
+    "ClaimStatus",
+    "DiagnosisCode",
+    "InsuranceCompany",
+    "McpCode",
+    "McpPaymentPrediction",
+    "MlPrediction",
+    "MlTrainingExample",
     "Patient",
-    "Payment",
-    "Tenant",
+    "PolicyLink",
+    "PolicyRule",
+    "Role",
     "User",
+    "UserRole",
 ]

@@ -36,9 +36,9 @@ Cover at least these scenarios:
   - HTTP 503
   - error.code = `LLM_UNAVAILABLE`
 
-### 3) Tenant isolation
-- Create two tenants with patients/claims.
-- With tenant A token, attempt to read tenant B claim:
+### 3) User isolation
+- Create two users with separate chat sessions.
+- With user A token, attempt to reuse user B session:
   - Must return 404 (not 403) to avoid leaking existence.
 
 ### 4) Auth
@@ -49,11 +49,11 @@ Cover at least these scenarios:
 ### 5) Persistence
 - Chat session created on first message.
 - Subsequent message with session_id appends messages.
-- Tool calls stored with tool_name, args, result.
+- Tool call + result stored as deterministic text messages.
 
 ## Suggested structure
 - `tests/test_chat_no_tools.py`
 - `tests/test_chat_one_tool.py`
 - `tests/test_chat_unknown_tool.py`
 - `tests/test_llm_503.py`
-- `tests/test_tenant_isolation.py`
+- `tests/test_chat_session_reuse.py`

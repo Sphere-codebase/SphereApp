@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -15,9 +14,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.models import ChatMessage, ChatSession, Claim, Patient, User
+from app.core.logging import log_chat_event
+from app.db.id_utils import next_id
+from app.db.models import ChatMessage, ChatSession, User
 from app.llm.client import ChatCompletionResult, LLMClient, ToolCall
 from app.llm.tools import ToolContext, execute_tool, list_tool_schemas
+from app.utils.time import utcnow
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 SYSTEM_RULES_PATH = ROOT_DIR / "docs" / "system_rules.md"
@@ -27,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ChatResult:
-    session_id: uuid.UUID
+    session_id: int
     assistant_message: str
     ui_actions: list[dict[str, Any]]
     debug: dict[str, Any] | None
@@ -41,13 +43,11 @@ class ChatOrchestrator:
         self.user = user
         self.llm_client = llm_client or LLMClient()
 
-    def run(
-        self, message: str, session_id: uuid.UUID | None, claim_id: uuid.UUID | None
-    ) -> ChatResult:
-        session = self._get_or_create_session(session_id, claim_id)
+    def run(self, message: str, session_id: int | None) -> ChatResult:
+        session = self._get_or_create_session(session_id)
         self._store_message(session.id, role="user", content=message)
 
-        messages = self._build_prompt(session.id, claim_id)
+        messages = self._build_prompt(session.id)
         tools = list_tool_schemas()
         allowed_tools = {tool["function"]["name"] for tool in tools}
         ui_actions: list[dict[str, Any]] = []
@@ -76,7 +76,6 @@ class ChatOrchestrator:
 
             tool_context = ToolContext(
                 db=self.db,
-                tenant_id=self.user.tenant_id,
                 user_id=self.user.id,
                 chat_session_id=session.id,
             )
@@ -85,6 +84,15 @@ class ChatOrchestrator:
                 if tool_call.name not in allowed_tools:
                     logger.warning("Skipping unknown tool call: %s", tool_call.name)
                     continue
+                log_chat_event(
+                    "tool_call",
+                    {
+                        "user_id": str(self.user.id),
+                        "chat_session_id": str(session.id),
+                        "tool_name": tool_call.name,
+                        "tool_args": self._summarize_payload(tool_call.arguments),
+                    },
+                )
                 self._store_tool_call(session.id, tool_call)
                 try:
                     tool_result = execute_tool(tool_call.name, tool_call.arguments, tool_context)
@@ -97,6 +105,15 @@ class ChatOrchestrator:
                         }
                     }
                 self._store_tool_result(session.id, tool_call.name, tool_result)
+                log_chat_event(
+                    "tool_result",
+                    {
+                        "user_id": str(self.user.id),
+                        "chat_session_id": str(session.id),
+                        "tool_name": tool_call.name,
+                        "tool_result": self._summarize_payload(tool_result),
+                    },
+                )
                 if tool_call.name == "request_form" and isinstance(tool_result, dict):
                     ui_actions.append(tool_result)
                 if isinstance(tool_result, dict) and tool_result.get("action_required"):
@@ -117,15 +134,12 @@ class ChatOrchestrator:
             debug=debug if settings.env in {"dev", "test"} else None,
         )
 
-    def _get_or_create_session(
-        self, session_id: uuid.UUID | None, claim_id: uuid.UUID | None
-    ) -> ChatSession:
+    def _get_or_create_session(self, session_id: int | None) -> ChatSession:
         if session_id:
             session = self.db.execute(
                 select(ChatSession).where(
                     ChatSession.id == session_id,
-                    ChatSession.tenant_id == self.user.tenant_id,
-                    ChatSession.user_id == self.user.id,
+                    ChatSession.doctor_id == self.user.id,
                 )
             ).scalar_one_or_none()
             if session is None:
@@ -134,64 +148,20 @@ class ChatOrchestrator:
                 )
             return session
 
-        if claim_id:
-            claim = self.db.execute(
-                select(Claim).where(
-                    Claim.id == claim_id,
-                    Claim.tenant_id == self.user.tenant_id,
-                )
-            ).scalar_one_or_none()
-            if claim is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
-
         session = ChatSession(
-            tenant_id=self.user.tenant_id,
-            user_id=self.user.id,
-            claim_id=claim_id,
+            id=next_id(self.db, ChatSession),
+            doctor_id=self.user.id,
+            created_at=utcnow(),
         )
         self.db.add(session)
         self.db.commit()
         self.db.refresh(session)
         return session
 
-    def _build_prompt(
-        self, session_id: uuid.UUID, claim_id: uuid.UUID | None
-    ) -> list[dict[str, Any]]:
+    def _build_prompt(self, session_id: int) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
         messages.append({"role": "system", "content": SYSTEM_RULES_PATH.read_text()})
         messages.append({"role": "system", "content": DEVELOPER_POLICY_PATH.read_text()})
-
-        if claim_id:
-            claim = self.db.execute(
-                select(Claim).where(
-                    Claim.id == claim_id,
-                    Claim.tenant_id == self.user.tenant_id,
-                )
-            ).scalar_one_or_none()
-            if claim is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
-            patient = self.db.execute(
-                select(Patient).where(
-                    Patient.id == claim.patient_id,
-                    Patient.tenant_id == self.user.tenant_id,
-                )
-            ).scalar_one_or_none()
-            context = {
-                "claim": {
-                    "id": str(claim.id),
-                    "status": claim.status,
-                    "amount_cents": claim.amount_cents,
-                    "description": claim.description,
-                },
-                "patient": None,
-            }
-            if patient:
-                context["patient"] = {
-                    "id": str(patient.id),
-                    "full_name": patient.full_name,
-                    "dob": patient.dob.isoformat() if patient.dob else None,
-                }
-            messages.append({"role": "system", "content": f"Context: {json.dumps(context)}"})
 
         history = self.db.execute(
             select(ChatMessage)
@@ -202,14 +172,6 @@ class ChatOrchestrator:
         for item in history:
             if item.role in {"user", "assistant"} and item.content:
                 messages.append({"role": item.role, "content": item.content})
-            elif item.role == "tool" and item.tool_result is not None:
-                messages.append(
-                    {
-                        "role": "tool",
-                        "name": item.tool_name or "",
-                        "content": json.dumps(item.tool_result),
-                    }
-                )
 
         return messages
 
@@ -237,47 +199,57 @@ class ChatOrchestrator:
         }
 
     def _store_message(
-        self, session_id: uuid.UUID, role: str, content: str | None = None
+        self, session_id: int, role: str, content: str | None = None
     ) -> ChatMessage | None:
         if role == "assistant" and (content is None or not content.strip()):
             return None
         message = ChatMessage(
-            tenant_id=self.user.tenant_id,
+            id=next_id(self.db, ChatMessage),
             session_id=session_id,
             role=role,
-            content=content,
+            content=content or "",
+            created_at=utcnow(),
         )
         self.db.add(message)
         self.db.commit()
         self.db.refresh(message)
         return message
 
-    def _store_tool_call(self, session_id: uuid.UUID, call: ToolCall) -> None:
+    def _store_tool_call(self, session_id: int, call: ToolCall) -> None:
         if not call.name:
             return
+        rendered = json.dumps(call.arguments, sort_keys=True, default=str)
+        content = f"[tool_call] {call.name} args={rendered}"
         message = ChatMessage(
-            tenant_id=self.user.tenant_id,
+            id=next_id(self.db, ChatMessage),
             session_id=session_id,
             role="assistant",
-            content=None,
-            tool_name=call.name,
-            tool_args=call.arguments,
+            content=content,
+            created_at=utcnow(),
         )
         self.db.add(message)
         self.db.commit()
 
-    def _store_tool_result(
-        self, session_id: uuid.UUID, tool_name: str, result: dict[str, Any]
-    ) -> None:
+    def _store_tool_result(self, session_id: int, tool_name: str, result: dict[str, Any]) -> None:
         if not tool_name or result is None:
             return
+        rendered = json.dumps(result, sort_keys=True, default=str)
+        content = f"[tool_result] {tool_name} result={rendered}"
         message = ChatMessage(
-            tenant_id=self.user.tenant_id,
+            id=next_id(self.db, ChatMessage),
             session_id=session_id,
             role="tool",
-            content=None,
-            tool_name=tool_name,
-            tool_result=result,
+            content=content,
+            created_at=utcnow(),
         )
         self.db.add(message)
         self.db.commit()
+
+    def _summarize_payload(self, payload: dict[str, Any]) -> str:
+        try:
+            rendered = json.dumps(payload, default=str)
+        except TypeError:
+            rendered = str(payload)
+        if len(rendered) <= settings.max_context_chars:
+            return rendered
+        return f"{rendered[:settings.max_context_chars]}…"

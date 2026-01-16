@@ -43,11 +43,13 @@ curl -i http://localhost:8000/ready
 
 ## Auth quickstart
 
-Register:
+Create user (admin-only):
 
 ```bash
-curl -s -X POST http://localhost:8000/auth/register \
+export ADMIN_API_KEY="dev-admin-key"
+curl -s -X POST http://localhost:8000/auth/admin/users \
   -H "Content-Type: application/json" \
+  -H "X-Admin-Token: dev-admin-key" \
   -d '{"email":"doc1@example.com","password":"secret"}'; echo
 ```
 
