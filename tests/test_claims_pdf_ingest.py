@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+import os
 from app.core.security import get_password_hash
 from app.db.id_utils import next_id
 from app.db.models import (
@@ -24,8 +25,9 @@ from app.parsers.pdf.interface import parse_pdf_document
 from app.services.claims.ingestion import ingest_parsed_pdf, ingest_pdf_from_path
 from app.utils.time import utcnow
 
-file_for_test = "/Users/user/Developer/pythonProject/SphereApp/tests/test_claim.pdf"
-
+THIS_DIR = Path(__file__).resolve().parent
+file_for_test = THIS_DIR / "test_claim.pdf"
+SKIP_PDF_TESTS = os.getenv("SKIP_PDF_TESTS") == "1"
 
 def _seed_user(db_session: Session) -> User:
     user = User(
@@ -117,6 +119,7 @@ def test_ingest_pdf_rejects_parser_error(db_session: Session) -> None:
     assert exc.value.status_code == 422
 
 
+@pytest.mark.skipif(SKIP_PDF_TESTS, reason="PDF ingestion tests disabled by SKIP_PDF_TESTS=1")
 def test_ingest_pdf_from_path_happy(db_session: Session) -> None:
     user = _seed_user(db_session)
 

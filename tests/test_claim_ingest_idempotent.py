@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import os
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -17,8 +18,9 @@ from app.db.models import (
 from app.services.claims.ingestion import ingest_pdf_from_path
 from app.utils.time import utcnow
 
-_FILE_FOR_TEST = Path("/Users/user/Developer/pythonProject/SphereApp/tests/test_claim.pdf")
-
+THIS_DIR = Path(__file__).resolve().parent
+_FILE_FOR_TEST = THIS_DIR / "test_claim.pdf"
+SKIP_PDF_TESTS = os.getenv("SKIP_PDF_TESTS") == "1"
 
 def _seed_user(db_session: Session) -> User:
     user = User(
