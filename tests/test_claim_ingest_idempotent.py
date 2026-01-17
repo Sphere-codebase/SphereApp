@@ -22,6 +22,7 @@ THIS_DIR = Path(__file__).resolve().parent
 _FILE_FOR_TEST = THIS_DIR / "test_claim.pdf"
 SKIP_PDF_TESTS = os.getenv("SKIP_PDF_TESTS") == "1"
 
+
 def _seed_user(db_session: Session) -> User:
     user = User(
         id=next_id(db_session, User),
