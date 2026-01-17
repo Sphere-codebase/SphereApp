@@ -230,4 +230,125 @@ describe("admin ui", () => {
     const agencyLabels = await screen.findAllByText("Alpha Health");
     expect(agencyLabels.length).toBeGreaterThan(0);
   });
+
+  test("policy rules page loads for admin", async () => {
+    const companies: InsuranceCompany[] = [
+      {
+        id: 11,
+        name: "Alpha Health",
+        created_at: "2026-01-01T00:00:00",
+      },
+    ];
+    const mcpCodes: McpCode[] = [
+      {
+        code: "99213",
+        description: "Office visit",
+      },
+    ];
+    const policyLinks: PolicyLink[] = [
+      {
+        id: 21,
+        insurance_company_id: 11,
+        mcp_code: "99213",
+        policy_url: "https://example.com/policy",
+        created_at: "2026-01-01T00:00:00",
+      },
+    ];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: adminUser }));
+      }
+      if (url.endsWith("/api/admin/insurance-companies") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: companies }));
+      }
+      if (url.includes("/api/admin/mcp-codes") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: mcpCodes }));
+      }
+      if (url.endsWith("/api/admin/policy-links/21/rules") && method === "GET") {
+        return Promise.resolve(
+          buildJsonResponse({
+            status: 200,
+            body: {
+              policy_rules_id: 55,
+              policy_link_id: 21,
+              extracted_at: "2026-01-02T00:00:00",
+              title: "Policy title",
+              next_review_iso: "2026-08-13",
+              criteria_json: [
+                {
+                  id: "MN-1",
+                  text: "Criterion",
+                  children: [],
+                },
+              ],
+              notes_json: [{ text: "Note text" }],
+              medical_necessity_clean: "Medical necessity text",
+            },
+          })
+        );
+      }
+      if (url.includes("/api/admin/policy-links") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: policyLinks }));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    renderWithProviders(["/app/admin"]);
+
+    const companiesTab = await screen.findByRole("button", {
+      name: /companies & policies/i,
+    });
+    await userEvent.click(companiesTab);
+
+    await screen.findByText("https://example.com/policy");
+
+    expect(
+      screen.getByRole("button", { name: /refresh rules/i })
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /view rules/i }));
+
+    expect(
+      await screen.findByRole("heading", { name: /policy rules/i })
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Policy title")).toBeInTheDocument();
+    expect(await screen.findByText("Medical necessity text")).toBeInTheDocument();
+  });
+
+  test("non-admin does not see policy rule buttons", async () => {
+    const memberUser = {
+      id: 202,
+      email: "doctor@example.com",
+      is_active: true,
+      roles: ["doctor"],
+    };
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: memberUser }));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    renderWithProviders(["/app/admin"]);
+
+    expect(
+      await screen.findByText(/access denied/i)
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /refresh rules/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /view rules/i })).toBeNull();
+  });
 });

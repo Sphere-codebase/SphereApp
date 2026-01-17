@@ -72,6 +72,7 @@ def pytest_configure() -> None:
     os.environ["TEST_ADMIN_DATABASE_URL"] = (
         "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/postgres"
     )
+    os.environ.setdefault("PDF_PARSER_MODE", "sample")
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -87,5 +88,6 @@ def _set_test_env() -> None:
         "TEST_ADMIN_DATABASE_URL",
         "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/postgres",
     )
+    monkeypatch.setenv("PDF_PARSER_MODE", "sample")
     yield
     monkeypatch.undo()

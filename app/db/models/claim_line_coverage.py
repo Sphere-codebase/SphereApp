@@ -16,7 +16,7 @@ class ClaimLineCoverage(TimestampMixin, Base):
         Index("ix_claim_line_coverage_policy_link_id", "policy_link_id"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     claim_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("claims.id"), nullable=False)
     mcp_code: Mapped[str] = mapped_column(String, ForeignKey("mcp_codes.code"), nullable=False)
     policy_link_id: Mapped[int | None] = mapped_column(

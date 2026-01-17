@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
+from typing import Any
 
 from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 
@@ -59,6 +60,21 @@ class PolicyLinkResponse(BaseModel):
     mcp_code: str
     policy_url: AnyUrl
     created_at: datetime | None
+
+
+class PolicyRulesParseRequest(BaseModel):
+    confirm: bool = False
+
+
+class PolicyRuleResponse(BaseModel):
+    policy_rules_id: int
+    policy_link_id: int
+    extracted_at: datetime
+    title: str | None
+    next_review_iso: date | None
+    criteria_json: Any | None
+    notes_json: Any | None
+    medical_necessity_clean: str | None
 
 
 class DiagnosisCodeCreateRequest(BaseModel):

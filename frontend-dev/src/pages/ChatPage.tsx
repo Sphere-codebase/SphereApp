@@ -1,5 +1,5 @@
-import { CloudUpload, Moon, Plus, Sun, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { CloudUpload, Moon, Plus, Sun, Trash2, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { Conversation } from "@/components/ai/conversation";
@@ -9,6 +9,8 @@ import ChatStatusHud from "@/components/chat/ChatStatusHud";
 import ErrorNotice from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ingestClaimPdf, type ClaimPdfIngestResponse } from "@/lib/api/claims";
+import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { canAccessAdmin } from "@/lib/auth/permissions";
 import { ChatProvider, useChat } from "@/lib/chat/ChatContext";
@@ -43,6 +45,28 @@ function formatTime(value?: string | null): string | undefined {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
+function formatDate(value?: string | null): string {
+  if (!value) {
+    return "—";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+  return date.toLocaleDateString();
+}
+
+function formatCents(value?: number | null): string {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+  const dollars = value / 100;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(dollars);
+}
+
 function ChatShell() {
   const {
     sessions,
@@ -66,6 +90,12 @@ function ChatShell() {
   const navigate = useNavigate();
   const [draft, setDraft] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
+  const [uploadSummary, setUploadSummary] = useState<ClaimPdfIngestResponse | null>(
+    null
+  );
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<unknown>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -93,6 +123,40 @@ function ChatShell() {
     setDraft("");
     clearError();
     void sendMessage(trimmed);
+  };
+
+  const handleUploadError = (err: unknown) => {
+    if (err instanceof ApiError && err.status === 401) {
+      logout();
+      navigate("/login");
+      return;
+    }
+    setUploadError(err);
+  };
+
+  const handleFileSelect = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const summary = await ingestClaimPdf(file, activeSessionId);
+      setUploadSummary(summary);
+    } catch (err) {
+      handleUploadError(err);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
+
+  const handleClearSummary = () => {
+    setUploadSummary(null);
+    setUploadError(null);
   };
 
   return (
@@ -248,16 +312,72 @@ function ChatShell() {
           </section>
 
           <aside className="flex flex-col gap-4 rounded-3xl border border-dashed border-slate-200 bg-white p-4 text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
-              <CloudUpload className="h-4 w-4" />
-              Upload files
-            </div>
-            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400">
-              Drop files here to attach them to a session. (UI only)
-            </div>
-            <Button type="button" variant="outline" disabled>
-              Choose files
-            </Button>
+            {uploadSummary ? (
+              <>
+                <div className="flex items-center justify-between gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  <div className="flex items-center gap-2">
+                    <CloudUpload className="h-4 w-4" />
+                    Claim summary
+                  </div>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label="Close claim summary"
+                    onClick={handleClearSummary}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                  <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                    {uploadSummary.patient_name || "Unknown patient"}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    DOB: {formatDate(uploadSummary.patient_date_of_birth)}
+                  </div>
+                  <div className="mt-2 space-y-1 text-xs">
+                    <div>Account: {uploadSummary.account_number || "—"}</div>
+                    <div>Service date: {formatDate(uploadSummary.service_date)}</div>
+                    <div>CPT lines: {uploadSummary.line_count}</div>
+                  </div>
+                  <div className="mt-3 border-t border-slate-200 pt-3 text-xs dark:border-slate-800">
+                    <div>Total billed: {formatCents(uploadSummary.total_billed_cents)}</div>
+                    <div>
+                      Total allowed: {formatCents(uploadSummary.total_allowed_cents)}
+                    </div>
+                    <div>Total paid: {formatCents(uploadSummary.total_paid_cents)}</div>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  <CloudUpload className="h-4 w-4" />
+                  Upload PDF
+                </div>
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-xs text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-400">
+                  Upload an EOB PDF to ingest claim data.
+                </div>
+                {uploadError ? <ErrorNotice error={uploadError} /> : null}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  aria-label="Upload PDF"
+                  onChange={handleFileSelect}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={uploading}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  {uploading ? "Uploading..." : "Choose PDF"}
+                </Button>
+              </>
+            )}
           </aside>
         </div>
       </div>

@@ -10,7 +10,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.logging import error_payload
 from app.core.security import (
     create_access_token,
     get_current_user,
@@ -18,7 +17,7 @@ from app.core.security import (
     verify_password,
 )
 from app.db.id_utils import next_id
-from app.db.models import Role, User, UserRole
+from app.db.models import User, UserRole
 from app.db.session import get_db
 from app.schemas.auth import (
     AdminCreateUserRequest,
@@ -27,6 +26,12 @@ from app.schemas.auth import (
     LoginRequest,
     TokenResponse,
     UserResponse,
+)
+from app.services.user_roles import (
+    assigned_roles_for_user,
+    ensure_role,
+    is_admin_role,
+    user_already_exists_response,
 )
 from app.utils.time import utcnow
 
@@ -64,24 +69,14 @@ def create_user(
     if not settings.admin_api_key or admin_token != settings.admin_api_key:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin token required")
 
-    existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
-    if existing is not None:
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content=error_payload(
-                code="USER_ALREADY_EXISTS",
-                message="User already exists",
-                details={"email": payload.email},
-            ),
-        )
+    existing_response = user_already_exists_response(db, payload.email)
+    if existing_response is not None:
+        return existing_response
 
-    roles = payload.roles or []
-    is_admin = any(role.strip().lower() == "admin" for role in roles)
-    doctor_role = _ensure_role(db, "doctor", "Default doctor role")
-    admin_role = _ensure_role(db, "admin", "Administrator role") if is_admin else None
-    assigned_roles = ["doctor"]
-    if is_admin:
-        assigned_roles.append("admin")
+    is_admin = is_admin_role(payload.roles)
+    doctor_role = ensure_role(db, "doctor", "Default doctor role")
+    admin_role = ensure_role(db, "admin", "Administrator role") if is_admin else None
+    assigned_roles = assigned_roles_for_user(is_admin)
     user = User(
         id=next_id(db, User),
         email=payload.email,
@@ -127,13 +122,3 @@ def me(current_user: CurrentUserDep) -> UserResponse:
         is_active=bool(current_user.is_active),
         roles=[role.code for role in current_user.roles],
     )
-
-
-def _ensure_role(db: Session, code: str, description: str) -> Role:
-    existing = db.execute(select(Role).where(Role.code == code)).scalar_one_or_none()
-    if existing is not None:
-        return existing
-    role = Role(id=next_id(db, Role), code=code, description=description)
-    db.add(role)
-    db.flush()
-    return role

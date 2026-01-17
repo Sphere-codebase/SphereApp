@@ -72,3 +72,17 @@ class ClaimPolicyLinkItem(BaseModel):
     mcp_code: McpCodeSummary
     policy_url: str | None
     missing_policy_link: bool
+
+
+class ClaimPdfIngestResponse(BaseModel):
+    claim_id: int
+    patient_id: int
+    session_id: int | None = None
+    patient_name: str
+    patient_date_of_birth: date | None
+    account_number: str | None
+    service_date: date | None
+    line_count: int
+    total_billed_cents: int
+    total_allowed_cents: int
+    total_paid_cents: int

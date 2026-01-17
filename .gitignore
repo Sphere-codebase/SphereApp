@@ -218,3 +218,5 @@ frontend/.env
 # DB Backups
 backups/
 /scripts/
+*.diff
+/audit/

@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import AdminPage from "@/pages/AdminPage";
+import AdminPolicyRulesPage from "@/pages/AdminPolicyRulesPage";
 import BootstrapPage from "@/pages/BootstrapPage";
 import ChatPage from "@/pages/ChatPage";
 import LoginPage from "@/pages/LoginPage";
@@ -25,6 +26,14 @@ export default function AppRoutes() {
         element={
           <AdminRoute>
             <AdminPage />
+          </AdminRoute>
+        }
+      />
+      <Route
+        path="/app/admin/policy-rules"
+        element={
+          <AdminRoute>
+            <AdminPolicyRulesPage />
           </AdminRoute>
         }
       />

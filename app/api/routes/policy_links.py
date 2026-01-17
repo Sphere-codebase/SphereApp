@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+import json
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
@@ -12,13 +13,16 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_admin
 from app.core.logging import error_payload
 from app.db.id_utils import next_id
-from app.db.models import InsuranceCompany, McpCode, PolicyLink, User
+from app.db.models import InsuranceCompany, McpCode, PolicyLink, PolicyRule, User
 from app.db.session import get_db
 from app.schemas.admin_catalogs import (
     PolicyLinkCreateRequest,
     PolicyLinkResponse,
     PolicyLinkUpdateRequest,
+    PolicyRuleResponse,
+    PolicyRulesParseRequest,
 )
+from app.services.policy.rules_refresh import parse_policy_link_and_store
 from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/admin/policy-links", tags=["admin_policy_links"])
@@ -141,6 +145,68 @@ def update_policy_link(
     db.commit()
     db.refresh(link)
     return PolicyLinkResponse.model_validate(link)
+
+
+@router.post("/{policy_link_id}/parse")
+def parse_policy_link(
+    policy_link_id: int,
+    payload: PolicyRulesParseRequest,
+    db: DbSessionDep,
+    current_user: AdminUserDep,
+) -> dict[str, Any]:
+    return parse_policy_link_and_store(
+        policy_link_id=policy_link_id,
+        confirm=payload.confirm,
+        db=db,
+    )
+
+
+@router.get("/{policy_link_id}/rules", response_model=PolicyRuleResponse)
+def get_policy_rules(
+    policy_link_id: int,
+    db: DbSessionDep,
+    current_user: AdminUserDep,
+) -> PolicyRuleResponse:
+    link = db.execute(
+        select(PolicyLink).where(PolicyLink.id == policy_link_id)
+    ).scalar_one_or_none()
+    if link is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy link not found")
+
+    rule = (
+        db.execute(
+            select(PolicyRule)
+            .where(PolicyRule.policy_link_id == policy_link_id)
+            .order_by(PolicyRule.extracted_at.desc())
+        )
+        .scalars()
+        .first()
+    )
+    if rule is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Policy rules not found",
+        )
+
+    medical_necessity_clean = None
+    if rule.rules_json:
+        try:
+            payload = json.loads(rule.rules_json)
+        except json.JSONDecodeError:
+            payload = {}
+        if isinstance(payload, dict):
+            medical_necessity_clean = payload.get("medical_necessity_clean")
+
+    return PolicyRuleResponse(
+        policy_rules_id=rule.id,
+        policy_link_id=rule.policy_link_id,
+        extracted_at=rule.extracted_at,
+        title=rule.title,
+        next_review_iso=rule.next_review_iso,
+        criteria_json=rule.criteria_json,
+        notes_json=rule.notes_json,
+        medical_necessity_clean=medical_necessity_clean,
+    )
 
 
 @router.delete(

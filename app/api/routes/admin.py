@@ -21,6 +21,14 @@ from app.schemas.admin_users import (
     AdminUserResponse,
     AdminUserUpdateRequest,
 )
+from app.services.user_roles import (
+    assigned_roles_for_user,
+    ensure_role,
+    is_admin_role,
+    normalize_roles,
+    set_user_roles,
+    user_already_exists_response,
+)
 from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -83,26 +91,16 @@ def get_user(
 def create_user(
     payload: AdminUserCreateRequest,
     db: DbSessionDep,
-    current_user: AdminUserDep,
+    current_user: AdminUserDep,  # не используется
 ) -> AdminUserResponse | JSONResponse:
-    existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
-    if existing is not None:
-        return JSONResponse(
-            status_code=status.HTTP_409_CONFLICT,
-            content=error_payload(
-                code="USER_ALREADY_EXISTS",
-                message="User already exists",
-                details={"email": payload.email},
-            ),
-        )
+    existing_response = user_already_exists_response(db, payload.email)
+    if existing_response is not None:
+        return existing_response
 
-    roles = payload.roles or []
-    is_admin = any(role.strip().lower() == "admin" for role in roles)
-    assigned_roles = ["doctor"]
-    if is_admin:
-        assigned_roles.append("admin")
-    doctor_role = _ensure_role(db, "doctor", "Default doctor role")
-    admin_role = _ensure_role(db, "admin", "Administrator role") if is_admin else None
+    is_admin = is_admin_role(payload.roles)
+    assigned_roles = assigned_roles_for_user(is_admin)
+    doctor_role = ensure_role(db, "doctor", "Default doctor role")
+    admin_role = ensure_role(db, "admin", "Administrator role") if is_admin else None
     user = User(
         id=next_id(db, User),
         email=payload.email,
@@ -159,7 +157,7 @@ def update_user(
         if field != "roles":
             setattr(user, field, value)
     if "roles" in data and data["roles"] is not None:
-        role_codes = {role.strip().lower() for role in data["roles"] if role}
+        role_codes = set(normalize_roles(data["roles"]))
         if "doctor" not in role_codes:
             role_codes.add("doctor")
         if user.id == current_user.id and "admin" not in role_codes:
@@ -175,10 +173,7 @@ def update_user(
                         details={"user_id": str(user.id)},
                     ),
                 )
-        db.execute(UserRole.__table__.delete().where(UserRole.user_id == user.id))
-        for code in sorted(role_codes):
-            role = _ensure_role(db, code, code.capitalize())
-            db.add(UserRole(user_id=user.id, role_id=role.id))
+        set_user_roles(db, user.id, list(role_codes))
     db.add(user)
     db.commit()
     refreshed = db.execute(
@@ -211,13 +206,3 @@ def reset_password(
     db.add(user)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-def _ensure_role(db: Session, code: str, description: str) -> Role:
-    existing = db.execute(select(Role).where(Role.code == code)).scalar_one_or_none()
-    if existing is not None:
-        return existing
-    role = Role(id=next_id(db, Role), code=code, description=description)
-    db.add(role)
-    db.flush()
-    return role

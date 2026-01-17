@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.deps import require_admin
 from app.core.logging import error_payload
 from app.core.security import get_current_user
 from app.db.id_utils import next_id
@@ -26,16 +28,24 @@ from app.schemas.claims import (
     ClaimCreateRequest,
     ClaimMcpCodeCreateRequest,
     ClaimMcpCodeResponse,
+    ClaimPdfIngestResponse,
     ClaimPolicyLinkItem,
     ClaimResponse,
     ClaimUpdateRequest,
     McpCodeSummary,
 )
+from app.services.claims.ingestion import ingest_pdf_from_path, ingest_pdf_from_upload
 from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/claims", tags=["claims"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+AdminUserDep = Annotated[User, Depends(require_admin)]
+
+
+class PdfLocalIngestRequest(BaseModel):
+    file_path: str
+    chat_session_id: int | None = None
 
 
 def _get_claim_or_404(db: Session, claim_id: int, current_user: User) -> Claim:
@@ -219,3 +229,35 @@ def resolve_policy_links(
             )
         )
     return items
+
+
+@router.post("/ingest-pdf", response_model=ClaimPdfIngestResponse)
+def ingest_pdf_claim(
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    file: UploadFile = File(...),  # noqa: B008
+    session_id: int | None = Form(None),  # noqa: B008
+) -> ClaimPdfIngestResponse:
+    result = ingest_pdf_from_upload(
+        file=file,
+        current_user=current_user,
+        db=db,
+        session_id=session_id,
+    )
+    return ClaimPdfIngestResponse.model_validate(result)
+
+
+@router.post("/ingest-pdf-local")
+def ingest_pdf_local(
+    payload: PdfLocalIngestRequest,
+    db: DbSessionDep,
+    current_user: AdminUserDep,
+) -> dict[str, object]:
+    """Local debug endpoint; do not enable in production deployments."""
+    result = ingest_pdf_from_path(
+        file_path=payload.file_path,
+        current_user=current_user,
+        db=db,
+        session_id=payload.chat_session_id,
+    )
+    return result

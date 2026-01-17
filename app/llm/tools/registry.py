@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.db.id_utils import next_id
 from app.db.models import Claim, ClaimStatus, InsuranceCompany, Patient, User
 from app.llm.tools import schemas
+from app.services.policy.rules_refresh import parse_policy_link_and_store
 from app.utils.time import utcnow
 
 Handler = Callable[["ToolContext", Any], dict[str, Any]]
@@ -34,6 +35,13 @@ class ToolDefinition:
     description: str
     args_model: type[BaseModel]
     handler: Handler
+
+
+def _find_patient_for_context(ctx: ToolContext, patient_id: int) -> Patient | None:
+    filters = [Patient.id == patient_id]
+    if ctx.user_id is not None:
+        filters.append(Patient.doctor_id == ctx.user_id)
+    return ctx.db.execute(select(Patient).where(*filters)).scalar_one_or_none()
 
 
 def _search_patients(ctx: ToolContext, args: schemas.SearchPatientsArgs) -> dict[str, Any]:
@@ -63,10 +71,7 @@ def _search_patients(ctx: ToolContext, args: schemas.SearchPatientsArgs) -> dict
 
 
 def _get_patient(ctx: ToolContext, args: schemas.GetPatientArgs) -> dict[str, Any]:
-    filters = [Patient.id == args.patient_id]
-    if ctx.user_id is not None:
-        filters.append(Patient.doctor_id == ctx.user_id)
-    patient = ctx.db.execute(select(Patient).where(*filters)).scalar_one_or_none()
+    patient = _find_patient_for_context(ctx, args.patient_id)
     if patient is None:
         return {"patient": None}
     return {
@@ -154,10 +159,7 @@ def _time_now(_: ToolContext, args: schemas.TimeNowArgs) -> dict[str, Any]:
 
 
 def _create_claim_draft(ctx: ToolContext, args: schemas.CreateClaimDraftArgs) -> dict[str, Any]:
-    filters = [Patient.id == args.patient_id]
-    if ctx.user_id is not None:
-        filters.append(Patient.doctor_id == ctx.user_id)
-    patient = ctx.db.execute(select(Patient).where(*filters)).scalar_one_or_none()
+    patient = _find_patient_for_context(ctx, args.patient_id)
     if patient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
@@ -238,6 +240,25 @@ def _update_claim_fields(ctx: ToolContext, args: schemas.UpdateClaimFieldsArgs) 
     return {"updated": True}
 
 
+def _require_admin(ctx: ToolContext) -> None:
+    if ctx.user_id is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
+    user = ctx.db.execute(select(User).where(User.id == ctx.user_id)).scalar_one_or_none()
+    if user is None or not any(role.code == "admin" for role in user.roles):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
+
+
+def _parse_policy_link_and_store(
+    ctx: ToolContext, args: schemas.ParsePolicyLinkAndStoreArgs
+) -> dict[str, Any]:
+    _require_admin(ctx)
+    return parse_policy_link_and_store(
+        policy_link_id=args.policy_link_id,
+        confirm=args.confirm,
+        db=ctx.db,
+    )
+
+
 TOOLS: dict[str, ToolDefinition] = {
     "search_patients": ToolDefinition(
         name="search_patients",
@@ -292,6 +313,14 @@ TOOLS: dict[str, ToolDefinition] = {
         description="Update claim fields (requires confirmation).",
         args_model=schemas.UpdateClaimFieldsArgs,
         handler=_update_claim_fields,
+    ),
+    "parse_policy_link_and_store": ToolDefinition(
+        name="parse_policy_link_and_store",
+        description=(
+            "Parse a policy link and optionally store extracted rules (requires confirmation)."
+        ),
+        args_model=schemas.ParsePolicyLinkAndStoreArgs,
+        handler=_parse_policy_link_and_store,
     ),
 }
 

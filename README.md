@@ -81,6 +81,9 @@ export JWT_SECRET="dev-secret"
 export ENV="dev"
 # Optional: readiness should not depend on LLM during local debugging
 export READY_CHECK_LLM="false"
+# Optional: policy parser integration
+export PARSER_MODE="local"
+export PARSER_BASE_URL="http://localhost:8001"
 ```
 
 ### 3) Run migrations
@@ -110,6 +113,11 @@ make run
 curl -i http://localhost:8000/health
 curl -i http://localhost:8000/ready
 ```
+
+## Policy Parser Integration
+- The PDF parser lives under `app/parsers/pdf/` (`pdf_parse.py` + `aetna_eob.py`).
+- The backend policy adapter is `app/parsers/policy/aetna_policy.py` and imports `dlc_modul` parser modules when `PARSER_MODE=local`.
+- Set `PARSER_MODE=http` to call the external parser service at `PARSER_BASE_URL` (`/api/policy/parse`).
 
 ## Creating an Admin User
 
@@ -141,6 +149,17 @@ _Note: If you don't use `.env`, you can pass the key manually:_
 ```bash
 make create-admin ADMIN_API_KEY=secret-key ...
 ```
+
+## Admin policy rules
+- Navigate to `/app/admin` and open the "Companies & Policies" tab.
+- In the Policy Links table:
+  - Use "Refresh Rules" to parse and review extracted rules. Confirm to store.
+  - Use "View Rules" to open the policy rules page.
+- On the policy rules page:
+  - Pick an MCP code to browse related policy links.
+  - Select a policy link to see the latest title, next review date, medical necessity
+    text, criteria hierarchy, and notes.
+  - If no rules have been parsed yet, the page shows a "No rules parsed yet" message.
 
 ### 3. Verify
 The make command will output the JSON response containing the access token. You can verify login:
@@ -220,10 +239,12 @@ export LLM_BASE_URL="http://<LM_IP>:1234/v1"
 
 ## Tests
 ```bash
-make test
+.venv/bin/python -m compileall app
+.venv/bin/ruff check app || true
+.venv/bin/pytest -q tests/test_claim_ingest_idempotent.py --maxfail=1 || true
 ```
 
-(Direct: `.venv/bin/pytest -q`)
+Full suite (optional): `.venv/bin/pytest -q`
 
 ## CI
 GitHub Actions workflow:
