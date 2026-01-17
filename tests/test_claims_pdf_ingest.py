@@ -1,4 +1,5 @@
 import copy
+import os
 from pathlib import Path
 
 import pytest
@@ -6,7 +7,6 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-import os
 from app.core.security import get_password_hash
 from app.db.id_utils import next_id
 from app.db.models import (
