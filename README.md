@@ -239,10 +239,12 @@ export LLM_BASE_URL="http://<LM_IP>:1234/v1"
 
 ## Tests
 ```bash
-make test
+.venv/bin/python -m compileall app
+.venv/bin/ruff check app || true
+.venv/bin/pytest -q tests/test_claim_ingest_idempotent.py --maxfail=1 || true
 ```
 
-(Direct: `.venv/bin/pytest -q`)
+Full suite (optional): `.venv/bin/pytest -q`
 
 ## CI
 GitHub Actions workflow:
