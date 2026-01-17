@@ -179,6 +179,14 @@ Phase 2 (boundary cleanup, still no behavior change)
 - Ensure idempotency for link tables and claim_line_coverage using conflict-safe upserts without explicit PK inserts for identity columns.
 - Add INFO logs around each ingestion step and make them request_id aware.
 
+## After Refactor
+
+- Canonical ingestion flow: app/api/routes/claims.py -> app/services/claims/ingestion.py -> app/parsers/pdf/interface.py + app/repositories/*.
+- Canonical PDF parser entry point: app/parsers/pdf/interface.py (parse_pdf_document).
+- Canonical services: app/services/claims/ingestion.py and app/services/policy/rules_refresh.py.
+- Canonical repositories: app/repositories/claims.py, app/repositories/codes.py, app/repositories/coverage.py, app/repositories/patients.py.
+- Idempotency smoke test: .venv/bin/pytest -q tests/test_claim_ingest_idempotent.py.
+
 Phase 3 (minimal tests + docs)
 - Add an idempotency smoke test calling service-level ingestion twice for the same PDF and checking for duplicates in key tables.
 - Update this audit doc with "After" notes.
