@@ -431,6 +431,11 @@ def ingest_pdf_from_upload(
         with file_path.open("wb") as handle:
             shutil.copyfileobj(file.file, handle)
         file_size = file_path.stat().st_size
+        if file_size == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Uploaded PDF is empty",
+            )
         logger.info(
             "Uploaded PDF filename=%s path=%s size_bytes=%s",
             file.filename,
