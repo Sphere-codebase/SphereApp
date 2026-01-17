@@ -115,6 +115,14 @@ db-restore:
 	@echo "Restoring from $(FILE)..."
 	@cat "$(FILE)" | docker exec -i claims_assistant_postgres psql -U postgres claims_assistant
 
+db-restore-latest:
+	@latest=$$(ls -1t backups/dump_*.sql 2>/dev/null | head -n 1); \
+	if [ -z "$$latest" ]; then \
+	  echo "ERROR: no backups found in backups/"; exit 1; \
+	fi; \
+	echo "Restoring from $$latest..."; \
+	cat "$$latest" | docker exec -i claims_assistant_postgres psql -U postgres claims_assistant
+
 # --- App run ---
 run:
 	$(VENV)/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -261,3 +269,86 @@ create-admin:
 	  -H "X-Admin-Token: $(ADMIN_API_KEY)" \
 	  -d '{"email":"$(EMAIL)","password":"$(PASSWORD)","full_name":"$(FULL_NAME)","roles":["admin"]}' \
 	  | python -m json.tool
+
+# =========================
+# Audit (static analysis)
+# =========================
+
+PY := .venv/bin/python
+PIP := .venv/bin/pip
+PYTEST := .venv/bin/pytest
+RUFF := .venv/bin/ruff
+COVERAGE := .venv/bin/coverage
+VULTURE := .venv/bin/vulture
+
+AUDIT_DIR := audit
+APP_DIR := app
+TEST_DIR := tests
+
+# Optional Node tool (global or local)
+JSCPD := jscpd
+
+audit-init:
+	@mkdir -p $(AUDIT_DIR)
+	@mkdir -p tools
+
+audit-install: audit-init
+	@echo "Installing python audit deps into .venv..."
+	@$(PIP) install -q -U ruff coverage vulture pytest
+	@echo "Installing jscpd (global via npm)..."
+	@command -v npm >/dev/null 2>&1 && npm i -g jscpd >/dev/null 2>&1 || echo "npm not found; skip jscpd install"
+	@echo "Done."
+
+audit-ruff: audit-init
+	@echo "Running ruff..."
+	@$(RUFF) check $(APP_DIR) > $(AUDIT_DIR)/ruff.txt || true
+
+audit-tests-fast: audit-init
+	@echo "Running a smaller, faster test subset (idempotent + core)..."
+	@$(PYTEST) -q \
+		tests/test_claim_ingest_idempotent.py \
+		tests/test_claims_pdf_ingest.py::test_ingest_pdf_idempotent \
+		> $(AUDIT_DIR)/pytest_fast.txt || true
+
+audit-tests: audit-init
+	@echo "Running full pytest (may take time)..."
+	@$(PYTEST) -q > $(AUDIT_DIR)/pytest.txt || true
+
+audit-coverage: audit-init
+	@echo "Running pytest under coverage..."
+	@$(COVERAGE) erase
+	@$(COVERAGE) run -m pytest -q || true
+	@$(COVERAGE) json -o $(AUDIT_DIR)/coverage.json
+	@$(COVERAGE) report -m > $(AUDIT_DIR)/coverage_report.txt || true
+
+audit-public-coverage: audit-init audit-coverage
+	@echo "Generating public functions without coverage report..."
+	@$(PY) tools/audit_public_functions_coverage.py > $(AUDIT_DIR)/public_functions_without_coverage.log || true
+
+audit-deadcode: audit-init
+	@echo "Running vulture dead-code scan..."
+	@$(VULTURE) $(APP_DIR) \
+		--exclude "$(APP_DIR)/db/migrations/*,$(TEST_DIR)/*,$(AUDIT_DIR)/*" \
+		--min-confidence 80 \
+		> $(AUDIT_DIR)/vulture.txt || true
+
+audit-dup: audit-init
+	@echo "Running jscpd duplication scan..."
+	@command -v $(JSCPD) >/dev/null 2>&1 && \
+		$(JSCPD) ./$(APP_DIR) \
+			-f python \
+			-l 6 \
+			-k 60 \
+			-r "console,markdown" \
+			-o ./$(AUDIT_DIR) \
+			-g \
+			-i "**/.venv/**,**/__pycache__/**,**/node_modules/**,**/.git/**,**/audit/**,**/db/migrations/**,**/schemas/**" \
+		|| echo "jscpd not found; run: npm i -g jscpd"
+
+audit-summary: audit-init
+	@echo "Building audit summary..."
+	@$(PY) tools/audit_summary.py > $(AUDIT_DIR)/SUMMARY.md || true
+	@echo "Summary written to $(AUDIT_DIR)/SUMMARY.md"
+
+audit-run: audit-init audit-ruff audit-deadcode audit-dup audit-public-coverage audit-summary
+	@echo "Audit completed. See ./$(AUDIT_DIR)/"

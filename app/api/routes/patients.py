@@ -5,13 +5,14 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
 from app.db.id_utils import next_id
 from app.db.models import Patient, User
 from app.db.session import get_db
+from app.repositories.patients import list_patients_query
 from app.schemas.patients import (
     PatientCreateRequest,
     PatientResponse,
@@ -42,16 +43,7 @@ def list_patients(
     current_user: CurrentUserDep,
     query: Annotated[str | None, Query()] = None,
 ) -> list[PatientResponse]:
-    stmt = select(Patient).where(Patient.doctor_id == current_user.id)
-    if query:
-        like = f"%{query}%"
-        stmt = stmt.where(
-            or_(
-                Patient.first_name.ilike(like),
-                Patient.last_name.ilike(like),
-            )
-        )
-    patients = db.execute(stmt.order_by(Patient.last_name.asc())).scalars().all()
+    patients = list_patients_query(db, doctor_id=current_user.id, query=query)
     return [PatientResponse.model_validate(patient) for patient in patients]
 
 

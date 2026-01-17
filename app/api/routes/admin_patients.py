@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_admin
-from app.db.models import Patient, User
+from app.db.models import User
 from app.db.session import get_db
+from app.repositories.patients import list_patients_query
 from app.schemas.admin_dashboard import AdminPatientSummary
 
 router = APIRouter(prefix="/api/admin/patients", tags=["admin_patients"])
@@ -24,14 +24,5 @@ def list_patients(
     current_user: AdminUserDep,
     query: Annotated[str | None, Query()] = None,
 ) -> list[AdminPatientSummary]:
-    stmt = select(Patient)
-    if query:
-        like = f"%{query}%"
-        stmt = stmt.where(
-            or_(
-                Patient.first_name.ilike(like),
-                Patient.last_name.ilike(like),
-            )
-        )
-    patients = db.execute(stmt.order_by(Patient.last_name.asc())).scalars().all()
+    patients = list_patients_query(db, doctor_id=None, query=query)
     return [AdminPatientSummary.model_validate(patient) for patient in patients]

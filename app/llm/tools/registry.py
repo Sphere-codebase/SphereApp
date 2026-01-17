@@ -37,6 +37,13 @@ class ToolDefinition:
     handler: Handler
 
 
+def _find_patient_for_context(ctx: ToolContext, patient_id: int) -> Patient | None:
+    filters = [Patient.id == patient_id]
+    if ctx.user_id is not None:
+        filters.append(Patient.doctor_id == ctx.user_id)
+    return ctx.db.execute(select(Patient).where(*filters)).scalar_one_or_none()
+
+
 def _search_patients(ctx: ToolContext, args: schemas.SearchPatientsArgs) -> dict[str, Any]:
     query = f"%{args.query}%"
     filters = []
@@ -64,10 +71,7 @@ def _search_patients(ctx: ToolContext, args: schemas.SearchPatientsArgs) -> dict
 
 
 def _get_patient(ctx: ToolContext, args: schemas.GetPatientArgs) -> dict[str, Any]:
-    filters = [Patient.id == args.patient_id]
-    if ctx.user_id is not None:
-        filters.append(Patient.doctor_id == ctx.user_id)
-    patient = ctx.db.execute(select(Patient).where(*filters)).scalar_one_or_none()
+    patient = _find_patient_for_context(ctx, args.patient_id)
     if patient is None:
         return {"patient": None}
     return {
@@ -155,10 +159,7 @@ def _time_now(_: ToolContext, args: schemas.TimeNowArgs) -> dict[str, Any]:
 
 
 def _create_claim_draft(ctx: ToolContext, args: schemas.CreateClaimDraftArgs) -> dict[str, Any]:
-    filters = [Patient.id == args.patient_id]
-    if ctx.user_id is not None:
-        filters.append(Patient.doctor_id == ctx.user_id)
-    patient = ctx.db.execute(select(Patient).where(*filters)).scalar_one_or_none()
+    patient = _find_patient_for_context(ctx, args.patient_id)
     if patient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
