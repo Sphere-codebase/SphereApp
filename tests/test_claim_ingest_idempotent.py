@@ -82,9 +82,7 @@ def test_ingest_pdf_from_path_rejects_relative_path(db_session: Session) -> None
     assert exc.value.status_code == 400
 
 
-def test_ingest_pdf_from_path_rejects_non_pdf(
-    db_session: Session, tmp_path: Path
-) -> None:
+def test_ingest_pdf_from_path_rejects_non_pdf(db_session: Session, tmp_path: Path) -> None:
     user = _seed_user(db_session)
     file_path = tmp_path / "not_a_pdf.txt"
     file_path.write_text("not a pdf")

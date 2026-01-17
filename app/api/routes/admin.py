@@ -91,7 +91,7 @@ def get_user(
 def create_user(
     payload: AdminUserCreateRequest,
     db: DbSessionDep,
-    current_user: AdminUserDep, # не используется
+    current_user: AdminUserDep,  # не используется
 ) -> AdminUserResponse | JSONResponse:
     existing_response = user_already_exists_response(db, payload.email)
     if existing_response is not None:

@@ -74,9 +74,7 @@ def parse_data(path_from: Path, path_to: Path) -> dict[str, list]:
                             .split()
                         )
                         payment_indexes = [
-                            index
-                            for index, value in enumerate(adj_values)
-                            if value.startswith("$")
+                            index for index, value in enumerate(adj_values) if value.startswith("$")
                         ]
                         for i in range(len(payment_indexes)):
                             step_index = payment_indexes[i]
@@ -86,17 +84,13 @@ def parse_data(path_from: Path, path_to: Path) -> dict[str, list]:
                                 "code": adj_values[step_index + 3],
                             }
                             if i == len(payment_indexes) - 1:
-                                append_obj["description"] = (
-                                    " ".join(adj_values[step_index + 4 :]).replace("\n", " ")
-                                )
+                                append_obj["description"] = " ".join(
+                                    adj_values[step_index + 4 :]
+                                ).replace("\n", " ")
                             else:
-                                append_obj["description"] = (
-                                    " ".join(
-                                        adj_values[
-                                            step_index + 4 : payment_indexes[i + 1]
-                                        ]
-                                    ).replace("\n", " ")
-                                )
+                                append_obj["description"] = " ".join(
+                                    adj_values[step_index + 4 : payment_indexes[i + 1]]
+                                ).replace("\n", " ")
                             result_obj["info"][info_step]["adjustments"].append(append_obj)
                     elif check_header.startswith("$") and len(r) == 5:
                         exist_adj = [

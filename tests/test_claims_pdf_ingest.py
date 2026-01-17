@@ -154,10 +154,7 @@ def test_ingest_pdf_inserts_dx_codes_first(db_session: Session) -> None:
 
     info = payload.get("pdf", {}).get("info", []) or []
     parsed_dx_codes = {
-        dx.strip().upper()
-        for item in info
-        for dx in (item.get("dx") or [])
-        if dx and dx.strip()
+        dx.strip().upper() for item in info for dx in (item.get("dx") or []) if dx and dx.strip()
     }
     assert parsed_dx_codes
 
@@ -172,9 +169,7 @@ def test_ingest_pdf_inserts_dx_codes_first(db_session: Session) -> None:
     claim_dx_codes = {
         row[0]
         for row in db_session.execute(
-            select(ClaimDiagnosisCode.diagnosis_code).where(
-                ClaimDiagnosisCode.claim_id == claim_id
-            )
+            select(ClaimDiagnosisCode.diagnosis_code).where(ClaimDiagnosisCode.claim_id == claim_id)
         ).all()
     }
     assert parsed_dx_codes.issubset(claim_dx_codes)

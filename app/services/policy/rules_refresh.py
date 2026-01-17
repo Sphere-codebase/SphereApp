@@ -29,7 +29,6 @@ def _safe_list(value: Any) -> list[Any]:
     return []
 
 
-
 _PAYER_CODE_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -50,10 +49,9 @@ def parse_policy_link_and_store(
         own_session = True
 
     try:
-        link = (
-            db.execute(select(PolicyLink).where(PolicyLink.id == policy_link_id))
-            .scalar_one_or_none()
-        )
+        link = db.execute(
+            select(PolicyLink).where(PolicyLink.id == policy_link_id)
+        ).scalar_one_or_none()
         if link is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -105,9 +103,7 @@ def parse_policy_link_and_store(
             next_review_iso=parsed.next_review_iso,
             criteria_json=criteria,
             notes_json=notes,
-            rules_json=json.dumps(
-                {"medical_necessity_clean": parsed.medical_necessity_clean}
-            ),
+            rules_json=json.dumps({"medical_necessity_clean": parsed.medical_necessity_clean}),
         )
         db.add(rule)
         db.commit()

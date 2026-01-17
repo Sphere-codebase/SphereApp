@@ -23,6 +23,7 @@ class ParsedPolicy:
     medical_necessity_clean: str
     structured: dict[str, Any]
 
+
 def _ensure_local_assets() -> None:
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

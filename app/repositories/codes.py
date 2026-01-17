@@ -23,12 +23,8 @@ def link_claim_mcp_codes(db: Session, *, claim_id: int, mcp_codes: set[str]) -> 
         return
     db.execute(
         pg_insert(ClaimMcpCode)
-        .values(
-            [{"claim_id": claim_id, "mcp_code": code} for code in sorted(mcp_codes)]
-        )
-        .on_conflict_do_nothing(
-            index_elements=[ClaimMcpCode.claim_id, ClaimMcpCode.mcp_code]
-        )
+        .values([{"claim_id": claim_id, "mcp_code": code} for code in sorted(mcp_codes)])
+        .on_conflict_do_nothing(index_elements=[ClaimMcpCode.claim_id, ClaimMcpCode.mcp_code])
     )
 
 
@@ -48,10 +44,7 @@ def link_claim_diagnoses(db: Session, *, claim_id: int, diagnosis_codes: set[str
     db.execute(
         pg_insert(ClaimDiagnosisCode)
         .values(
-            [
-                {"claim_id": claim_id, "diagnosis_code": code}
-                for code in sorted(diagnosis_codes)
-            ]
+            [{"claim_id": claim_id, "diagnosis_code": code} for code in sorted(diagnosis_codes)]
         )
         .on_conflict_do_nothing(
             index_elements=[ClaimDiagnosisCode.claim_id, ClaimDiagnosisCode.diagnosis_code]

@@ -43,9 +43,7 @@ def upsert_patient(
     return patient
 
 
-def list_patients_query(
-    db: Session, *, doctor_id: int | None, query: str | None
-) -> list[Patient]:
+def list_patients_query(db: Session, *, doctor_id: int | None, query: str | None) -> list[Patient]:
     stmt = select(Patient)
     if doctor_id is not None:
         stmt = stmt.where(Patient.doctor_id == doctor_id)

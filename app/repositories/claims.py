@@ -72,9 +72,7 @@ def _find_existing_claim(
     )
     for claim in candidates:
         existing_count = db.execute(
-            select(func.count(ClaimProcedureFact.id)).where(
-                ClaimProcedureFact.claim_id == claim.id
-            )
+            select(func.count(ClaimProcedureFact.id)).where(ClaimProcedureFact.claim_id == claim.id)
         ).scalar_one()
         if int(existing_count or 0) == line_count:
             return claim

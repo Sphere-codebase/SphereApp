@@ -13,9 +13,7 @@ from app.services.policy import rules_refresh as policy_rules
 from app.utils.time import utcnow
 
 SOURCE_URL = "https://www.aetna.com/cpb/medical/data/700_799/0722.html"
-TITLE = (
-    "Transforaminal Epidural Injections - Medical Clinical Policy Bulletins | Aetna"
-)
+TITLE = "Transforaminal Epidural Injections - Medical Clinical Policy Bulletins | Aetna"
 MEDICAL_NECESSITY = "Aetna considers transforaminal epidural injections medically necessary ..."
 
 
@@ -42,9 +40,7 @@ def _fake_parsed() -> ParsedPolicy:
         next_review_iso=date(2026, 8, 13),
         medical_necessity_clean=MEDICAL_NECESSITY,
         structured={
-            "criteria": [
-                {"id": "MN-1", "level": 0, "text": "Criterion", "children": []}
-            ],
+            "criteria": [{"id": "MN-1", "level": 0, "text": "Criterion", "children": []}],
             "notes": [{"text": "Note text"}],
         },
     )

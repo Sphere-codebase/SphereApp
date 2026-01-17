@@ -128,8 +128,7 @@ def test_admin_policy_rules_parse_and_store(db_session: Session, monkeypatch) ->
         assert rule.criteria_json == parsed.structured["criteria"]
         assert rule.notes_json == parsed.structured["notes"]
         assert (
-            json.loads(rule.rules_json)["medical_necessity_clean"]
-            == parsed.medical_necessity_clean
+            json.loads(rule.rules_json)["medical_necessity_clean"] == parsed.medical_necessity_clean
         )
     finally:
         app.dependency_overrides.clear()

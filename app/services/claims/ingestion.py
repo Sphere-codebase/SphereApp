@@ -262,9 +262,7 @@ def ingest_parsed_payload(
     logger.info("PDF ingest start doctor_id=%s session_id=%s", current_user.id, session_id)
     parsed = _normalize_payload(payload)
     patient_name = " ".join(
-        part
-        for part in [parsed.patient_first_name or "", parsed.patient_last_name or ""]
-        if part
+        part for part in [parsed.patient_first_name or "", parsed.patient_last_name or ""] if part
     ).strip()
 
     unique_dx_codes, unique_mcp_codes = _extract_unique_codes(parsed.lines)
