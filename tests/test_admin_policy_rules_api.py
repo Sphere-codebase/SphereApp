@@ -71,7 +71,9 @@ def _fake_parsed() -> ParsedPolicy:
         source_url="https://www.aetna.com/cpb/medical/data/700_799/0722.html",
         title="Transforaminal Epidural Injections - Medical Clinical Policy Bulletins | Aetna",
         next_review_iso=date(2026, 8, 13),
-        medical_necessity_clean="Aetna considers transforaminal epidural injections medically necessary ...",
+        medical_necessity_clean=(
+            "Aetna considers transforaminal epidural injections medically necessary ..."
+        ),
         structured={
             "criteria": [{"id": "MN-1", "level": 0, "text": "Criterion", "children": []}],
             "notes": [{"text": "Note text"}],
@@ -125,7 +127,10 @@ def test_admin_policy_rules_parse_and_store(db_session: Session, monkeypatch) ->
         assert rule.next_review_iso == parsed.next_review_iso
         assert rule.criteria_json == parsed.structured["criteria"]
         assert rule.notes_json == parsed.structured["notes"]
-        assert json.loads(rule.rules_json)["medical_necessity_clean"] == parsed.medical_necessity_clean
+        assert (
+            json.loads(rule.rules_json)["medical_necessity_clean"]
+            == parsed.medical_necessity_clean
+        )
     finally:
         app.dependency_overrides.clear()
 

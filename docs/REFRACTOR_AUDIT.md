@@ -13,7 +13,7 @@ app/
       admin_insurance_companies.py
       admin_mcp_codes.py
       admin_patients.py
-      admin_policy_links.py
+      policy_links.py
       auth.py
       chat.py
       chat_sessions.py
@@ -37,6 +37,19 @@ app/
   middleware/
     request_id.py
     request_logging.py
+  parsers/
+    pdf/
+      aetna_eob.py
+      interface.py
+      pdf_parse.py
+    policy/
+      aetna_policy.py
+  repositories/
+    claims.py
+    codes.py
+    coverage.py
+    patients.py
+    users.py
   schemas/
     admin_catalogs.py
     admin_dashboard.py
@@ -48,11 +61,11 @@ app/
     patients.py
   services/
     chat_orchestrator.py
-    claim_pdf_ingest.py
     claim_scoring.py
-    pdf_parser_client.py
-    policy_parser_client.py
-    policy_rules.py
+    claims/
+      ingestion.py
+    policy/
+      rules_refresh.py
   utils/
     time.py
   main.py
@@ -81,18 +94,18 @@ app/
 - app/api/routes/admin_patients.py
   - GET /api/admin/patients
   - Services: none
-- app/api/routes/admin_policy_links.py
+- app/api/routes/policy_links.py
   - GET/POST/PATCH/DELETE /api/admin/policy-links
   - POST /api/admin/policy-links/{policy_link_id}/parse
   - GET /api/admin/policy-links/{policy_link_id}/rules
-  - Services: app.services.policy_rules.parse_policy_link_and_store
+  - Services: app.services.policy.rules_refresh.parse_policy_link_and_store
 - app/api/routes/claims.py
   - GET/POST/PATCH/GET /api/claims
   - POST /api/claims/{claim_id}/mcp-codes
   - GET /api/claims/{claim_id}/policy-links
   - POST /api/claims/ingest-pdf
   - POST /api/claims/ingest-pdf-local (admin only)
-  - Services: app.services.pdf_parser_client.parse_pdf_document, app.services.claim_pdf_ingest.ingest_parsed_pdf
+  - Services: app.services.claims.ingestion.ingest_pdf_from_upload, app.services.claims.ingestion.ingest_pdf_from_path
 - app/api/routes/chat.py
   - POST /chat
   - Services: app.services.chat_orchestrator.ChatOrchestrator
@@ -112,9 +125,9 @@ app/
   - POST /api/claims/ingest-pdf (upload)
   - POST /api/claims/ingest-pdf-local (admin-only debug)
 - Flow (current):
-  1) app/api/routes/claims.py: ingest endpoint writes upload to temp file
-  2) app/services/pdf_parser_client.parse_pdf_document(Path) loads dlc-modul parser via file path and returns {"pdf": parsed, "error_message": ...}
-  3) app/services/claim_pdf_ingest.ingest_parsed_pdf(...) normalizes payload and writes to DB
+  1) app/api/routes/claims.py delegates to app/services/claims/ingestion.py
+  2) app/parsers/pdf/interface.py parse_pdf_document(Path) returns {"pdf": parsed, "error_message": ...}
+  3) app/services/claims/ingestion.py normalizes payload and orchestrates repository writes
   4) Inserts/updates tables:
      - patients, insurance_companies, claims
      - diagnosis_codes, claim_diagnosis_codes
@@ -130,17 +143,17 @@ app/
   - POST /api/admin/policy-links/{policy_link_id}/parse
   - LLM tool: app/llm/tools/registry.py -> parse_policy_link_and_store
 - Flow (current):
-  1) app/services/policy_rules.parse_policy_link_and_store loads PolicyLink and InsuranceCompany
-  2) app/services/policy_parser_client.parse_policy(url, payer_code)
-     - local mode: dlc-modul parser modules loaded by file path
+  1) app/services/policy/rules_refresh.parse_policy_link_and_store loads PolicyLink and InsuranceCompany
+  2) app/parsers/policy/aetna_policy.parse_policy(url, payer_code)
+     - local mode: dlc_modul parser modules imported if installed
      - http mode: POST to parser service
   3) Parsed policy stored as PolicyRule row
 
 ## Duplicated/conflicting modules and risks
 
-- app/services/claim_pdf_ingest.py is a "god module" (parsing, normalization, DB writes, and chat logging), which makes boundaries hard to change safely.
-- PDF parsing is invoked in routers directly; there is no service-level ingestion orchestrator, so routes own workflow details (temp files, parsing, ingestion).
-- app/services/pdf_parser_client.py and app/services/policy_parser_client.py use dynamic module loading by file path (importlib.util.spec_from_file_location), which conflicts with the constraint to avoid dynamic file-path parsing.
+- Ingestion orchestration now lives in app/services/claims/ingestion.py with repository helpers for DB writes.
+- PDF parsing is centralized in app/parsers/pdf/interface.py; routes do not perform parsing logic directly.
+- Dynamic module loading by file path has been removed in favor of static parser modules.
 - Naming is mixed between CPT and MCP in the PDF ingestion flow, which increases confusion and risks incorrect usage.
 
 ## Naming inconsistencies and proposed conventions
@@ -169,4 +182,3 @@ Phase 2 (boundary cleanup, still no behavior change)
 Phase 3 (minimal tests + docs)
 - Add an idempotency smoke test calling service-level ingestion twice for the same PDF and checking for duplicates in key tables.
 - Update this audit doc with "After" notes.
-

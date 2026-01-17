@@ -15,7 +15,6 @@ from app.api.routes import (
     admin_insurance_companies_router,
     admin_mcp_codes_router,
     admin_patients_router,
-    policy_links_router,
     admin_router,
     auth_router,
     chat_router,
@@ -23,6 +22,7 @@ from app.api.routes import (
     claims_router,
     health_router,
     patients_router,
+    policy_links_router,
 )
 from app.core.config import settings
 from app.core.logging import (

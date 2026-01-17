@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-import importlib.util
 import logging
 import os
-import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from types import ModuleType
-from typing import Any, Callable
+from typing import Any
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel, ValidationError
 
+from app.parsers.pdf import aetna_eob, pdf_parse
+
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_SAMPLE_PARSER_PATH = _PROJECT_ROOT / "dlc-modul" / "aetna_pdf.py"
-_DEFAULT_REAL_PARSER_PATH = _PROJECT_ROOT / "dlc-modul" / "pdf_parse.py"
-_PARSE_FN: Callable[[Path, Path], dict[str, Any]] | None = None
-_PARSE_PATH: Path | None = None
+_LEGACY_SAMPLE_PARSER_PATH = _PROJECT_ROOT / "dlc-modul" / "aetna_pdf.py"
+_LEGACY_REAL_PARSER_PATH = _PROJECT_ROOT / "dlc-modul" / "pdf_parse.py"
+_SAMPLE_PARSER_PATH = Path(__file__).resolve().parent / "aetna_eob.py"
+_REAL_PARSER_PATH = Path(__file__).resolve().parent / "pdf_parse.py"
 _logger = logging.getLogger(__name__)
 
 
@@ -59,46 +59,25 @@ class PdfInfo(BaseModel):
     info: list[ClaimInfo]
 
 
-def _load_parser_module(path: Path) -> ModuleType:
-    if not path.exists():
-        raise FileNotFoundError(f"Missing parser file: {path}")
-    spec = importlib.util.spec_from_file_location("dlc_modul_pdf_parser", path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Unable to load parser module from {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _resolve_parser_path() -> tuple[Path, str]:
+def _resolve_parser_backend() -> tuple[Callable[[Path, Path], dict[str, Any]], str, Path]:
     mode = os.getenv("PDF_PARSER_MODE", "").strip().lower()
-    if mode == "sample":
-        return _SAMPLE_PARSER_PATH, "sample"
     path_override = os.getenv("PDF_PARSER_PATH")
     if path_override:
-        return Path(path_override).expanduser(), "real"
-    return _DEFAULT_REAL_PARSER_PATH, "real"
-
-
-def _get_parse_fn() -> tuple[Callable[[Path, Path], dict[str, Any]], str, Path]:
-    global _PARSE_FN, _PARSE_PATH
-    path, backend = _resolve_parser_path()
-    if _PARSE_FN is not None and _PARSE_PATH == path:
-        return _PARSE_FN, backend, path
-    module = _load_parser_module(path)
-    parse_fn = getattr(module, "parse_data", None)
-    if parse_fn is None:
-        raise AttributeError("parse_data not found in parser module")
-    _PARSE_FN = parse_fn
-    _PARSE_PATH = path
-    return parse_fn, backend, path
+        resolved = Path(path_override).expanduser().resolve()
+        if resolved in {_LEGACY_SAMPLE_PARSER_PATH, _SAMPLE_PARSER_PATH}:
+            return aetna_eob.parse_data, "sample", resolved
+        if resolved in {_LEGACY_REAL_PARSER_PATH, _REAL_PARSER_PATH}:
+            return pdf_parse.parse_data, "real", resolved
+        raise FileNotFoundError(f"Unsupported parser path: {resolved}")
+    if mode == "sample":
+        return aetna_eob.parse_data, "sample", _SAMPLE_PARSER_PATH
+    return pdf_parse.parse_data, "real", _REAL_PARSER_PATH
 
 
 def parse_pdf_document(path: Path) -> dict[str, Any]:
     try:
-        parse_fn, backend, parser_path = _get_parse_fn()
-    except (FileNotFoundError, ImportError, AttributeError) as exc:
+        parse_fn, backend, parser_path = _resolve_parser_backend()
+    except FileNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Parser module unavailable: {exc}",

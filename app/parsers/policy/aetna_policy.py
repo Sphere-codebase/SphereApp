@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import importlib.util
+import importlib
 import json
-import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
-from types import ModuleType
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 from fastapi import HTTPException, status
@@ -41,18 +40,11 @@ class ParsedPolicy:
     structured: dict[str, Any]
 
 
-def _load_dlc_module(name: str, path: Path) -> ModuleType:
-    if name in sys.modules:
-        return sys.modules[name]
-    if not path.exists():
-        raise FileNotFoundError(f"Missing dlc-modul file: {path}")
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Failed to load spec for {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+def _load_module(name: str) -> Any:
+    try:
+        return importlib.import_module(name)
+    except ImportError as exc:
+        raise FileNotFoundError(f"Missing parser module: {name}") from exc
 
 
 def _ensure_local_assets() -> tuple[
@@ -66,21 +58,13 @@ def _ensure_local_assets() -> tuple[
         if not _DLC_PARSERS_DIR.exists():
             raise FileNotFoundError("dlc-modul parser directory not found")
 
-        aetna_module = _load_dlc_module(
-            "dlc_modul_aetna_cpb", _DLC_PARSERS_DIR / "aetna_cpb.py"
-        )
-        preprocess_module = _load_dlc_module(
-            "dlc_modul_preprocess", _DLC_PARSERS_DIR / "preprocess.py"
-        )
-        structure_module = _load_dlc_module(
-            "dlc_modul_structure", _DLC_PARSERS_DIR / "structure.py"
-        )
+        aetna_module = _load_module("dlc_modul.app.parsers.aetna_cpb")
+        preprocess_module = _load_module("dlc_modul.app.parsers.preprocess")
+        structure_module = _load_module("dlc_modul.app.parsers.structure")
 
-        _LOCAL_PARSERS = {
-            "aetna": getattr(aetna_module, "parse_aetna_medical_necessity"),
-        }
-        _PREPROCESS_FN = getattr(preprocess_module, "preprocess_medical_necessity")
-        _STRUCTURE_FN = getattr(structure_module, "build_structured_medical_necessity")
+        _LOCAL_PARSERS = {"aetna": aetna_module.parse_aetna_medical_necessity}
+        _PREPROCESS_FN = preprocess_module.preprocess_medical_necessity
+        _STRUCTURE_FN = structure_module.build_structured_medical_necessity
 
     return _LOCAL_PARSERS, _PREPROCESS_FN, _STRUCTURE_FN
 

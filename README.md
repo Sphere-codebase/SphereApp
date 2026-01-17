@@ -115,8 +115,8 @@ curl -i http://localhost:8000/ready
 ```
 
 ## Policy Parser Integration
-- The parser module lives at `dlc-modul/` in the repository root.
-- The backend adapter is `app/parsers/policy/aetna_policy.py` and loads local parser code from `dlc-modul/app/parsers` when `PARSER_MODE=local`.
+- The PDF parser lives under `app/parsers/pdf/` (`pdf_parse.py` + `aetna_eob.py`).
+- The backend policy adapter is `app/parsers/policy/aetna_policy.py` and imports `dlc_modul` parser modules when `PARSER_MODE=local`.
 - Set `PARSER_MODE=http` to call the external parser service at `PARSER_BASE_URL` (`/api/policy/parse`).
 
 ## Creating an Admin User

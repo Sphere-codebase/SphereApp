@@ -1,5 +1,4 @@
 import copy
-import json
 from pathlib import Path
 
 import pytest
@@ -22,16 +21,8 @@ from app.db.models import (
     User,
 )
 from app.parsers.pdf.interface import parse_pdf_document
-from app.services.claims.ingestion import ingest_parsed_pdf
+from app.services.claims.ingestion import ingest_parsed_pdf, ingest_pdf_from_path
 from app.utils.time import utcnow
-
-file_for_test = "/Users/user/Developer/pythonProject/SphereApp/tests/test_claim.pdf"
-
-def _load_sample_payload() -> dict:
-    parsed = parse_pdf_document(Path(file_for_test))
-    assert parsed.get("error_message") is None
-    return parsed
-
 
 file_for_test = "/Users/user/Developer/pythonProject/SphereApp/tests/test_claim.pdf"
 
@@ -47,6 +38,12 @@ def _seed_user(db_session: Session) -> User:
     db_session.add(user)
     db_session.commit()
     return user
+
+
+def _load_sample_payload() -> dict:
+    parsed = parse_pdf_document(Path(file_for_test))
+    assert parsed.get("error_message") is None
+    return parsed
 
 
 def _count_rows(db_session: Session, model: type) -> int:
@@ -67,7 +64,9 @@ def test_ingest_pdf_idempotent(db_session: Session) -> None:
     assert result["total_paid_cents"] == 36187
 
     procedures = (
-        db_session.execute(select(ClaimProcedureFact).where(ClaimProcedureFact.claim_id == claim.id))
+        db_session.execute(
+            select(ClaimProcedureFact).where(ClaimProcedureFact.claim_id == claim.id)
+        )
         .scalars()
         .all()
     )
@@ -116,6 +115,32 @@ def test_ingest_pdf_rejects_parser_error(db_session: Session) -> None:
         ingest_parsed_pdf(payload=invalid_payload, current_user=user, db=db_session)
 
     assert exc.value.status_code == 422
+
+
+def test_ingest_pdf_from_path_happy(db_session: Session) -> None:
+    user = _seed_user(db_session)
+
+    result = ingest_pdf_from_path(
+        file_path=file_for_test,
+        current_user=user,
+        db=db_session,
+    )
+
+    claim = db_session.execute(select(Claim)).scalar_one()
+    assert result["claim_id"] == claim.id
+
+
+def test_ingest_pdf_from_path_rejects_relative_path(db_session: Session) -> None:
+    user = _seed_user(db_session)
+
+    with pytest.raises(HTTPException) as exc:
+        ingest_pdf_from_path(
+            file_path="relative/path.pdf",
+            current_user=user,
+            db=db_session,
+        )
+
+    assert exc.value.status_code == 400
 
 
 def test_ingest_pdf_inserts_dx_codes_first(db_session: Session) -> None:

@@ -1,12 +1,12 @@
-import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash
 from app.db.id_utils import next_id
-from app.db.models import User, Claim, DiagnosisCode, ClaimDiagnosisCode
+from app.db.models import Claim, ClaimDiagnosisCode, DiagnosisCode, User
 from app.services.claims.ingestion import ingest_parsed_pdf
 from app.utils.time import utcnow
+
 
 def _seed_user(db_session: Session) -> User:
     user = User(
