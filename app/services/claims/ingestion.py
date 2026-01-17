@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -497,9 +496,8 @@ def ingest_pdf_from_path(
     user_info = parsed.get("pdf", {}).get("user_info", {}) if isinstance(parsed, dict) else {}
     patient_name = user_info.get("name")
     logger.info(
-        "Local PDF parsed parser_mode=%s account_number=%s patient_name=%s service_date=%s "
+        "Local PDF parsed account_number=%s patient_name=%s service_date=%s "
         "cpt_count=%s dx_count=%s",
-        os.getenv("PDF_PARSER_MODE", "").strip() or "real",
         user_info.get("account_number"),
         patient_name,
         info[0].get("date") if info else None,
