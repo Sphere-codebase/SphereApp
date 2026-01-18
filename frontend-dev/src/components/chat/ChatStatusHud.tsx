@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiUrl } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
 
-type StatusLevel = "ok" | "err";
+type StatusLevel = "ok" | "err" | "idle";
 
 type ReadyChecks = {
   db: StatusLevel;
@@ -47,13 +47,23 @@ async function fetchWithTimeout(input: RequestInfo, timeoutMs: number): Promise<
 }
 
 function statusLabel(status: StatusLevel): string {
-  return status === "ok" ? "Active" : "Offline";
+  if (status === "ok") {
+    return "Active";
+  }
+  if (status === "idle") {
+    return "Idle";
+  }
+  return "Offline";
 }
 
 function lampColor(status: StatusLevel): string {
-  return status === "ok"
-    ? "bg-emerald-500 shadow-emerald-400/60"
-    : "bg-rose-500 shadow-rose-400/60";
+  if (status === "ok") {
+    return "bg-emerald-500 shadow-emerald-400/60";
+  }
+  if (status === "idle") {
+    return "bg-amber-400 shadow-amber-300/60";
+  }
+  return "bg-rose-500 shadow-rose-400/60";
 }
 
 
