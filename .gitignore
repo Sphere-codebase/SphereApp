@@ -14,7 +14,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -220,3 +219,5 @@ backups/
 /scripts/
 *.diff
 /audit/
+
+/frontend-dev/node_modules
