@@ -1,4 +1,6 @@
 SHELL := /bin/bash
+
+# Load .env if exists (expects KEY=VALUE lines)
 -include .env
 export
 
@@ -8,7 +10,6 @@ PY := $(VENV)/bin/python
 PIP := $(PY) -m pip
 
 # --- CI-ish defaults (override if needed) ---
-DATABASE_URL ?= postgresql+psycopg://postgres:postgres@localhost:5432/claims_assistant
 ENV ?= test
 JWT_SECRET ?= ci-secret
 READY_CHECK_LLM ?= false
@@ -28,43 +29,49 @@ ROLE ?= user
 
 .DEFAULT_GOAL := help
 
+# -----------------------
+# Helpers
+# -----------------------
+require-db-url:
+	@test -n "$(DATABASE_URL)" || (echo "ERROR: DATABASE_URL is not set. Put it into .env"; exit 1)
+
 help:
 	@echo "Targets:"
-	@echo "  make venv        - create virtual env"
-	@echo "  make install     - install deps (incl dev)"
-	@echo "  make db-up       - start postgres via docker compose"
-	@echo "  make db-down     - stop postgres"
-	@echo "  make db-logs     - follow postgres logs"
-	@echo "  make db-wait     - wait for postgres health"
-	@echo "  make db-upgrade  - apply alembic migrations (uses compose DB)"
-	@echo "  make start       - db-up + db-upgrade + run (reload)"
-	@echo "  make run         - run API (reload)"
-	@echo "  make run-prod    - run API (no reload)"
-	@echo "  make test        - run tests"
-	@echo "  make fmt         - format (ruff)"
-	@echo "  make lint-fix    - autofix lint"
-	@echo "  make fmt-check   - CI format check only (ruff format --check)"
-	@echo "  make lint        - lint (ruff)"
-	@echo "  make type        - type-check (mypy)"
-	@echo "  make ci          - fmt-check + lint + migrate + test (CI-like)"
-	@echo "  make clean       - remove caches"
-	@echo "  make create-user - create a standard user (requires ADMIN_API_KEY)"
-	@echo "  make create-admin- create an admin user (requires ADMIN_API_KEY)"
+	@echo "  make venv         - create virtual env"
+	@echo "  make install      - install deps (incl dev)"
+	@echo "  make migrate      - apply alembic migrations using DATABASE_URL from .env"
+	@echo "  make run          - run API (reload)"
+	@echo "  make run-prod     - run API (no reload)"
+	@echo "  make start        - migrate + run (reload)"
+	@echo "  make test         - run tests"
+	@echo "  make fmt          - format (ruff)"
+	@echo "  make lint-fix     - autofix lint (ruff check --fix)"
+	@echo "  make fmt-check    - CI format check (ruff format --check)"
+	@echo "  make lint         - lint (ruff)"
+	@echo "  make type         - type-check (mypy)"
+	@echo "  make ci           - fmt-check + lint + migrate + test"
+	@echo "  make clean        - remove caches"
+	@echo "  make create-user  - create standard user (requires ADMIN_API_KEY)"
+	@echo "  make create-admin - create admin user (requires ADMIN_API_KEY)"
 	@echo ""
 	@echo "Docker (CI-like smoke):"
 	@echo "  make docker-build - build docker image ($(IMAGE_TAG):ci)"
-	@echo "  make docker-run   - run container for smoke test"
+	@echo "  make docker-run   - run container for smoke test (uses DATABASE_URL)"
 	@echo "  make docker-smoke - wait for /health and call /ready"
 	@echo "  make docker-stop  - stop smoke container"
 	@echo "  make docker-ci    - docker-build + docker-run + docker-smoke + docker-stop"
 	@echo ""
 	@echo "Frontend:"
-	@echo "  make frontend-install  - install frontend deps"
-	@echo "  make frontend-dev      - run frontend dev server"
-	@echo "  make frontend-lint     - lint frontend"
-	@echo "  make frontend-typecheck- type-check frontend"
-	@echo "  make frontend-test     - test frontend"
-	@echo "  make frontend-build    - build frontend"
+	@echo "  make frontend-install   - install frontend deps"
+	@echo "  make frontend-dev       - run frontend dev server"
+	@echo "  make frontend-lint      - lint frontend"
+	@echo "  make frontend-typecheck - type-check frontend"
+	@echo "  make frontend-test      - test frontend"
+	@echo "  make frontend-build     - build frontend"
+	@echo ""
+	@echo "Audit:"
+	@echo "  make audit-install  - install audit deps"
+	@echo "  make audit-run      - run audit suite (ruff/vulture/dup/coverage/summary)"
 
 venv:
 	$(PYTHON) -m venv $(VENV)
@@ -73,65 +80,23 @@ venv:
 install: venv
 	$(PIP) install -e ".[dev]"
 
-# --- DB helpers (docker compose) ---
-db-up:
-	docker compose up -d
+# -----------------------
+# DB migrations (Supabase / any DATABASE_URL)
+# -----------------------
+migrate: require-db-url
+	@echo "Running migrations against DATABASE_URL from .env"
+	DATABASE_URL="$(DATABASE_URL)" $(PY) -m alembic -c alembic.ini upgrade head
 
-db-down:
-	docker compose down
-
-db-logs:
-	docker compose logs -f postgres
-
-db-wait:
-	@echo "Waiting for Postgres..."
-	@until docker exec claims_assistant_postgres pg_isready -U postgres -d claims_assistant >/dev/null 2>&1; do \
-		sleep 1; \
-	done
-	@echo "Postgres is ready."
-
-docker-wait: db-wait
-
-# Compose DB upgrade (your original behavior)
-db-upgrade: db-wait
-	$(VENV)/bin/python -m alembic upgrade head
-
-# CI-style migrate (uses DATABASE_URL, no compose assumptions)
-migrate:
-	DATABASE_URL="$(DATABASE_URL)" $(VENV)/bin/python -m alembic -c alembic.ini upgrade head
-
-# --- Database Backups ---
-db-dump:
-	@mkdir -p backups
-	@echo "Dumping DB..."
-	@docker exec claims_assistant_postgres pg_dump -U postgres claims_assistant > "backups/dump_$$(date +%Y%m%d_%H%M%S).sql"
-	@echo "Backup saved to backups/dump_$$(date +%Y%m%d_%H%M%S).sql"
-
-db-restore:
-	@if [ -z "$(FILE)" ]; then \
-	  echo "ERROR: FILE is required. Example: make db-restore FILE=backups/foo.sql"; \
-	  exit 1; \
-	fi
-	@echo "Restoring from $(FILE)..."
-	@cat "$(FILE)" | docker exec -i claims_assistant_postgres psql -U postgres claims_assistant
-
-db-restore-latest:
-	@latest=$$(ls -1t backups/dump_*.sql 2>/dev/null | head -n 1); \
-	if [ -z "$$latest" ]; then \
-	  echo "ERROR: no backups found in backups/"; exit 1; \
-	fi; \
-	echo "Restoring from $$latest..."; \
-	cat "$$latest" | docker exec -i claims_assistant_postgres psql -U postgres claims_assistant
-
-# --- App run ---
+# -----------------------
+# App run
+# -----------------------
 run:
 	$(VENV)/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 run-prod:
 	$(VENV)/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 
-# One-button local start
-start: db-up docker-wait db-upgrade run
+start: migrate run
 
 test:
 	$(VENV)/bin/pytest -q
@@ -139,6 +104,7 @@ test:
 # Developer format + autofix
 fmt:
 	$(VENV)/bin/ruff format .
+
 lint-fix:
 	$(VENV)/bin/ruff check . --fix
 
@@ -152,24 +118,26 @@ lint:
 type:
 	$(VENV)/bin/mypy app
 
-# CI-like pipeline (mirrors what CI does: format check, lint, migrate, tests)
-ci: fmt-check lint-fix migrate test
+# CI-like pipeline
+ci: fmt-check lint migrate test
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache __pycache__ htmlcov .coverage
 
-# ---- Docker CI-like smoke (mirrors ci.yml) ----
+# -----------------------
+# Docker CI-like smoke
+# -----------------------
 docker-build:
 	@echo "Building image: $(IMAGE_TAG):ci"
 	docker build -t "$(IMAGE_TAG):ci" .
 
-docker-run:
-	@echo "Starting container sphereapp_ci on :8000"
+docker-run: require-db-url
+	@echo "Starting container sphereapp_ci on :8000 (DATABASE_URL from .env)"
 	docker run -d --rm \
 	  -p 8000:8000 \
 	  --name sphereapp_ci \
 	  --add-host=host.docker.internal:host-gateway \
-	  -e DATABASE_URL="postgresql+psycopg://postgres:postgres@host.docker.internal:5432/claims_assistant" \
+	  -e DATABASE_URL="$(DATABASE_URL)" \
 	  -e ENV="$(ENV)" \
 	  -e JWT_SECRET="$(JWT_SECRET)" \
 	  -e READY_CHECK_LLM="$(READY_CHECK_LLM)" \
@@ -199,10 +167,11 @@ docker-stop:
 
 docker-ci: docker-build docker-run docker-smoke docker-stop
 
-# ---- Frontend helpers (your original) ----
+# -----------------------
+# Frontend helpers
+# -----------------------
 .PHONY: frontend-install node-install
 
-# Install Node.js (npm) via Homebrew (macOS)
 node-install:
 	@command -v brew >/dev/null 2>&1 || { \
 		echo "Homebrew not found. Install it first:"; \
@@ -216,7 +185,6 @@ node-install:
 	@echo "Node: $$(node -v)"
 	@echo "npm:  $$(npm -v)"
 
-# Create (if missing) and install React frontend (Vite + React + TypeScript)
 frontend-install: node-install
 	@test -d frontend-dev || { \
 		echo "Creating Vite React+TS app in ./frontend-dev ..."; \
@@ -240,27 +208,26 @@ frontend-test:
 frontend-build:
 	@cd frontend-dev && npm run build
 
-.PHONY: help venv install db-up db-down db-logs db-wait docker-wait db-upgrade migrate run run-prod start test fmt fmt-check lint type ci clean \
-        docker-build docker-run docker-smoke docker-stop docker-ci \
-        frontend-dev frontend-lint frontend-typecheck frontend-test frontend-build
-
-# --- User Management ---
+# -----------------------
+# User Management
+# -----------------------
 create-user:
 	@if [ -z "$(ADMIN_API_KEY)" ]; then \
 	  echo "ERROR: ADMIN_API_KEY is required in .env or via argument."; \
-	  echo "  Example locally: make create-user EMAIL=bob@example.com PASSWORD=secret"; \
+	  echo "  Example: make create-user EMAIL=bob@example.com PASSWORD=secret"; \
 	  exit 1; \
 	fi
 	@echo "Creating user: $(EMAIL)"
 	@curl -s -X POST "$(API_URL)/auth/admin/users" \
 	  -H "Content-Type: application/json" \
-	  -H "X-Admin-Token: $(ADMIN_API_KEY)" 	  -d '{"email":"$(EMAIL)","password":"$(PASSWORD)"}' \
+	  -H "X-Admin-Token: $(ADMIN_API_KEY)" \
+	  -d '{"email":"$(EMAIL)","password":"$(PASSWORD)"}' \
 	  | python -m json.tool
 
 create-admin:
 	@if [ -z "$(ADMIN_API_KEY)" ]; then \
 	  echo "ERROR: ADMIN_API_KEY is required in .env or via argument."; \
-	  echo "  Example locally: make create-admin EMAIL=admin@example.com PASSWORD=secret FULL_NAME='System Admin'"; \
+	  echo "  Example: make create-admin EMAIL=admin@example.com PASSWORD=secret FULL_NAME=\"System Admin\""; \
 	  exit 1; \
 	fi
 	@echo "Creating admin: $(EMAIL)"
@@ -273,9 +240,6 @@ create-admin:
 # =========================
 # Audit (static analysis)
 # =========================
-
-PY := .venv/bin/python
-PIP := .venv/bin/pip
 PYTEST := .venv/bin/pytest
 RUFF := .venv/bin/ruff
 COVERAGE := .venv/bin/coverage
@@ -285,7 +249,6 @@ AUDIT_DIR := audit
 APP_DIR := app
 TEST_DIR := tests
 
-# Optional Node tool (global or local)
 JSCPD := jscpd
 
 audit-init:
@@ -294,7 +257,7 @@ audit-init:
 
 audit-install: audit-init
 	@echo "Installing python audit deps into .venv..."
-	@$(PIP) install -q -U ruff coverage vulture pytest
+	@$(VENV)/bin/pip install -q -U ruff coverage vulture pytest
 	@echo "Installing jscpd (global via npm)..."
 	@command -v npm >/dev/null 2>&1 && npm i -g jscpd >/dev/null 2>&1 || echo "npm not found; skip jscpd install"
 	@echo "Done."
@@ -352,3 +315,9 @@ audit-summary: audit-init
 
 audit-run: audit-init audit-ruff audit-deadcode audit-dup audit-public-coverage audit-summary
 	@echo "Audit completed. See ./$(AUDIT_DIR)/"
+
+.PHONY: help venv install require-db-url migrate run run-prod start test fmt fmt-check lint lint-fix type ci clean \
+        docker-build docker-run docker-smoke docker-stop docker-ci \
+        frontend-dev frontend-lint frontend-typecheck frontend-test frontend-build \
+        create-user create-admin \
+        audit-init audit-install audit-ruff audit-tests-fast audit-tests audit-coverage audit-public-coverage audit-deadcode audit-dup audit-summary audit-run
