@@ -114,6 +114,30 @@ curl -i http://localhost:8000/health
 curl -i http://localhost:8000/ready
 ```
 
+## Deploy to Vercel
+
+This repo is ready for Vercel Python Serverless Functions via `api/index.py`. All paths route to the
+FastAPI app so `/docs` and `/openapi.json` work by default.
+
+### Required environment variables (Vercel)
+- `DATABASE_URL` (Postgres connection string)
+- `JWT_SECRET`
+- `ENV=prod`
+
+### Common optional environment variables
+- `ADMIN_API_KEY` (needed to bootstrap admins)
+- `CORS_ORIGINS` (comma-separated or JSON array)
+- `LMSTUDIO_BASE_URL`, `LLM_MODEL`, `LLM_TIMEOUT_SECONDS`, `LLM_MAX_STEPS`, `LLM_TEMPERATURE`
+- `READY_CHECK_LLM` (set `false` to avoid readiness blocking on LLM)
+- `PARSER_MODE`, `PARSER_BASE_URL`
+- `CHAT_FILE_LOGS=false` (recommended for serverless; defaults to disabled in `ENV=prod`)
+
+### Notes for serverless
+- The SQLAlchemy engine is created with `create_engine(...)` and opens a connection on first use;
+  use a managed Postgres or pooler if you see connection churn on cold starts.
+- The app avoids writing to disk in `ENV=prod`; if you enable chat file logs, set `CHAT_LOG_DIR`
+  to a writable mount.
+
 ## Policy Parser Integration
 - The PDF parser lives under `app/parsers/pdf/` (`pdf_parse.py` + `aetna_eob.py`).
 - The backend policy adapter is `app/parsers/policy/aetna_policy.py` and imports `dlc_modul` parser modules when `PARSER_MODE=local`.
