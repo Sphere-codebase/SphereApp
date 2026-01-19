@@ -22,6 +22,7 @@ from app.utils.time import utcnow
 
 client = TestClient(app)
 
+
 def _seed_admin(db: Session) -> User:
     admin_role = db.execute(select(Role).where(Role.code == "admin")).scalar_one_or_none()
     if admin_role is None:
@@ -48,6 +49,7 @@ def _seed_admin(db: Session) -> User:
     db.commit()
     return user
 
+
 def _seed_policy_link(db: Session) -> PolicyLink:
     company = InsuranceCompany(id=next_id(db, InsuranceCompany), name="Aetna")
     code = McpCode(code="12345", description="Test Code")
@@ -62,12 +64,14 @@ def _seed_policy_link(db: Session) -> PolicyLink:
     db.commit()
     return link
 
+
 def test_openapi_contains_policy_links_rules_route():
     response = client.get("/openapi.json")
     assert response.status_code == 200
     openapi = response.json()
     paths = openapi.get("paths", {})
     assert "/api/admin/policy-links/{policy_link_id}/rules" in paths
+
 
 def test_policy_links_rules_404_when_no_rule(db_session: Session):
     user = _seed_admin(db_session)
@@ -88,11 +92,12 @@ def test_policy_links_rules_404_when_no_rule(db_session: Session):
     finally:
         app.dependency_overrides.clear()
 
+
 def test_policy_links_rules_200_when_rule_exists(db_session: Session):
     user = _seed_admin(db_session)
     link = _seed_policy_link(db_session)
     token = create_access_token(str(user.id))
-    
+
     rule = PolicyRule(
         id=next_id(db_session, PolicyRule),
         policy_link_id=link.id,

@@ -10,7 +10,6 @@ from app.parsers.policy.fetch import fetch_html
 from app.parsers.policy.preprocess import preprocess_medical_necessity
 from app.parsers.policy.structure import build_structured_medical_necessity
 
-
 router = APIRouter(prefix="/api/policy", tags=["policy_parser"])
 
 
@@ -42,17 +41,17 @@ async def parse_policy_endpoint(payload: PolicyParseRequest) -> PolicyParseRespo
     try:
         # 1. Fetch
         html = await fetch_html(url_str)
-        
+
         # 2. Parse (Aetna CPB etc.)
         parser_func = PARSERS[payer_code]
         parsed = parser_func(html, source_url=url_str)
-        
+
         # 3. Preprocess
         clean_text = preprocess_medical_necessity(parsed.medical_necessity_html)
-        
+
         # 4. Structure
         structured = build_structured_medical_necessity(parsed.medical_necessity_html)
-        
+
         return PolicyParseResponse(
             payer_code=payer_code,
             source_url=url_str,
@@ -65,4 +64,4 @@ async def parse_policy_endpoint(payload: PolicyParseRequest) -> PolicyParseRespo
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Parsing failed: {exc}",
-        )
+        ) from exc

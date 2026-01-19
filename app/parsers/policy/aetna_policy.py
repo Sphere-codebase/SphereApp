@@ -51,17 +51,17 @@ async def parse_policy(url: str, payer_code: str) -> ParsedPolicy:
     try:
         # 1. Fetch
         html = await fetch_html(url)
-        
+
         # 2. Parse (Aetna CPB etc.)
         parser_func = PARSERS[payer_code]
         parsed = parser_func(html, source_url=url)
-        
+
         # 3. Preprocess
         clean_text = preprocess_medical_necessity(parsed.medical_necessity_html)
-        
+
         # 4. Structure
         structured = build_structured_medical_necessity(parsed.medical_necessity_html)
-        
+
         return ParsedPolicy(
             payer_code=payer_code,
             source_url=url,
@@ -76,4 +76,4 @@ async def parse_policy(url: str, payer_code: str) -> ParsedPolicy:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Parsing failed: {exc}",
-        )
+        ) from exc

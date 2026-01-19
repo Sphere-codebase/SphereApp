@@ -3,13 +3,14 @@
 Codex: implement the app wiring, include routers, middleware, and dependencies.
 """
 
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from tenacity import RetryError
-
-import logging
 
 from app.api.routes import (
     admin_claims_router,
@@ -26,7 +27,6 @@ from app.api.routes import (
     patients_router,
     policy_links_router,
 )
-from app.parsers.policy.policy_parse import router as policy_parse_router
 from app.core.config import settings
 from app.core.logging import (
     configure_logging,
@@ -40,14 +40,15 @@ from app.core.logging import (
 from app.llm.client import LLMUnavailable
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.request_logging import RequestLoggingMiddleware
+from app.parsers.policy.policy_parse import router as policy_parse_router
 
 configure_logging(settings.log_level)
 
-app = FastAPI(title="claims-assistant")
 
-@app.on_event("startup")
-async def verify_routes():
-    """Verify key routes are registered at startup."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler."""
+    # Startup: Verify key routes are registered
     logger = logging.getLogger(__name__)
     target_path = "/api/admin/policy-links/{policy_link_id}/rules"
     all_paths = [route.path for route in app.routes if hasattr(route, "path")]
@@ -55,6 +56,13 @@ async def verify_routes():
         logger.info(f"Route registered: {target_path}")
     else:
         logger.error(f"Route MISSING: {target_path}")
+
+    yield
+
+    # Shutdown: (None currently)
+
+
+app = FastAPI(title="claims-assistant", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
