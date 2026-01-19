@@ -24,6 +24,7 @@ from app.api.routes import (
     patients_router,
     policy_links_router,
 )
+from app.parsers.policy.policy_parse import router as policy_parse_router
 from app.core.config import settings
 from app.core.logging import (
     configure_logging,
@@ -75,6 +76,7 @@ app.include_router(chat_sessions_router)
 app.include_router(patients_router)
 app.include_router(claims_router)
 app.include_router(health_router)
+app.include_router(policy_parse_router)
 
 # TODO: include routers:
 # - health

@@ -61,8 +61,6 @@ class Settings(BaseSettings):
     max_user_message_chars: int = Field(4000, alias="MAX_USER_MESSAGE_CHARS")
     max_context_chars: int = Field(8000, alias="MAX_CONTEXT_CHARS")
     ready_check_llm: bool = Field(False, alias="READY_CHECK_LLM")
-    parser_mode: Literal["local", "http"] = Field("local", alias="PARSER_MODE")
-    parser_base_url: str = Field("http://localhost:8001", alias="PARSER_BASE_URL")
 
     model_config = SettingsConfigDict(
         env_file=".env",

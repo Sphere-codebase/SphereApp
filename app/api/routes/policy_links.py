@@ -148,13 +148,13 @@ def update_policy_link(
 
 
 @router.post("/{policy_link_id}/parse")
-def parse_policy_link(
+async def parse_policy_link(
     policy_link_id: int,
     payload: PolicyRulesParseRequest,
     db: DbSessionDep,
     current_user: AdminUserDep,
 ) -> dict[str, Any]:
-    return parse_policy_link_and_store(
+    return await parse_policy_link_and_store(
         policy_link_id=policy_link_id,
         confirm=payload.confirm,
         db=db,
