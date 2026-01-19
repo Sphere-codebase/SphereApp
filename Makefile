@@ -321,3 +321,6 @@ audit-run: audit-init audit-ruff audit-deadcode audit-dup audit-public-coverage 
         frontend-dev frontend-lint frontend-typecheck frontend-test frontend-build \
         create-user create-admin \
         audit-init audit-install audit-ruff audit-tests-fast audit-tests audit-coverage audit-public-coverage audit-deadcode audit-dup audit-summary audit-run
+
+diff:
+	git diff > changes.diff

@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from tenacity import RetryError
 
+import logging
+
 from app.api.routes import (
     admin_claims_router,
     admin_diagnosis_codes_router,
@@ -42,6 +44,18 @@ from app.middleware.request_logging import RequestLoggingMiddleware
 configure_logging(settings.log_level)
 
 app = FastAPI(title="claims-assistant")
+
+@app.on_event("startup")
+async def verify_routes():
+    """Verify key routes are registered at startup."""
+    logger = logging.getLogger(__name__)
+    target_path = "/api/admin/policy-links/{policy_link_id}/rules"
+    all_paths = [route.path for route in app.routes if hasattr(route, "path")]
+    if target_path in all_paths:
+        logger.info(f"Route registered: {target_path}")
+    else:
+        logger.error(f"Route MISSING: {target_path}")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -51,6 +65,7 @@ app.add_middleware(
 )
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
+
 app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(
     RequestValidationError,
@@ -63,22 +78,20 @@ app.add_exception_handler(
     Exception, lambda request, exc: unhandled_exception_handler(request, exc, settings)
 )
 
-app.include_router(auth_router)
+# Admin routers
 app.include_router(admin_router)
-app.include_router(admin_insurance_companies_router)
-app.include_router(admin_diagnosis_codes_router)
-app.include_router(admin_mcp_codes_router)
-app.include_router(policy_links_router)
-app.include_router(admin_patients_router)
 app.include_router(admin_claims_router)
+app.include_router(admin_diagnosis_codes_router)
+app.include_router(admin_insurance_companies_router)
+app.include_router(admin_mcp_codes_router)
+app.include_router(admin_patients_router)
+app.include_router(policy_links_router)
+
+# Core features
+app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(chat_sessions_router)
 app.include_router(patients_router)
 app.include_router(claims_router)
 app.include_router(health_router)
 app.include_router(policy_parse_router)
-
-# TODO: include routers:
-# - health
-# - auth
-# - chat

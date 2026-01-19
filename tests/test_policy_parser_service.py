@@ -46,16 +46,17 @@ def _fake_parsed() -> ParsedPolicy:
     )
 
 
-def test_parse_policy_link_confirm_gate(db_session: Session, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_parse_policy_link_confirm_gate(db_session: Session, monkeypatch) -> None:
     link = _seed_policy_link(db_session)
     parsed = _fake_parsed()
 
-    def fake_parse_policy(url: str, payer_code: str) -> ParsedPolicy:
+    async def fake_parse_policy(url: str, payer_code: str) -> ParsedPolicy:
         return parsed
 
     monkeypatch.setattr(policy_rules, "parse_policy", fake_parse_policy)
 
-    result = policy_rules.parse_policy_link_and_store(
+    result = await policy_rules.parse_policy_link_and_store(
         policy_link_id=link.id,
         confirm=False,
         db=db_session,
@@ -70,16 +71,17 @@ def test_parse_policy_link_confirm_gate(db_session: Session, monkeypatch) -> Non
     assert stored == []
 
 
-def test_parse_policy_link_store(db_session: Session, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_parse_policy_link_store(db_session: Session, monkeypatch) -> None:
     link = _seed_policy_link(db_session)
     parsed = _fake_parsed()
 
-    def fake_parse_policy(url: str, payer_code: str) -> ParsedPolicy:
+    async def fake_parse_policy(url: str, payer_code: str) -> ParsedPolicy:
         return parsed
 
     monkeypatch.setattr(policy_rules, "parse_policy", fake_parse_policy)
 
-    result = policy_rules.parse_policy_link_and_store(
+    result = await policy_rules.parse_policy_link_and_store(
         policy_link_id=link.id,
         confirm=True,
         db=db_session,
@@ -97,16 +99,17 @@ def test_parse_policy_link_store(db_session: Session, monkeypatch) -> None:
     assert json.loads(rule.rules_json)["medical_necessity_clean"] == parsed.medical_necessity_clean
 
 
-def test_parse_policy_link_parser_error(db_session: Session, monkeypatch) -> None:
+@pytest.mark.asyncio
+async def test_parse_policy_link_parser_error(db_session: Session, monkeypatch) -> None:
     link = _seed_policy_link(db_session)
 
-    def fake_parse_policy(url: str, payer_code: str) -> ParsedPolicy:
+    async def fake_parse_policy(url: str, payer_code: str) -> ParsedPolicy:
         raise HTTPException(status_code=504, detail="timeout")
 
     monkeypatch.setattr(policy_rules, "parse_policy", fake_parse_policy)
 
     with pytest.raises(HTTPException) as exc:
-        policy_rules.parse_policy_link_and_store(
+        await policy_rules.parse_policy_link_and_store(
             policy_link_id=link.id,
             confirm=True,
             db=db_session,

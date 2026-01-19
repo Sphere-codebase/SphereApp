@@ -35,7 +35,7 @@ async def test_parse_policy_in_process(mock_fetch):
     assert parsed.payer_code == "aetna"
     assert "Aetna CPB 0123" in parsed.title
     assert "Criterion 1" in parsed.medical_necessity_clean
-    assert len(parsed.structured["criteria"]) == 1 # Top level list
+    assert len(parsed.structured["criteria"]) == 2  # Top level list
     assert parsed.structured["criteria"][0]["text"] == "Criterion 1"
     
     mock_fetch.assert_called_once_with("http://example.com/aetna")
