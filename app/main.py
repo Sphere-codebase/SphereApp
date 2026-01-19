@@ -3,6 +3,9 @@
 Codex: implement the app wiring, include routers, middleware, and dependencies.
 """
 
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,10 +40,30 @@ from app.core.logging import (
 from app.llm.client import LLMUnavailable
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.request_logging import RequestLoggingMiddleware
+from app.parsers.policy.policy_parse import router as policy_parse_router
 
 configure_logging(settings.log_level)
 
-app = FastAPI(title="claims-assistant")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan event handler."""
+    # Startup: Verify key routes are registered
+    logger = logging.getLogger(__name__)
+    target_path = "/api/admin/policy-links/{policy_link_id}/rules"
+    all_paths = [route.path for route in app.routes if hasattr(route, "path")]
+    if target_path in all_paths:
+        logger.info(f"Route registered: {target_path}")
+    else:
+        logger.error(f"Route MISSING: {target_path}")
+
+    yield
+
+    # Shutdown: (None currently)
+
+
+app = FastAPI(title="claims-assistant", lifespan=lifespan)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -50,6 +73,7 @@ app.add_middleware(
 )
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
+
 app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
 app.add_exception_handler(
     RequestValidationError,
@@ -62,21 +86,20 @@ app.add_exception_handler(
     Exception, lambda request, exc: unhandled_exception_handler(request, exc, settings)
 )
 
-app.include_router(auth_router)
+# Admin routers
 app.include_router(admin_router)
-app.include_router(admin_insurance_companies_router)
-app.include_router(admin_diagnosis_codes_router)
-app.include_router(admin_mcp_codes_router)
-app.include_router(policy_links_router)
-app.include_router(admin_patients_router)
 app.include_router(admin_claims_router)
+app.include_router(admin_diagnosis_codes_router)
+app.include_router(admin_insurance_companies_router)
+app.include_router(admin_mcp_codes_router)
+app.include_router(admin_patients_router)
+app.include_router(policy_links_router)
+
+# Core features
+app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(chat_sessions_router)
 app.include_router(patients_router)
 app.include_router(claims_router)
 app.include_router(health_router)
-
-# TODO: include routers:
-# - health
-# - auth
-# - chat
+app.include_router(policy_parse_router)

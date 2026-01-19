@@ -87,7 +87,7 @@ def test_admin_policy_rules_parse_and_store(db_session: Session, monkeypatch) ->
     token = create_access_token(str(user.id))
     parsed = _fake_parsed()
 
-    def fake_parse_policy(url: str, payer_code: str) -> ParsedPolicy:
+    async def fake_parse_policy(url: str, payer_code: str) -> ParsedPolicy:
         return parsed
 
     monkeypatch.setattr(policy_rules, "parse_policy", fake_parse_policy)

@@ -37,7 +37,7 @@ def _normalize_payer_code(name: str) -> str:
     return cleaned.strip("_")
 
 
-def parse_policy_link_and_store(
+async def parse_policy_link_and_store(
     policy_link_id: int,
     confirm: bool,
     payer_code: str | None = None,
@@ -67,7 +67,7 @@ def parse_policy_link_and_store(
                     detail="Insurance company not found",
                 )
             payer = _normalize_payer_code(company.name)
-        parsed = parse_policy(url=link.policy_url, payer_code=payer)
+        parsed = await parse_policy(url=link.policy_url, payer_code=payer)
         structured = parsed.structured if isinstance(parsed.structured, dict) else {}
         criteria = _safe_list(structured.get("criteria"))
         notes = _safe_list(structured.get("notes"))
