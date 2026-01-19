@@ -42,7 +42,11 @@ function formatTime(value?: string | null): string | undefined {
   if (Number.isNaN(date.getTime())) {
     return undefined;
   }
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  return date.toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 function formatDate(value?: string | null): string {
@@ -90,9 +94,7 @@ function ChatShell() {
   const navigate = useNavigate();
   const [draft, setDraft] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
-  const [uploadSummary, setUploadSummary] = useState<ClaimPdfIngestResponse | null>(
-    null
-  );
+  const [uploadSummary, setUploadSummary] = useState<ClaimPdfIngestResponse | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<unknown>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -113,7 +115,8 @@ function ChatShell() {
     [messages]
   );
 
-  const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
+  const activeSession =
+    sessions.find((session) => session.id === activeSessionId) ?? null;
 
   const handleSend = () => {
     const trimmed = draft.trim();
@@ -195,7 +198,11 @@ function ChatShell() {
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
               aria-label="Toggle theme"
             >
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {theme === "dark" ? (
+                <Sun className="h-4 w-4" />
+              ) : (
+                <Moon className="h-4 w-4" />
+              )}
             </Button>
           </div>
         </header>
@@ -244,7 +251,9 @@ function ChatShell() {
                         <span
                           className={cn(
                             "text-xs",
-                            isActive ? "text-slate-200" : "text-slate-500 dark:text-slate-400"
+                            isActive
+                              ? "text-slate-200"
+                              : "text-slate-500 dark:text-slate-400"
                           )}
                         >
                           {formatTime(session.created_at) ?? "—"}
@@ -295,15 +304,13 @@ function ChatShell() {
             <div className="flex-1 overflow-auto">
               <Conversation
                 messages={conversationMessages}
-                emptyState={isLoadingMessages ? "Loading messages..." : "Start a new conversation."}
+                emptyState={
+                  isLoadingMessages ? "Loading messages..." : "Start a new conversation."
+                }
               />
             </div>
 
-            <PromptInput
-              value={draft}
-              onChange={setDraft}
-              onSubmit={handleSend}
-            />
+            <PromptInput value={draft} onChange={setDraft} onSubmit={handleSend} />
 
             <details className="text-xs text-slate-500 dark:text-slate-400">
               <summary className="cursor-pointer">Last request ID</summary>
@@ -337,12 +344,13 @@ function ChatShell() {
                     DOB: {formatDate(uploadSummary.patient_date_of_birth)}
                   </div>
                   <div className="mt-2 space-y-1 text-xs">
-                    <div>Account: {uploadSummary.account_number || "—"}</div>
                     <div>Service date: {formatDate(uploadSummary.service_date)}</div>
                     <div>CPT lines: {uploadSummary.line_count}</div>
                   </div>
                   <div className="mt-3 border-t border-slate-200 pt-3 text-xs dark:border-slate-800">
-                    <div>Total billed: {formatCents(uploadSummary.total_billed_cents)}</div>
+                    <div>
+                      Total billed: {formatCents(uploadSummary.total_billed_cents)}
+                    </div>
                     <div>
                       Total allowed: {formatCents(uploadSummary.total_allowed_cents)}
                     </div>

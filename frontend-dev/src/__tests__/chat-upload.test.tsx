@@ -121,6 +121,7 @@ describe("chat pdf upload", () => {
     expect(await screen.findByText("Claim summary")).toBeInTheDocument();
     expect(await screen.findByText("Lloyd Goldfarb")).toBeInTheDocument();
     expect(await screen.findByText("Total billed: $3,700.00")).toBeInTheDocument();
+    expect(screen.queryByText("Account:")).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /close claim summary/i }));
     expect(await screen.findByText("Upload PDF")).toBeInTheDocument();
