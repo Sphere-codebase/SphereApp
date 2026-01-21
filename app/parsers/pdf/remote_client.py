@@ -20,6 +20,17 @@ _HTTPX_CLIENT: Optional[httpx.Client] = None
 
 def _get_httpx_client() -> httpx.Client:
     global _HTTPX_CLIENT
+    client_factory_is_mocked = not isinstance(httpx.Client, type)
+    if client_factory_is_mocked:
+        # Respect patched httpx.Client in tests by re-creating the client.
+        timeout = httpx.Timeout(
+            connect=10.0,
+            read=settings.pdf_parser_timeout_seconds,
+            write=10.0,
+            pool=10.0,
+        )
+        _HTTPX_CLIENT = httpx.Client(timeout=timeout)
+        return _HTTPX_CLIENT
     if _HTTPX_CLIENT is None or hasattr(_HTTPX_CLIENT, "mock_calls"):
         # Split timeouts is safer than a single float in real networks.
         # 10s connect, settings-based read, 10s write, 10s pool wait.
