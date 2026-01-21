@@ -15,7 +15,7 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.db.models import User
-from app.parsers.pdf.interface import parse_pdf_document
+from app.parsers.pdf.remote_client import parse_pdf_document
 from app.repositories import claims as claim_repo
 from app.repositories import codes as code_repo
 from app.repositories import coverage as coverage_repo

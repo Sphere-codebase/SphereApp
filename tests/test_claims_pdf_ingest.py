@@ -21,7 +21,7 @@ from app.db.models import (
     Patient,
     User,
 )
-from app.parsers.pdf.interface import parse_pdf_document
+from app.parsers.pdf.remote_client import parse_pdf_document
 from app.services.claims.ingestion import ingest_parsed_pdf, ingest_pdf_from_path
 from app.utils.time import utcnow
 

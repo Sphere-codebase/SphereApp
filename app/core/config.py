@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     max_context_chars: int = Field(8000, alias="MAX_CONTEXT_CHARS")
     ready_check_llm: bool = Field(False, alias="READY_CHECK_LLM")
 
+    pdf_parser_url: str = Field("http://localhost:8001", alias="PDF_PARSER_URL")
+    pdf_parser_api_key: str = Field("default_secret", alias="PDF_PARSER_API_KEY")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
