@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, status
 from pydantic import ValidationError
 
 from core.parser import parse_pdf
@@ -26,10 +26,12 @@ def verify_api_key(api_key: str):
 async def parse_endpoint(
     request: ParseRequest = None,
     file: UploadFile = File(None),
-    x_api_key: Annotated[str | None, Form()] = None
+    x_api_key: Annotated[str | None, Form()] = None,
+    x_header_key: Annotated[str | None, Header(alias="X-API-Key")] = None
 ):
-    # api_key validation could be a dependency, keeping it simple for extraction
-    # verify_api_key(x_api_key) 
+    # Support both for backward compatibility during rollout
+    key = x_header_key or x_api_key
+    verify_api_key(key) 
 
     temp_pdf_path = None
     request_id = str(uuid.uuid4())

@@ -64,6 +64,9 @@ class Settings(BaseSettings):
 
     pdf_parser_url: str = Field("http://localhost:8001", alias="PDF_PARSER_URL")
     pdf_parser_api_key: str = Field("default_secret", alias="PDF_PARSER_API_KEY")
+    pdf_parser_max_size_bytes: int = Field(25 * 1024 * 1024, alias="PDF_PARSER_MAX_SIZE_BYTES")
+    pdf_parser_timeout_seconds: float = Field(60.0, alias="PDF_PARSER_TIMEOUT_SECONDS")
+    pdf_parser_retries: int = Field(3, alias="PDF_PARSER_RETRIES")
 
     model_config = SettingsConfigDict(
         env_file=".env",
