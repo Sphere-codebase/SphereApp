@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 from fastapi import HTTPException, status
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # --- Shared client (connection pooling) ---
 # If you have FastAPI lifespan events, you can close it on shutdown.
 # This is a pragmatic minimal change to avoid creating a client per request.
-_HTTPX_CLIENT: Optional[httpx.Client] = None
+_HTTPX_CLIENT: httpx.Client | None = None
 
 
 def _get_httpx_client() -> httpx.Client:
@@ -66,9 +66,7 @@ class RemotePdfParserClient:
         self.base_url = (base_url or settings.pdf_parser_url or "").strip()
         self.api_key = (api_key or settings.pdf_parser_api_key or "").strip()
         self.retries = settings.pdf_parser_retries if retries is None else max(0, retries)
-        self.max_size = (
-            settings.pdf_parser_max_size_bytes if max_size is None else max(0, max_size)
-        )
+        self.max_size = settings.pdf_parser_max_size_bytes if max_size is None else max(0, max_size)
         self.timeout_seconds = (
             settings.pdf_parser_timeout_seconds
             if timeout_seconds is None
@@ -129,7 +127,7 @@ class RemotePdfParserClient:
                 if response.status_code == 422:
                     payload = _safe_json(response)
                     detail = None
-                    if payload and isinstance(payload.get("detail"), (str, list, dict)):
+                    if payload and isinstance(payload.get("detail"), str | list | dict):
                         detail = payload.get("detail")
                     else:
                         # fallback to raw text (may be HTML/plain)
@@ -150,7 +148,9 @@ class RemotePdfParserClient:
                     )
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="Remote PDF parser authentication failed (check service key/config).",
+                        detail=(
+                            "Remote PDF parser authentication failed " "(check service key/config)."
+                        ),
                     )
 
                 # Let httpx raise on other 4xx/5xx
@@ -221,9 +221,9 @@ class RemotePdfParserClient:
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail=f"Remote PDF parser service error: {exc}",
-                )
+                ) from exc
 
-            except httpx.RequestError as exc:
+            except httpx.RequestError:
                 logger.exception("Remote PDF parser transport error attempt=%s", attempt + 1)
                 if attempt < self.retries:
                     time.sleep(0.5)
@@ -235,7 +235,7 @@ class RemotePdfParserClient:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Internal error during PDF parsing: {exc}",
-                )
+                ) from exc
 
 
 def parse_pdf_document(path: Path) -> dict[str, Any]:

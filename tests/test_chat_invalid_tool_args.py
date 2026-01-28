@@ -85,3 +85,54 @@ def test_invalid_tool_args(db_session: Session) -> None:
         assert tool_errors
     finally:
         app.dependency_overrides.clear()
+
+
+def test_invalid_tool_args_list_procedure_codes(db_session: Session) -> None:
+    user = _seed_user(db_session)
+    token = create_access_token(str(user.id))
+    responses = [
+        ChatCompletionResult(
+            assistant_text="Try tool",
+            tool_calls=[
+                ToolCall(
+                    id="call-1",
+                    name="list_procedure_codes",
+                    arguments={"limit": "bad"},
+                )
+            ],
+        ),
+        ChatCompletionResult(assistant_text="Fallback", tool_calls=[]),
+    ]
+    fake_llm = FakeLLMClient(responses)
+
+    def override_get_db():
+        yield db_session
+
+    def override_llm_client():
+        return fake_llm
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_llm_client] = override_llm_client
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/chat",
+            json={"message": "Test invalid args"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        assert response.json()["assistant_message"] == "Fallback"
+
+        tool_errors = (
+            db_session.execute(
+                select(ChatMessage).where(
+                    ChatMessage.content.ilike("%list_procedure_codes%"),
+                    ChatMessage.content.ilike("%TOOL_VALIDATION_ERROR%"),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert tool_errors
+    finally:
+        app.dependency_overrides.clear()

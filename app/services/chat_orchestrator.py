@@ -269,4 +269,4 @@ class ChatOrchestrator:
             rendered = str(payload)
         if len(rendered) <= settings.max_context_chars:
             return rendered
-        return f"{rendered[:settings.max_context_chars]}…"
+        return f"{rendered[: settings.max_context_chars]}…"

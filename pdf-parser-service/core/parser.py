@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -46,7 +45,7 @@ def parse_pdf(pdf_path: Path) -> dict[str, Any]:
                 for r in t:
                     if not r or not r[0]:
                         continue
-                        
+
                     check_header = r[0].split("\n")[0].strip()
                     try:
                         res = bool(datetime.strptime(check_header, "%m/%d/%Y"))
@@ -83,10 +82,10 @@ def parse_pdf(pdf_path: Path) -> dict[str, Any]:
                     elif check_header == "Adjustments":
                         adj_header_prefix = "Adjustments\nAmount Type Code Quantity Description\n"
                         if r[0].startswith(adj_header_prefix):
-                             adj_values = r[0].removeprefix(adj_header_prefix).split()
+                            adj_values = r[0].removeprefix(adj_header_prefix).split()
                         else:
-                             adj_values = r[0].split()
-                             
+                            adj_values = r[0].split()
+
                         payment_indexes = [
                             index for index, value in enumerate(adj_values) if value.startswith("$")
                         ]
@@ -95,12 +94,12 @@ def parse_pdf(pdf_path: Path) -> dict[str, Any]:
                             # Safeguard against short arrays
                             if step_index + 3 >= len(adj_values):
                                 continue
-                                
+
                             append_obj = {
                                 "amount": adj_values[step_index],
                                 "type": " ".join(adj_values[step_index + 1 : step_index + 3]),
                                 "code": adj_values[step_index + 3],
-                                "description": ""
+                                "description": "",
                             }
                             if i == len(payment_indexes) - 1:
                                 append_obj["description"] = " ".join(
@@ -110,7 +109,7 @@ def parse_pdf(pdf_path: Path) -> dict[str, Any]:
                                 append_obj["description"] = " ".join(
                                     adj_values[step_index + 4 : payment_indexes[i + 1]]
                                 ).replace("\n", " ")
-                            
+
                             if info_step >= 0:
                                 result_obj["info"][info_step]["adjustments"].append(append_obj)
 
@@ -132,5 +131,5 @@ def parse_pdf(pdf_path: Path) -> dict[str, Any]:
                                 )
                     elif check_header == "Type" and r[1] == "Code" and r[2] == "Description":
                         in_codes = True
-                        
+
     return result_obj

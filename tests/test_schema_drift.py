@@ -24,10 +24,9 @@ def test_schema_matches_models(db_session: Session) -> None:
     current_revision = _get_current_revision(db_session)
 
     assert head_revision is not None
-    assert current_revision == head_revision, (
-        "Database schema is not at alembic head. "
-        "Run `alembic upgrade head` or `make db-upgrade`."
-    )
+    assert (
+        current_revision == head_revision
+    ), "Database schema is not at alembic head. Run `alembic upgrade head` or `make db-upgrade`."
 
     inspector = inspect(db_session.get_bind())
     column_names = {column["name"] for column in inspector.get_columns("users")}
