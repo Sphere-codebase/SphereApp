@@ -15,7 +15,11 @@ This repo includes a `Makefile` that wraps the most common dev commands.
 
 ```bash
 make install
-make start
+| Command | Description |
+| :--- | :--- |
+| `make start` | Full backend bootstrap (Migrate -> Run) |
+| `make migrate` | Run Alembic migrations |
+| `make run` | Run API with reload (dev) |
 ```
 
 What `make start` does: `db-up` (Postgres) → `db-upgrade` (Alembic) → `run` (Uvicorn with reload).
