@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, Boolean, String
+from sqlalchemy import BigInteger, Boolean, ForeignKey, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.models.base import Base, TimestampMixin
@@ -16,5 +16,12 @@ class User(TimestampMixin, Base):
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
     full_name: Mapped[str | None] = mapped_column(String, nullable=True)
     is_active: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    clinic_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("clinics.id"),
+        nullable=False,
+        server_default=text("1"),
+    )
 
     roles = relationship("Role", secondary="user_roles", back_populates="users", lazy="selectin")
+    clinic = relationship("Clinic", back_populates="users")

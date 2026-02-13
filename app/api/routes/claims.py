@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
@@ -25,6 +26,7 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.schemas.claims import (
+    ClaimSummaryListResponse,
     ClaimCreateRequest,
     ClaimMcpCodeCreateRequest,
     ClaimMcpCodeResponse,
@@ -33,8 +35,10 @@ from app.schemas.claims import (
     ClaimResponse,
     ClaimUpdateRequest,
     McpCodeSummary,
+    MyClaimsListResponseSchema,
 )
 from app.services.claims.ingestion import ingest_pdf_from_path, ingest_pdf_from_upload
+from app.services.claims.summary import ClaimsService, MyClaimsFilters
 from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/claims", tags=["claims"])
@@ -92,6 +96,49 @@ def list_claims(
         stmt = stmt.where(Claim.claim_status == status_value)
     claims = db.execute(stmt.order_by(Claim.created_at.desc())).scalars().all()
     return [ClaimResponse.model_validate(claim) for claim in claims]
+
+
+@router.get("/my", response_model=MyClaimsListResponseSchema)
+def list_my_claims(
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    limit: Annotated[int, Query(ge=1)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    q: Annotated[str | None, Query()] = None,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+) -> MyClaimsListResponseSchema:
+    service = ClaimsService(db)
+    filters = MyClaimsFilters(
+        limit=limit,
+        offset=offset,
+        q=q,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return service.list_my_claims_summary(current_user=current_user, filters=filters)
+
+
+@router.get("/my-summary", response_model=ClaimSummaryListResponse)
+def list_my_claims_summary(
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    limit: Annotated[int, Query(ge=1)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    q: Annotated[str | None, Query()] = None,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+) -> ClaimSummaryListResponse:
+    service = ClaimsService(db)
+    filters = MyClaimsFilters(
+        limit=limit,
+        offset=offset,
+        q=q,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    summary = service.list_my_claims_summary(current_user=current_user, filters=filters)
+    return ClaimSummaryListResponse.model_validate(summary.model_dump())
 
 
 @router.post("", response_model=ClaimResponse, status_code=status.HTTP_201_CREATED)

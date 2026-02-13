@@ -16,6 +16,7 @@ def upsert_patient(
     db: Session,
     *,
     doctor_id: int,
+    clinic_id: int | None = None,
     first_name: str | None,
     last_name: str | None,
     date_of_birth: date | None,
@@ -34,6 +35,7 @@ def upsert_patient(
     patient = Patient(
         id=next_id(db, Patient),
         doctor_id=doctor_id,
+        clinic_id=clinic_id,
         first_name=first_name,
         last_name=last_name,
         date_of_birth=date_of_birth,

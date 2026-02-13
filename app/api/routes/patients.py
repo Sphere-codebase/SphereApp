@@ -56,6 +56,7 @@ def create_patient(
     patient = Patient(
         id=next_id(db, Patient),
         doctor_id=current_user.id,
+        clinic_id=current_user.clinic_id,
         first_name=payload.first_name,
         last_name=payload.last_name,
         date_of_birth=payload.date_of_birth,

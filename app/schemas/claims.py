@@ -86,3 +86,38 @@ class ClaimPdfIngestResponse(BaseModel):
     total_billed_cents: int
     total_allowed_cents: int
     total_paid_cents: int
+
+
+class MyClaimItemSchema(BaseModel):
+    id: int
+    patient_name: str
+    date_of_service: date | None
+    claim_number: str | None
+    policy: str | None
+    paid_amount: float
+    billed_amount: float
+    currency: str | None
+
+
+class MyClaimsListResponseSchema(BaseModel):
+    items: list[MyClaimItemSchema]
+    limit: int
+    offset: int
+    total: int
+
+
+class ClaimSummaryItem(BaseModel):
+    patient_name: str
+    date_of_service: date | None
+    claim_number: str | None
+    policy: str | None
+    paid_amount: float
+    billed_amount: float
+    currency: str | None
+
+
+class ClaimSummaryListResponse(BaseModel):
+    items: list[ClaimSummaryItem]
+    limit: int
+    offset: int
+    total: int

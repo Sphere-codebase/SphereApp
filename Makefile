@@ -121,6 +121,9 @@ type:
 # CI-like pipeline
 ci: fmt-check lint migrate test
 
+# Alias for CI pipeline
+all: ci
+
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache __pycache__ htmlcov .coverage
 

@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from datetime import date
 from typing import Protocol
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -18,6 +18,7 @@ from app.db.models import (
     ClaimProcedureDiagnosis,
     ClaimProcedureFact,
     InsuranceCompany,
+    Patient,
 )
 from app.utils.time import utcnow
 
@@ -243,3 +244,75 @@ def add_chat_message(
     )
     db.add(message)
     return message
+
+
+class ClaimsRepository:
+    @staticmethod
+    def list_my_claims_summary(
+        db: Session,
+        *,
+        doctor_id: int,
+        limit: int,
+        offset: int,
+        q: str | None,
+        date_from: date | None,
+        date_to: date | None,
+    ) -> tuple[list[tuple[Claim, Patient, InsuranceCompany, float, float]], int]:
+        patient_name = func.trim(
+            func.concat(
+                func.coalesce(Patient.first_name, ""),
+                " ",
+                func.coalesce(Patient.last_name, ""),
+            )
+        )
+
+        base_stmt = select(Claim.id).join(Patient, Claim.patient_id == Patient.id)
+        base_stmt = base_stmt.where(Claim.doctor_id == doctor_id)
+        if q:
+            like = f"%{q}%"
+            base_stmt = base_stmt.where(
+                or_(patient_name.ilike(like), Claim.claim_number.ilike(like))
+            )
+        if date_from:
+            base_stmt = base_stmt.where(Claim.service_date >= date_from)
+        if date_to:
+            base_stmt = base_stmt.where(Claim.service_date <= date_to)
+
+        total = db.execute(select(func.count()).select_from(base_stmt.subquery())).scalar_one()
+
+        sums_subquery = (
+            select(
+                ClaimProcedureFact.claim_id.label("claim_id"),
+                func.coalesce(func.sum(ClaimProcedureFact.billed_amount), 0).label(
+                    "requested_total"
+                ),
+                func.coalesce(func.sum(ClaimProcedureFact.allowed_amount), 0).label(
+                    "approved_total"
+                ),
+            )
+            .group_by(ClaimProcedureFact.claim_id)
+            .subquery()
+        )
+
+        requested_total = func.coalesce(sums_subquery.c.requested_total, 0).label("requested_total")
+        approved_total = func.coalesce(sums_subquery.c.approved_total, 0).label("approved_total")
+
+        stmt = (
+            select(Claim, Patient, InsuranceCompany, requested_total, approved_total)
+            .join(Patient, Claim.patient_id == Patient.id)
+            .join(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
+            .outerjoin(sums_subquery, sums_subquery.c.claim_id == Claim.id)
+            .where(Claim.doctor_id == doctor_id)
+        )
+        if q:
+            like = f"%{q}%"
+            stmt = stmt.where(or_(patient_name.ilike(like), Claim.claim_number.ilike(like)))
+        if date_from:
+            stmt = stmt.where(Claim.service_date >= date_from)
+        if date_to:
+            stmt = stmt.where(Claim.service_date <= date_to)
+
+        stmt = stmt.order_by(Claim.service_date.desc().nullslast(), Claim.created_at.desc())
+        stmt = stmt.limit(limit).offset(offset)
+        rows = db.execute(stmt).all()
+        return rows, int(total or 0)

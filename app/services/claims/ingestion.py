@@ -282,6 +282,7 @@ def ingest_parsed_payload(
         patient = patient_repo.upsert_patient(
             db,
             doctor_id=current_user.id,
+            clinic_id=current_user.clinic_id,
             first_name=parsed.patient_first_name,
             last_name=parsed.patient_last_name,
             date_of_birth=parsed.patient_dob,
