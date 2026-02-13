@@ -24,6 +24,7 @@ from app.api.routes import (
     chat_sessions_router,
     claims_router,
     health_router,
+    insurance_companies_router,
     patients_router,
     policy_links_router,
 )
@@ -100,6 +101,7 @@ app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(chat_sessions_router)
 app.include_router(patients_router)
+app.include_router(insurance_companies_router)
 app.include_router(claims_router)
 app.include_router(health_router)
 app.include_router(policy_parse_router)

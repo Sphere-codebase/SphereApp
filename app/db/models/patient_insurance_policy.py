@@ -47,3 +47,4 @@ class PatientInsurancePolicy(TimestampMixin, Base):
     clinic = relationship("Clinic", back_populates="insurance_policies")
     patient = relationship("Patient", back_populates="insurance_policies")
     insurance_company = relationship("InsuranceCompany", back_populates="patient_policies")
+    cards = relationship("InsuranceCard", back_populates="policy")

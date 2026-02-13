@@ -1,5 +1,6 @@
 """SQLAlchemy models for the application."""
 
+from app.db.models.address import Address
 from app.db.models.base import Base
 from app.db.models.chat import ChatMessage, ChatSession
 from app.db.models.claim import Claim
@@ -8,10 +9,10 @@ from app.db.models.claim_line_coverage import ClaimLineCoverage
 from app.db.models.claim_mcp_code import ClaimMcpCode
 from app.db.models.claim_procedure_diagnosis import ClaimProcedureDiagnosis
 from app.db.models.claim_procedure_fact import ClaimProcedureFact
-from app.db.models.address import Address
 from app.db.models.clinic import Clinic
 from app.db.models.diagnosis_code import DiagnosisCode
 from app.db.models.enums import ClaimStatus
+from app.db.models.insurance_card import InsuranceCard
 from app.db.models.insurance_company import InsuranceCompany
 from app.db.models.mcp_code import McpCode
 from app.db.models.mcp_payment_prediction import McpPaymentPrediction
@@ -40,6 +41,7 @@ __all__ = [
     "ClaimStatus",
     "DiagnosisCode",
     "InsuranceCompany",
+    "InsuranceCard",
     "McpCode",
     "McpPaymentPrediction",
     "MlPrediction",

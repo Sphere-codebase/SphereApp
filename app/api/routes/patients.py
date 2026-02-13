@@ -9,16 +9,17 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import get_current_user
-from app.db.id_utils import next_id
 from app.db.models import Patient, User
 from app.db.session import get_db
 from app.repositories.patients import list_patients_query
 from app.schemas.patients import (
+    NewPatientCreateRequest,
+    NewPatientCreateResponse,
     PatientCreateRequest,
     PatientResponse,
     PatientUpdateRequest,
 )
-from app.utils.time import utcnow
+from app.services.patients import PatientService
 
 router = APIRouter(prefix="/api/patients", tags=["patients"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
@@ -47,25 +48,19 @@ def list_patients(
     return [PatientResponse.model_validate(patient) for patient in patients]
 
 
-@router.post("", response_model=PatientResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=NewPatientCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_patient(
-    payload: PatientCreateRequest,
+    payload: NewPatientCreateRequest | PatientCreateRequest,
     db: DbSessionDep,
     current_user: CurrentUserDep,
-) -> PatientResponse:
-    patient = Patient(
-        id=next_id(db, Patient),
-        doctor_id=current_user.id,
-        clinic_id=current_user.clinic_id,
-        first_name=payload.first_name,
-        last_name=payload.last_name,
-        date_of_birth=payload.date_of_birth,
-        created_at=utcnow(),
-    )
-    db.add(patient)
-    db.commit()
-    db.refresh(patient)
-    return PatientResponse.model_validate(patient)
+) -> NewPatientCreateResponse:
+    if isinstance(payload, PatientCreateRequest):
+        patient_name = " ".join(
+            part for part in [payload.first_name.strip(), payload.last_name.strip()] if part
+        ).strip()
+        payload = NewPatientCreateRequest(patient_name=patient_name)
+    service = PatientService(db)
+    return service.create_new_patient(current_user=current_user, payload=payload)
 
 
 @router.get("/{patient_id}", response_model=PatientResponse)

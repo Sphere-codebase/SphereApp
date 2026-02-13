@@ -29,6 +29,7 @@ class Patient(TimestampMixin, Base):
     last_name: Mapped[str | None] = mapped_column(String, nullable=True)
     date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)
     chart_number: Mapped[str | None] = mapped_column(String, nullable=True)
+    provider_name: Mapped[str | None] = mapped_column(String, nullable=True)
     gender: Mapped[str | None] = mapped_column(String, nullable=True)
     primary_phone: Mapped[str | None] = mapped_column(String, nullable=True)
     secondary_phone: Mapped[str | None] = mapped_column(String, nullable=True)
