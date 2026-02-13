@@ -1,0 +1,5 @@
+сдeлать новый запрос на получeниe данных для странички claim
+новый мeтод для создания claim по pdf
+make form for new person
+
+
