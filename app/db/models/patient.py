@@ -12,7 +12,10 @@ from app.db.models.base import Base, TimestampMixin
 
 class Patient(TimestampMixin, Base):
     __tablename__ = "patients"
-    __table_args__ = (Index("ix_patients_doctor_id", "doctor_id"),)
+    __table_args__ = (
+        Index("ix_patients_doctor_id", "doctor_id"),
+        Index("ix_patients_clinic_id", "clinic_id"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     doctor_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)

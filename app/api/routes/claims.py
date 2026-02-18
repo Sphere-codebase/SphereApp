@@ -5,13 +5,14 @@ from __future__ import annotations
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import AuditLoggerDep, require_platform_staff_admin
+from app.core import policy
 from app.core.logging import error_payload
 from app.core.security import get_current_user
 from app.db.id_utils import next_id
@@ -44,7 +45,7 @@ from app.utils.time import utcnow
 router = APIRouter(prefix="/api/claims", tags=["claims"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
-AdminUserDep = Annotated[User, Depends(require_admin)]
+AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
 
 
 class PdfLocalIngestRequest(BaseModel):
@@ -53,8 +54,10 @@ class PdfLocalIngestRequest(BaseModel):
 
 
 def _get_claim_or_404(db: Session, claim_id: int, current_user: User) -> Claim:
+    filters = [Claim.id == claim_id]
+    filters.extend(policy.claim_scope_filters(current_user, Claim))
     claim = db.execute(
-        select(Claim).where(Claim.id == claim_id, Claim.doctor_id == current_user.id)
+        select(Claim).where(*filters)
     ).scalar_one_or_none()
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
@@ -62,8 +65,10 @@ def _get_claim_or_404(db: Session, claim_id: int, current_user: User) -> Claim:
 
 
 def _require_patient(db: Session, patient_id: int, current_user: User) -> Patient:
+    filters = [Patient.id == patient_id]
+    filters.extend(policy.patient_scope_filters(current_user, Patient))
     patient = db.execute(
-        select(Patient).where(Patient.id == patient_id, Patient.doctor_id == current_user.id)
+        select(Patient).where(*filters)
     ).scalar_one_or_none()
     if patient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
@@ -87,7 +92,7 @@ def list_claims(
     insurance_company_id: Annotated[int | None, Query()] = None,
     status_value: Annotated[str | None, Query(alias="status")] = None,
 ) -> list[ClaimResponse]:
-    stmt = select(Claim).where(Claim.doctor_id == current_user.id)
+    stmt = select(Claim).where(*policy.claim_scope_filters(current_user, Claim))
     if patient_id:
         stmt = stmt.where(Claim.patient_id == patient_id)
     if insurance_company_id:
@@ -146,12 +151,16 @@ def create_claim(
     payload: ClaimCreateRequest,
     db: DbSessionDep,
     current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
 ) -> ClaimResponse | JSONResponse:
+    if not policy.can(current_user, policy.Action.CREATE, policy.Resource.CLAIM):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     patient = _require_patient(db, payload.patient_id, current_user)
     _require_insurance_company(db, payload.insurance_company_id)
     claim = Claim(
         id=next_id(db, Claim),
         doctor_id=current_user.id,
+        clinic_id=current_user.clinic_id,
         patient_id=patient.id,
         insurance_company_id=payload.insurance_company_id,
         claim_number=payload.claim_number,
@@ -168,6 +177,19 @@ def create_claim(
     db.add(claim)
     db.commit()
     db.refresh(claim)
+    audit.log_event(
+        action="CREATE",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={
+            "fields": list(payload.model_dump(exclude_unset=True).keys()),
+            "patient_id": claim.patient_id,
+            "insurance_company_id": claim.insurance_company_id,
+        },
+    )
     return ClaimResponse.model_validate(claim)
 
 
@@ -187,8 +209,11 @@ def update_claim(
     payload: ClaimUpdateRequest,
     db: DbSessionDep,
     current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
 ) -> ClaimResponse | JSONResponse:
     claim = _get_claim_or_404(db, claim_id, current_user)
+    if not policy.can(current_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     data = payload.model_dump(exclude_unset=True)
     if "patient_id" in data and data["patient_id"] is not None:
         _require_patient(db, data["patient_id"], current_user)
@@ -199,6 +224,15 @@ def update_claim(
     db.add(claim)
     db.commit()
     db.refresh(claim)
+    audit.log_event(
+        action="UPDATE",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={"fields": list(data.keys())},
+    )
     return ClaimResponse.model_validate(claim)
 
 
@@ -208,8 +242,11 @@ def add_mcp_codes(
     payload: ClaimMcpCodeCreateRequest,
     db: DbSessionDep,
     current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
 ) -> list[ClaimMcpCodeResponse] | JSONResponse:
     claim = _get_claim_or_404(db, claim_id, current_user)
+    if not policy.can(current_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     if not payload.mcp_codes:
         return []
     codes = db.execute(select(McpCode).where(McpCode.code.in_(payload.mcp_codes))).scalars().all()
@@ -238,6 +275,15 @@ def add_mcp_codes(
         db.add(link)
         responses.append(ClaimMcpCodeResponse(claim_id=claim.id, mcp_code=code_value))
     db.commit()
+    audit.log_event(
+        action="UPDATE",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={"mcp_codes": payload.mcp_codes},
+    )
     return responses
 
 
@@ -282,14 +328,18 @@ def resolve_policy_links(
 def ingest_pdf_claim(
     db: DbSessionDep,
     current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
     file: UploadFile = File(...),  # noqa: B008
     session_id: int | None = Form(None),  # noqa: B008
 ) -> ClaimPdfIngestResponse:
+    if not policy.can(current_user, policy.Action.CREATE, policy.Resource.CLAIM):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     result = ingest_pdf_from_upload(
         file=file,
         current_user=current_user,
         db=db,
         session_id=session_id,
+        audit_logger=audit,
     )
     return ClaimPdfIngestResponse.model_validate(result)
 
@@ -299,6 +349,7 @@ def ingest_pdf_local(
     payload: PdfLocalIngestRequest,
     db: DbSessionDep,
     current_user: AdminUserDep,
+    audit: AuditLoggerDep,
 ) -> dict[str, object]:
     """Local debug endpoint; do not enable in production deployments."""
     result = ingest_pdf_from_path(
@@ -306,5 +357,31 @@ def ingest_pdf_local(
         current_user=current_user,
         db=db,
         session_id=payload.chat_session_id,
+        audit_logger=audit,
     )
     return result
+
+
+@router.delete("/{claim_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def delete_claim(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+) -> Response:
+    claim = _get_claim_or_404(db, claim_id, current_user)
+    if not policy.can(current_user, policy.Action.DELETE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    claim_id_value = claim.id
+    clinic_id_value = claim.clinic_id
+    db.delete(claim)
+    db.commit()
+    audit.log_event(
+        action="DELETE",
+        entity="claim",
+        entity_id=claim_id_value,
+        actor=current_user,
+        clinic_id=clinic_id_value,
+        target_clinic_id=clinic_id_value,
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.id_utils import next_id
-from app.db.models import Claim, InsuranceCompany, McpCode, Patient, Role, User, UserRole
+from app.db.models import Clinic, Claim, InsuranceCompany, McpCode, Patient, Role, User, UserRole
 from app.llm.tools import execute_tool
 from app.llm.tools.registry import ToolContext
 from app.utils.time import utcnow
@@ -17,13 +17,21 @@ def _ensure_doctor_role(db_session: Session) -> Role:
     return role
 
 
-def _seed_doctor(db_session: Session, email: str) -> User:
+def _seed_clinic(db_session: Session, name: str) -> Clinic:
+    clinic = Clinic(id=next_id(db_session, Clinic), name=name, created_at=utcnow())
+    db_session.add(clinic)
+    db_session.flush()
+    return clinic
+
+
+def _seed_doctor(db_session: Session, email: str, clinic_id: int = 1) -> User:
     role = _ensure_doctor_role(db_session)
     user = User(
         id=next_id(db_session, User),
         email=email,
         password_hash="hashed",
         is_active=True,
+        clinic_id=clinic_id,
         created_at=utcnow(),
     )
     db_session.add(user)
@@ -40,6 +48,7 @@ def _seed_claim(db_session: Session, doctor: User) -> Claim:
     patient = Patient(
         id=next_id(db_session, Patient),
         doctor_id=doctor.id,
+        clinic_id=doctor.clinic_id,
         first_name="Jane",
         last_name="Doe",
         created_at=utcnow(),
@@ -47,6 +56,7 @@ def _seed_claim(db_session: Session, doctor: User) -> Claim:
     claim = Claim(
         id=next_id(db_session, Claim),
         doctor_id=doctor.id,
+        clinic_id=doctor.clinic_id,
         patient_id=patient.id,
         insurance_company_id=company.id,
         claim_status="DRAFT",
@@ -83,11 +93,13 @@ def test_get_procedure_code_unknown_returns_exists_false(db_session: Session) ->
 
 
 def test_explain_coverage_for_code_claim_isolation(db_session: Session) -> None:
-    doctor_a = _seed_doctor(db_session, "doctor-a@example.com")
-    doctor_b = _seed_doctor(db_session, "doctor-b@example.com")
+    clinic_a = _seed_clinic(db_session, "Clinic A")
+    clinic_b = _seed_clinic(db_session, "Clinic B")
+    doctor_a = _seed_doctor(db_session, "doctor-a@example.com", clinic_id=clinic_a.id)
+    doctor_b = _seed_doctor(db_session, "doctor-b@example.com", clinic_id=clinic_b.id)
     claim = _seed_claim(db_session, doctor_a)
 
-    ctx = ToolContext(db=db_session, user_id=doctor_b.id)
+    ctx = ToolContext(db=db_session, user_id=doctor_b.id, clinic_id=doctor_b.clinic_id)
     result = execute_tool(
         "explain_coverage_for_code",
         {"code": "27096", "claim_id": claim.id},

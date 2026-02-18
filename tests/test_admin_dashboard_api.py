@@ -39,6 +39,8 @@ def _seed_admin(db_session: Session, is_admin: bool) -> User:
         email="admin@example.com" if is_admin else "member@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
+        role="platform_staff_admin" if is_admin else "doctor",
         created_at=utcnow(),
     )
     db_session.add(user)
@@ -55,6 +57,7 @@ def _seed_claim_data(db_session: Session, admin: User) -> Claim:
     patient = Patient(
         id=next_id(db_session, Patient),
         doctor_id=admin.id,
+        clinic_id=1,
         first_name="Jane",
         last_name="Doe",
         created_at=utcnow(),
@@ -62,6 +65,7 @@ def _seed_claim_data(db_session: Session, admin: User) -> Claim:
     claim = Claim(
         id=next_id(db_session, Claim),
         doctor_id=admin.id,
+        clinic_id=1,
         patient_id=patient.id,
         insurance_company_id=company.id,
         claim_status="DRAFT",
@@ -73,6 +77,7 @@ def _seed_claim_data(db_session: Session, admin: User) -> Claim:
     procedure = ClaimProcedureFact(
         id=next_id(db_session, ClaimProcedureFact),
         claim_id=claim.id,
+        clinic_id=1,
         patient_id=patient.id,
         insurance_company_id=company.id,
         mcp_code=code.code,

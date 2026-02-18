@@ -36,6 +36,7 @@ def _seed_user(db_session: Session) -> User:
         email="doctor@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add(user)

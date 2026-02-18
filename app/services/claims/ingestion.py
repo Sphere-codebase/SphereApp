@@ -20,6 +20,7 @@ from app.repositories import claims as claim_repo
 from app.repositories import codes as code_repo
 from app.repositories import coverage as coverage_repo
 from app.repositories import patients as patient_repo
+from app.services.audit import AuditLogger
 
 logger = logging.getLogger(__name__)
 
@@ -258,6 +259,7 @@ def ingest_parsed_payload(
     current_user: User,
     db: Session,
     session_id: int | None = None,
+    audit_logger: AuditLogger | None = None,
 ) -> dict[str, Any]:
     logger.info("PDF ingest start doctor_id=%s session_id=%s", current_user.id, session_id)
     parsed = _normalize_payload(payload)
@@ -295,6 +297,7 @@ def ingest_parsed_payload(
         claim, created = claim_repo.upsert_claim(
             db,
             doctor_id=current_user.id,
+            clinic_id=current_user.clinic_id,
             patient_id=patient.id,
             insurer_id=insurer.id,
             service_date=parsed.service_date,
@@ -341,6 +344,7 @@ def ingest_parsed_payload(
             claim_id=claim.id,
             patient_id=patient.id,
             insurer_id=insurer.id,
+            clinic_id=current_user.clinic_id,
             lines=parsed.lines,
         )
         logger.info(
@@ -353,6 +357,7 @@ def ingest_parsed_payload(
         coverage_repo.upsert_claim_line_coverage(
             db,
             claim_id=claim.id,
+            clinic_id=current_user.clinic_id,
             line_coverage=line_coverage,
         )
         logger.info(
@@ -364,6 +369,7 @@ def ingest_parsed_payload(
         chat_session = claim_repo.upsert_chat_session(
             db,
             doctor_id=current_user.id,
+            clinic_id=current_user.clinic_id,
             session_id=session_id,
         )
 
@@ -374,7 +380,12 @@ def ingest_parsed_payload(
             f"allowed={_format_cents(parsed.total_allowed_cents)}, "
             f"paid={_format_cents(parsed.total_paid_cents)}."
         )
-        claim_repo.add_chat_message(db, session_id=chat_session.id, content=summary)
+        claim_repo.add_chat_message(
+            db,
+            session_id=chat_session.id,
+            clinic_id=current_user.clinic_id,
+            content=summary,
+        )
         logger.info("Logged chat summary session_id=%s claim_id=%s", chat_session.id, claim.id)
 
     db.commit()
@@ -384,6 +395,19 @@ def ingest_parsed_payload(
         len(parsed.lines),
         len(unique_dx_codes),
     )
+    if audit_logger is not None:
+        audit_logger.log_event(
+            action="PDF_GENERATE",
+            entity="claim",
+            entity_id=claim.id,
+            actor=current_user,
+            clinic_id=current_user.clinic_id,
+            target_clinic_id=current_user.clinic_id,
+            diff={
+                "patient_id": patient.id,
+                "line_count": len(parsed.lines),
+            },
+        )
 
     return {
         "claim_id": claim.id,
@@ -405,12 +429,14 @@ def ingest_parsed_pdf(
     current_user: User,
     db: Session,
     session_id: int | None = None,
+    audit_logger: AuditLogger | None = None,
 ) -> dict[str, Any]:
     return ingest_parsed_payload(
         payload=payload,
         current_user=current_user,
         db=db,
         session_id=session_id,
+        audit_logger=audit_logger,
     )
 
 
@@ -420,6 +446,7 @@ def ingest_pdf_from_upload(
     current_user: User,
     db: Session,
     session_id: int | None = None,
+    audit_logger: AuditLogger | None = None,
 ) -> dict[str, Any]:
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Missing PDF")
@@ -448,6 +475,7 @@ def ingest_pdf_from_upload(
         current_user=current_user,
         db=db,
         session_id=session_id,
+        audit_logger=audit_logger,
     )
 
 
@@ -457,6 +485,7 @@ def ingest_pdf_from_path(
     current_user: User,
     db: Session,
     session_id: int | None = None,
+    audit_logger: AuditLogger | None = None,
 ) -> dict[str, Any]:
     path = Path(file_path)
     if not path.is_absolute():
@@ -514,6 +543,7 @@ def ingest_pdf_from_path(
         current_user=current_user,
         db=db,
         session_id=session_id,
+        audit_logger=audit_logger,
     )
 
     return {

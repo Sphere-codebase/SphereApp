@@ -34,6 +34,7 @@ def _seed_doctor(db_session: Session, email: str) -> User:
         email=email,
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add(user)
@@ -59,6 +60,7 @@ def _seed_patient(
     patient = Patient(
         id=next_id(db_session, Patient),
         doctor_id=doctor.id,
+        clinic_id=doctor.clinic_id,
         first_name=first_name,
         last_name=last_name,
         created_at=utcnow(),
@@ -80,6 +82,7 @@ def _seed_claim(
     claim = Claim(
         id=next_id(db_session, Claim),
         doctor_id=doctor.id,
+        clinic_id=doctor.clinic_id,
         patient_id=patient.id,
         insurance_company_id=company.id,
         claim_number=claim_number,
@@ -167,6 +170,7 @@ def test_my_claims_summary_aggregates_amounts_from_line_items(db_session: Sessio
     # Composite PK/unique constraints require distinct identifier values per line item.
     line_one = ClaimProcedureFact(
         id=base_line_id,
+        clinic_id=doctor.clinic_id,
         claim_id=claim.id,
         patient_id=patient.id,
         insurance_company_id=company.id,
@@ -177,6 +181,7 @@ def test_my_claims_summary_aggregates_amounts_from_line_items(db_session: Sessio
     )
     line_two = ClaimProcedureFact(
         id=base_line_id + 1,
+        clinic_id=doctor.clinic_id,
         claim_id=claim.id,
         patient_id=patient.id,
         insurance_company_id=company.id,

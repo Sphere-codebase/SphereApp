@@ -15,7 +15,7 @@ class FakeOrchestrator:
     def __init__(self, user: User) -> None:
         self.user = user
 
-    def run(self, message, session_id):  # noqa: D401
+    def run(self, message, session_id, **_kwargs):  # noqa: D401
         session = session_id or 1
         return ChatResult(
             session_id=session,
@@ -39,6 +39,7 @@ def test_chat_file_logs_created_and_redacted(tmp_path, monkeypatch) -> None:
         email="doctor@example.com",
         password_hash="hash",
         is_active=True,
+        clinic_id=1,
     )
 
     def override_orchestrator():

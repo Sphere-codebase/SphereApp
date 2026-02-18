@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.deps import AuditLoggerDep
 from app.core.config import settings
 from app.core.security import (
     create_access_token,
@@ -30,7 +31,7 @@ from app.schemas.auth import (
 from app.services.user_roles import (
     assigned_roles_for_user,
     ensure_role,
-    is_admin_role,
+    resolve_primary_role,
     user_already_exists_response,
 )
 from app.utils.time import utcnow
@@ -47,12 +48,21 @@ def get_admin_token(
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: DbSessionDep) -> TokenResponse:
+def login(payload: LoginRequest, db: DbSessionDep, audit: AuditLoggerDep) -> TokenResponse:
     user = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     token = create_access_token(str(user.id))
+    audit.log_event(
+        action="LOGIN",
+        entity="user",
+        entity_id=user.id,
+        actor=user,
+        target_user_id=user.id,
+        target_clinic_id=user.clinic_id,
+        diff={"method": "password"},
+    )
     return TokenResponse(access_token=token)
 
 
@@ -65,6 +75,7 @@ def create_user(
     payload: AdminCreateUserRequest,
     db: DbSessionDep,
     admin_token: Annotated[str | None, Depends(get_admin_token)],
+    audit: AuditLoggerDep,
 ) -> AdminCreateUserResponse | JSONResponse:
     if not settings.admin_api_key or admin_token != settings.admin_api_key:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin token required")
@@ -73,26 +84,35 @@ def create_user(
     if existing_response is not None:
         return existing_response
 
-    is_admin = is_admin_role(payload.roles)
-    doctor_role = ensure_role(db, "doctor", "Default doctor role")
-    admin_role = ensure_role(db, "admin", "Administrator role") if is_admin else None
-    assigned_roles = assigned_roles_for_user(is_admin)
+    primary_role = resolve_primary_role(payload.roles)
+    role_row = ensure_role(db, primary_role, primary_role.replace("_", " ").title())
+    assigned_roles = assigned_roles_for_user(primary_role)
     user = User(
         id=next_id(db, User),
         email=payload.email,
         full_name=payload.full_name,
         password_hash=get_password_hash(payload.password),
         is_active=True,
+        role=primary_role,
         created_at=utcnow(),
     )
     db.add(user)
     db.flush()
-    db.add(UserRole(user_id=user.id, role_id=doctor_role.id))
-    if admin_role is not None:
-        db.add(UserRole(user_id=user.id, role_id=admin_role.id))
+    db.add(UserRole(user_id=user.id, role_id=role_row.id))
     db.commit()
 
     token = create_access_token(str(user.id))
+    audit.log_event(
+        action="CREATE",
+        entity="user",
+        entity_id=user.id,
+        actor=None,
+        clinic_id=user.clinic_id,
+        target_clinic_id=user.clinic_id,
+        target_user_id=user.id,
+        scope="platform",
+        diff={"fields": ["full_name", "is_active", "role"]},
+    )
     return AdminCreateUserResponse(
         access_token=token,
         user_id=user.id,
@@ -102,7 +122,7 @@ def create_user(
 
 
 @router.post("/dev-token", response_model=TokenResponse)
-def dev_token(payload: DevTokenRequest, db: DbSessionDep) -> TokenResponse:
+def dev_token(payload: DevTokenRequest, db: DbSessionDep, audit: AuditLoggerDep) -> TokenResponse:
     if settings.env not in {"dev", "test"}:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not available")
 
@@ -111,6 +131,15 @@ def dev_token(payload: DevTokenRequest, db: DbSessionDep) -> TokenResponse:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     token = create_access_token(str(user.id))
+    audit.log_event(
+        action="LOGIN",
+        entity="user",
+        entity_id=user.id,
+        actor=user,
+        target_user_id=user.id,
+        target_clinic_id=user.clinic_id,
+        diff={"method": "dev-token"},
+    )
     return TokenResponse(access_token=token)
 
 
@@ -120,5 +149,5 @@ def me(current_user: CurrentUserDep) -> UserResponse:
         id=current_user.id,
         email=current_user.email,
         is_active=bool(current_user.is_active),
-        roles=[role.code for role in current_user.roles],
+        roles=[current_user.role],
     )

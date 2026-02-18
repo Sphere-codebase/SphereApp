@@ -4,14 +4,21 @@ from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash
 from app.db.id_utils import next_id
-from app.db.models import InsuranceCompany, Patient, Role, User, UserRole
+from app.db.models import Clinic, InsuranceCompany, Patient, Role, User, UserRole
 from app.db.models.claim import Claim
 from app.db.session import get_db
 from app.main import app
 from app.utils.time import utcnow
 
 
-def _seed_user(db_session: Session, email: str) -> User:
+def _seed_clinic(db_session: Session, name: str) -> Clinic:
+    clinic = Clinic(id=next_id(db_session, Clinic), name=name, created_at=utcnow())
+    db_session.add(clinic)
+    db_session.flush()
+    return clinic
+
+
+def _seed_user(db_session: Session, email: str, clinic_id: int = 1) -> User:
     doctor_role = db_session.execute(select(Role).where(Role.code == "doctor")).scalar_one_or_none()
     if doctor_role is None:
         doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
@@ -23,6 +30,7 @@ def _seed_user(db_session: Session, email: str) -> User:
         email=email,
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=clinic_id,
         created_at=utcnow(),
     )
     db_session.add(user)
@@ -37,6 +45,7 @@ def _seed_claim(db_session: Session, user: User) -> Claim:
     patient = Patient(
         id=next_id(db_session, Patient),
         doctor_id=user.id,
+        clinic_id=user.clinic_id,
         first_name="Jane",
         last_name="Doe",
         created_at=utcnow(),
@@ -44,6 +53,7 @@ def _seed_claim(db_session: Session, user: User) -> Claim:
     claim = Claim(
         id=next_id(db_session, Claim),
         doctor_id=user.id,
+        clinic_id=user.clinic_id,
         patient_id=patient.id,
         insurance_company_id=company.id,
         claim_status="DRAFT",
@@ -77,8 +87,10 @@ def test_add_mcp_code_missing_returns_404(db_session: Session) -> None:
 
 
 def test_claim_access_restricted_to_owner(db_session: Session) -> None:
-    owner = _seed_user(db_session, "owner@example.com")
-    other = _seed_user(db_session, "other@example.com")
+    clinic = _seed_clinic(db_session, "Clinic A")
+    other_clinic = _seed_clinic(db_session, "Clinic B")
+    owner = _seed_user(db_session, "owner@example.com", clinic_id=clinic.id)
+    other = _seed_user(db_session, "other@example.com", clinic_id=other_clinic.id)
     claim = _seed_claim(db_session, owner)
     token = create_access_token(str(other.id))
 

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.api.routes.chat import get_llm_client
 from app.core.security import create_access_token, get_password_hash
 from app.db.id_utils import next_id
-from app.db.models import Claim, InsuranceCompany, Patient, Role, User, UserRole
+from app.db.models import Clinic, Claim, InsuranceCompany, Patient, Role, User, UserRole
 from app.db.session import get_db
 from app.llm.client import ChatCompletionResult, ToolCall
 from app.main import app
@@ -23,7 +23,14 @@ class FakeLLMClient:
         return response
 
 
-def _seed_claim(db_session: Session, email: str) -> tuple[User, Claim]:
+def _seed_clinic(db_session: Session, name: str) -> Clinic:
+    clinic = Clinic(id=next_id(db_session, Clinic), name=name, created_at=utcnow())
+    db_session.add(clinic)
+    db_session.flush()
+    return clinic
+
+
+def _seed_claim(db_session: Session, email: str, clinic_id: int = 1) -> tuple[User, Claim]:
     doctor_role = db_session.execute(select(Role).where(Role.code == "doctor")).scalar_one_or_none()
     if doctor_role is None:
         doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
@@ -35,6 +42,7 @@ def _seed_claim(db_session: Session, email: str) -> tuple[User, Claim]:
         email=email,
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=clinic_id,
         created_at=utcnow(),
     )
     company_name = f"Company {email.replace('@', '-')}"
@@ -42,6 +50,7 @@ def _seed_claim(db_session: Session, email: str) -> tuple[User, Claim]:
     patient = Patient(
         id=next_id(db_session, Patient),
         doctor_id=user.id,
+        clinic_id=user.clinic_id,
         first_name="Jane",
         last_name="Doe",
         created_at=utcnow(),
@@ -49,6 +58,7 @@ def _seed_claim(db_session: Session, email: str) -> tuple[User, Claim]:
     claim = Claim(
         id=next_id(db_session, Claim),
         doctor_id=user.id,
+        clinic_id=user.clinic_id,
         patient_id=patient.id,
         insurance_company_id=company.id,
         claim_status="DRAFT",
@@ -149,8 +159,10 @@ def test_update_with_confirmation_writes(db_session: Session) -> None:
 
 
 def test_other_user_update_returns_404(db_session: Session) -> None:
-    user_a, _claim_a = _seed_claim(db_session, "doctor-a@example.com")
-    user_b, claim_b = _seed_claim(db_session, "doctor-b@example.com")
+    clinic_a = _seed_clinic(db_session, "Clinic A")
+    clinic_b = _seed_clinic(db_session, "Clinic B")
+    user_a, _claim_a = _seed_claim(db_session, "doctor-a@example.com", clinic_id=clinic_a.id)
+    user_b, claim_b = _seed_claim(db_session, "doctor-b@example.com", clinic_id=clinic_b.id)
 
     token = create_access_token(str(user_a.id))
     responses = [

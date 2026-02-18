@@ -6,6 +6,7 @@ import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -26,7 +27,9 @@ from app.db.models import (
     PolicyRule,
     User,
 )
+from app.core import policy
 from app.llm.tools import schemas
+from app.services.audit import AuditContext, AuditLogger
 from app.services.policy.rules_refresh import parse_policy_link_and_store
 from app.utils.time import utcnow
 
@@ -156,7 +159,12 @@ Handler = Callable[["ToolContext", Any], dict[str, Any]]
 class ToolContext:
     db: Session
     user_id: int | None = None
+    clinic_id: int | None = None
+    role: str | None = None
     chat_session_id: int | None = None
+    request_id: str | None = None
+    ip: str | None = None
+    user_agent: str | None = None
 
 
 @dataclass(frozen=True)
@@ -174,18 +182,43 @@ def _tool_error(code: str, message: str, details: dict[str, Any] | None = None) 
     return {"error": error}
 
 
+def _policy_user(ctx: ToolContext) -> User | SimpleNamespace:
+    if ctx.user_id is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User not found")
+    if ctx.role is not None and ctx.clinic_id is not None:
+        return SimpleNamespace(id=ctx.user_id, role=ctx.role, clinic_id=ctx.clinic_id)
+    if ctx.db is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User not found")
+    user = ctx.db.execute(select(User).where(User.id == ctx.user_id)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User not found")
+    return user
+
+
+def _audit_logger(ctx: ToolContext) -> AuditLogger:
+    return AuditLogger(
+        db=ctx.db,
+        context=AuditContext(
+            request_id=ctx.request_id,
+            ip=ctx.ip,
+            user_agent=ctx.user_agent,
+        ),
+    )
+
+
 def _find_patient_for_context(ctx: ToolContext, patient_id: int) -> Patient | None:
+    if ctx.user_id is None:
+        return None
+    policy_user = _policy_user(ctx)
     filters = [Patient.id == patient_id]
-    if ctx.user_id is not None:
-        filters.append(Patient.doctor_id == ctx.user_id)
+    filters.extend(policy.patient_scope_filters(policy_user, Patient))
     return ctx.db.execute(select(Patient).where(*filters)).scalar_one_or_none()
 
 
 def _search_patients(ctx: ToolContext, args: schemas.SearchPatientsArgs) -> dict[str, Any]:
     query = f"%{args.query}%"
-    filters = []
-    if ctx.user_id is not None:
-        filters.append(Patient.doctor_id == ctx.user_id)
+    policy_user = _policy_user(ctx)
+    filters = policy.patient_scope_filters(policy_user, Patient)
     rows = ctx.db.execute(
         select(Patient).where(
             *filters,
@@ -222,12 +255,14 @@ def _get_patient(ctx: ToolContext, args: schemas.GetPatientArgs) -> dict[str, An
 
 
 def _get_claim(ctx: ToolContext, args: schemas.GetClaimArgs) -> dict[str, Any]:
+    policy_user = _policy_user(ctx)
+    claim_filters = policy.claim_scope_filters(policy_user, Claim)
     claim = ctx.db.execute(
         select(Claim, Patient)
         .join(Patient)
         .where(
             Claim.id == args.claim_id,
-            *([Patient.doctor_id == ctx.user_id] if ctx.user_id is not None else []),
+            *claim_filters,
         )
     ).first()
     if claim is None:
@@ -250,12 +285,14 @@ def _get_claim(ctx: ToolContext, args: schemas.GetClaimArgs) -> dict[str, Any]:
 
 
 def _list_claims(ctx: ToolContext, args: schemas.ListClaimsArgs) -> dict[str, Any]:
+    policy_user = _policy_user(ctx)
+    claim_filters = policy.claim_scope_filters(policy_user, Claim)
     rows = ctx.db.execute(
         select(Claim)
         .join(Patient)
         .where(
             Claim.patient_id == args.patient_id,
-            *([Patient.doctor_id == ctx.user_id] if ctx.user_id is not None else []),
+            *claim_filters,
         )
     ).scalars()
     claims = [
@@ -296,12 +333,29 @@ def _time_now(_: ToolContext, args: schemas.TimeNowArgs) -> dict[str, Any]:
 
 
 def _create_claim_draft(ctx: ToolContext, args: schemas.CreateClaimDraftArgs) -> dict[str, Any]:
+    policy_user = _policy_user(ctx)
+    audit = _audit_logger(ctx)
+    if not policy.can(policy_user, policy.Action.CREATE, policy.Resource.CLAIM):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     patient = _find_patient_for_context(ctx, args.patient_id)
     if patient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
     proposed = {"patient_id": str(args.patient_id), "fields": args.fields}
     if not args.confirm:
+        audit.log_event(
+            action="AI_WRITE_PROPOSED",
+            entity="claim",
+            entity_id=None,
+            actor=policy_user,
+            clinic_id=patient.clinic_id,
+            target_clinic_id=patient.clinic_id,
+            diff={
+                "tool": "create_claim_draft",
+                "patient_id": patient.id,
+                "fields": list(args.fields.keys()),
+            },
+        )
         return {"action_required": True, "proposed_changes": proposed}
 
     insurance_company_id = args.fields.get("insurance_company_id")
@@ -319,6 +373,7 @@ def _create_claim_draft(ctx: ToolContext, args: schemas.CreateClaimDraftArgs) ->
     claim = Claim(
         id=next_id(ctx.db, Claim),
         doctor_id=patient.doctor_id,
+        clinic_id=patient.clinic_id,
         patient_id=patient.id,
         insurance_company_id=insurance_company_id,
         claim_status=ClaimStatus.DRAFT.value,
@@ -334,22 +389,31 @@ def _create_claim_draft(ctx: ToolContext, args: schemas.CreateClaimDraftArgs) ->
     )
     ctx.db.add(claim)
     ctx.db.commit()
+    audit.log_event(
+        action="AI_WRITE_CONFIRMED",
+        entity="claim",
+        entity_id=claim.id,
+        actor=policy_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={
+            "tool": "create_claim_draft",
+            "fields": list(args.fields.keys()),
+        },
+    )
     return {"claim_id": claim.id}
 
 
 def _update_claim_fields(ctx: ToolContext, args: schemas.UpdateClaimFieldsArgs) -> dict[str, Any]:
+    policy_user = _policy_user(ctx)
+    audit = _audit_logger(ctx)
     filters = [Claim.id == args.claim_id]
-    if ctx.user_id is not None:
-        filters.append(Patient.doctor_id == ctx.user_id)
-    claim = ctx.db.execute(
-        select(Claim)
-        .join(Patient)
-        .where(
-            *filters,
-        )
-    ).scalar_one_or_none()
+    filters.extend(policy.claim_scope_filters(policy_user, Claim))
+    claim = ctx.db.execute(select(Claim).where(*filters)).scalar_one_or_none()
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+    if not policy.can(policy_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     allowed_fields = {
         "claim_status",
@@ -369,19 +433,41 @@ def _update_claim_fields(ctx: ToolContext, args: schemas.UpdateClaimFieldsArgs) 
             patch["claim_status"] = ClaimStatus[status_value].value
     proposed = {"claim_id": str(args.claim_id), "patch": patch}
     if not args.confirm:
+        audit.log_event(
+            action="AI_WRITE_PROPOSED",
+            entity="claim",
+            entity_id=claim.id,
+            actor=policy_user,
+            clinic_id=claim.clinic_id,
+            target_clinic_id=claim.clinic_id,
+            diff={
+                "tool": "update_claim_fields",
+                "fields": list(patch.keys()),
+            },
+        )
         return {"action_required": True, "proposed_changes": proposed}
 
     for key, value in patch.items():
         setattr(claim, key, value)
     ctx.db.commit()
+    audit.log_event(
+        action="AI_WRITE_CONFIRMED",
+        entity="claim",
+        entity_id=claim.id,
+        actor=policy_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={
+            "tool": "update_claim_fields",
+            "fields": list(patch.keys()),
+        },
+    )
     return {"updated": True}
 
 
 def _require_admin(ctx: ToolContext) -> None:
-    if ctx.user_id is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
-    user = ctx.db.execute(select(User).where(User.id == ctx.user_id)).scalar_one_or_none()
-    if user is None or not any(role.code == "admin" for role in user.roles):
+    policy_user = _policy_user(ctx)
+    if not policy.can(policy_user, policy.Action.READ, policy.Resource.ADMIN_DIRECTORY):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
 
 
@@ -389,6 +475,19 @@ def _parse_policy_link_and_store(
     ctx: ToolContext, args: schemas.ParsePolicyLinkAndStoreArgs
 ) -> dict[str, Any]:
     _require_admin(ctx)
+    audit = _audit_logger(ctx)
+    audit.log_event(
+        action="AI_WRITE_CONFIRMED" if args.confirm else "AI_WRITE_PROPOSED",
+        entity="policy_link",
+        entity_id=args.policy_link_id,
+        actor=_policy_user(ctx) if ctx.user_id else None,
+        clinic_id=ctx.clinic_id,
+        diff={
+            "tool": "parse_policy_link_and_store",
+            "confirm": args.confirm,
+        },
+        scope="platform",
+    )
     return parse_policy_link_and_store(
         policy_link_id=args.policy_link_id,
         confirm=args.confirm,
@@ -484,15 +583,14 @@ def _get_policy_rules_for_link(
 def _explain_coverage_for_code(
     ctx: ToolContext, args: schemas.ExplainCoverageForCodeArgs
 ) -> dict[str, Any]:
-    if ctx.user_id is None:
-        return _tool_error("FORBIDDEN", "User not available")
+    policy_user = _policy_user(ctx)
 
     claim_context = {"claim_id": None, "insurance_company_id": None, "service_date": None}
     claim = None
     if args.claim_id is not None:
-        claim = ctx.db.execute(
-            select(Claim).where(Claim.id == args.claim_id, Claim.doctor_id == ctx.user_id)
-        ).scalar_one_or_none()
+        claim_filters = [Claim.id == args.claim_id]
+        claim_filters.extend(policy.claim_scope_filters(policy_user, Claim))
+        claim = ctx.db.execute(select(Claim).where(*claim_filters)).scalar_one_or_none()
         if claim is None:
             return _tool_error("NOT_FOUND", "Claim not found", {"claim_id": args.claim_id})
         claim_context = {
@@ -543,7 +641,7 @@ def _explain_coverage_for_code(
 
     coverage_filters = [
         ClaimLineCoverage.mcp_code == args.code,
-        Claim.doctor_id == ctx.user_id,
+        *policy.claim_scope_filters(policy_user, Claim),
     ]
     total_rows = ctx.db.execute(
         select(func.count())

@@ -45,6 +45,8 @@ def chat(
 ) -> ChatResponse:
     start = time.monotonic()
     request_id = getattr(request.state, "request_id", "-")
+    ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
     log_chat_event(
         "chat_request",
         {
@@ -58,6 +60,9 @@ def chat(
     result = orchestrator.run(
         message=payload.message,
         session_id=payload.session_id,
+        request_id=request_id,
+        ip=ip,
+        user_agent=user_agent,
     )
     latency_ms = (time.monotonic() - start) * 1000
     log_chat_event(

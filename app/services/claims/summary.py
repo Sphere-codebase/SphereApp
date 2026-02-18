@@ -50,6 +50,7 @@ class ClaimsService:
         rows, total = ClaimsRepository.list_my_claims_summary(
             self._db,
             doctor_id=current_user.id,
+            clinic_id=current_user.clinic_id,
             limit=filters.limit,
             offset=filters.offset,
             q=filters.q,

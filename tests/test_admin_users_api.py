@@ -27,6 +27,8 @@ def _seed_user(db_session: Session, email: str, is_admin: bool) -> User:
         full_name="User",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
+        role="platform_staff_admin" if is_admin else "doctor",
         created_at=utcnow(),
     )
     db_session.add(user)
@@ -106,14 +108,18 @@ def test_admin_update_user_success(db_session: Session) -> None:
     try:
         response = client.patch(
             f"/api/admin/users/{target.id}",
-            json={"full_name": "Updated Name", "roles": ["admin", "doctor"], "is_active": False},
+            json={
+                "full_name": "Updated Name",
+                "roles": ["platform_staff_admin"],
+                "is_active": False,
+            },
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 200
         payload = response.json()
         assert payload["full_name"] == "Updated Name"
         assert payload["is_active"] is False
-        assert "admin" in payload["roles"]
+        assert "platform_staff_admin" in payload["roles"]
     finally:
         app.dependency_overrides.clear()
 

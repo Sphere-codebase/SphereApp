@@ -1,6 +1,7 @@
 """SQLAlchemy models for the application."""
 
 from app.db.models.address import Address
+from app.db.models.audit_log import AuditLog
 from app.db.models.base import Base
 from app.db.models.chat import ChatMessage, ChatSession
 from app.db.models.claim import Claim
@@ -28,6 +29,7 @@ from app.db.models.user_role import UserRole
 
 __all__ = [
     "Base",
+    "AuditLog",
     "ChatMessage",
     "ChatSession",
     "Claim",

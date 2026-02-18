@@ -31,6 +31,7 @@ def _seed_user(db_session: Session, name: str) -> User:
         email=f"doctor-{name.lower()}@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add(user)
@@ -91,7 +92,11 @@ def test_chat_reuses_session(db_session: Session) -> None:
 def test_chat_session_other_user_returns_404(db_session: Session) -> None:
     user_a = _seed_user(db_session, "A")
     user_b = _seed_user(db_session, "B")
-    session_b = ChatSession(id=next_id(db_session, ChatSession), doctor_id=user_b.id)
+    session_b = ChatSession(
+        id=next_id(db_session, ChatSession),
+        doctor_id=user_b.id,
+        clinic_id=1,
+    )
     db_session.add(session_b)
     db_session.commit()
 

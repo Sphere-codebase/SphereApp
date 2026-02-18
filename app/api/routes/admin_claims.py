@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import require_platform_staff_admin
+from app.core import policy
 from app.db.models import (
     Claim,
     ClaimDiagnosisCode,
@@ -33,7 +34,7 @@ from app.schemas.admin_dashboard import (
 
 router = APIRouter(prefix="/api/admin/claims", tags=["admin_claims"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
-AdminUserDep = Annotated[User, Depends(require_admin)]
+AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
 
 
 @router.get("", response_model=list[AdminClaimSummary])
@@ -51,6 +52,8 @@ def list_claims(
         .join(Patient, Claim.patient_id == Patient.id)
         .join(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
     )
+    if not policy.is_platform_staff_admin(current_user):
+        stmt = stmt.where(Claim.clinic_id == current_user.clinic_id)
     if patient_id:
         stmt = stmt.where(Claim.patient_id == patient_id)
     if insurance_company_id:
@@ -106,13 +109,14 @@ def get_claim(
     db: DbSessionDep,
     current_user: AdminUserDep,
 ) -> AdminClaimDetailResponse:
+    filters = [Claim.id == claim_id]
+    if not policy.is_platform_staff_admin(current_user):
+        filters.append(Claim.clinic_id == current_user.clinic_id)
     claim_row = db.execute(
         select(Claim, Patient, InsuranceCompany)
         .join(Patient, Claim.patient_id == Patient.id)
         .join(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
-        .where(
-            Claim.id == claim_id,
-        )
+        .where(*filters)
     ).all()
     if not claim_row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")

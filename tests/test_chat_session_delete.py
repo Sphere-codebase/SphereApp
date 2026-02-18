@@ -21,6 +21,7 @@ def _seed_user(db_session: Session, name: str) -> User:
         email=f"doctor-{name.lower()}@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add(user)
@@ -33,7 +34,10 @@ def _seed_user(db_session: Session, name: str) -> User:
 def test_delete_session_removes_messages(db_session: Session) -> None:
     user = _seed_user(db_session, "Delete")
     session = ChatSession(
-        id=next_id(db_session, ChatSession), doctor_id=user.id, created_at=utcnow()
+        id=next_id(db_session, ChatSession),
+        doctor_id=user.id,
+        clinic_id=1,
+        created_at=utcnow(),
     )
     db_session.add(session)
     db_session.flush()
@@ -43,6 +47,7 @@ def test_delete_session_removes_messages(db_session: Session) -> None:
             ChatMessage(
                 id=first_message_id,
                 session_id=session.id,
+                clinic_id=1,
                 role="user",
                 content="Hello",
                 created_at=utcnow(),
@@ -50,6 +55,7 @@ def test_delete_session_removes_messages(db_session: Session) -> None:
             ChatMessage(
                 id=first_message_id + 1,
                 session_id=session.id,
+                clinic_id=1,
                 role="assistant",
                 content="Hi",
                 created_at=utcnow(),
@@ -86,7 +92,11 @@ def test_delete_session_removes_messages(db_session: Session) -> None:
 def test_delete_session_other_user_404(db_session: Session) -> None:
     user_a = _seed_user(db_session, "A")
     user_b = _seed_user(db_session, "B")
-    session_b = ChatSession(id=next_id(db_session, ChatSession), doctor_id=user_b.id)
+    session_b = ChatSession(
+        id=next_id(db_session, ChatSession),
+        doctor_id=user_b.id,
+        clinic_id=1,
+    )
     db_session.add(session_b)
     db_session.commit()
 

@@ -52,6 +52,7 @@ def _find_existing_claim(
     db: Session,
     *,
     doctor_id: int,
+    clinic_id: int,
     patient_id: int,
     insurer_id: int,
     service_date: date,
@@ -62,6 +63,7 @@ def _find_existing_claim(
         db.execute(
             select(Claim).where(
                 Claim.doctor_id == doctor_id,
+                Claim.clinic_id == clinic_id,
                 Claim.patient_id == patient_id,
                 Claim.insurance_company_id == insurer_id,
                 Claim.service_date == service_date,
@@ -84,6 +86,7 @@ def upsert_claim(
     db: Session,
     *,
     doctor_id: int,
+    clinic_id: int,
     patient_id: int,
     insurer_id: int,
     service_date: date,
@@ -97,6 +100,7 @@ def upsert_claim(
     claim = _find_existing_claim(
         db,
         doctor_id=doctor_id,
+        clinic_id=clinic_id,
         patient_id=patient_id,
         insurer_id=insurer_id,
         service_date=service_date,
@@ -108,6 +112,7 @@ def upsert_claim(
         claim = Claim(
             id=next_id(db, Claim),
             doctor_id=doctor_id,
+            clinic_id=clinic_id,
             patient_id=patient_id,
             insurance_company_id=insurer_id,
             created_at=utcnow(),
@@ -117,6 +122,7 @@ def upsert_claim(
 
     claim.service_date = service_date
     claim.claim_status = claim_status
+    claim.clinic_id = clinic_id
     claim.billed_amount_total = total_billed_cents
     claim.allowed_amount_total = total_allowed_cents
     claim.coinsurance_amount_total = total_coinsurance_cents
@@ -131,12 +137,14 @@ def upsert_claim_line_items(
     claim_id: int,
     patient_id: int,
     insurer_id: int,
+    clinic_id: int,
     lines: Iterable[ClaimLineItem],
 ) -> None:
     for line in lines:
         existing = db.execute(
             select(ClaimProcedureFact).where(
                 ClaimProcedureFact.claim_id == claim_id,
+                ClaimProcedureFact.clinic_id == clinic_id,
                 ClaimProcedureFact.mcp_code == line.mcp_code,
                 ClaimProcedureFact.service_date == line.service_date,
                 ClaimProcedureFact.billed_amount == line.billed_cents,
@@ -150,6 +158,7 @@ def upsert_claim_line_items(
                 claim_id=claim_id,
                 patient_id=patient_id,
                 insurance_company_id=insurer_id,
+                clinic_id=clinic_id,
                 mcp_code=line.mcp_code,
                 service_date=line.service_date,
                 units=1,
@@ -172,6 +181,7 @@ def upsert_claim_line_items(
             existing.units = 1
             existing.patient_id = patient_id
             existing.insurance_company_id = insurer_id
+            existing.clinic_id = clinic_id
 
         if line.dx_codes:
             db.execute(
@@ -198,6 +208,7 @@ def upsert_chat_session(
     db: Session,
     *,
     doctor_id: int,
+    clinic_id: int,
     session_id: int | None,
 ) -> ChatSession:
     chat_session = None
@@ -206,13 +217,17 @@ def upsert_chat_session(
             select(ChatSession).where(
                 ChatSession.id == session_id,
                 ChatSession.doctor_id == doctor_id,
+                ChatSession.clinic_id == clinic_id,
             )
         ).scalar_one_or_none()
     if chat_session is None:
         chat_session = (
             db.execute(
                 select(ChatSession)
-                .where(ChatSession.doctor_id == doctor_id)
+                .where(
+                    ChatSession.doctor_id == doctor_id,
+                    ChatSession.clinic_id == clinic_id,
+                )
                 .order_by(ChatSession.created_at.desc())
             )
             .scalars()
@@ -222,6 +237,7 @@ def upsert_chat_session(
         chat_session = ChatSession(
             id=next_id(db, ChatSession),
             doctor_id=doctor_id,
+            clinic_id=clinic_id,
             title=None,
             created_at=utcnow(),
         )
@@ -233,11 +249,13 @@ def add_chat_message(
     db: Session,
     *,
     session_id: int,
+    clinic_id: int,
     content: str,
 ) -> ChatMessage:
     message = ChatMessage(
         id=next_id(db, ChatMessage),
         session_id=session_id,
+        clinic_id=clinic_id,
         role="system",
         content=content,
         created_at=utcnow(),
@@ -252,6 +270,7 @@ class ClaimsRepository:
         db: Session,
         *,
         doctor_id: int,
+        clinic_id: int,
         limit: int,
         offset: int,
         q: str | None,
@@ -267,7 +286,10 @@ class ClaimsRepository:
         )
 
         base_stmt = select(Claim.id).join(Patient, Claim.patient_id == Patient.id)
-        base_stmt = base_stmt.where(Claim.doctor_id == doctor_id)
+        base_stmt = base_stmt.where(
+            Claim.doctor_id == doctor_id,
+            Claim.clinic_id == clinic_id,
+        )
         if q:
             like = f"%{q}%"
             base_stmt = base_stmt.where(
@@ -302,7 +324,7 @@ class ClaimsRepository:
             .join(Patient, Claim.patient_id == Patient.id)
             .join(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
             .outerjoin(sums_subquery, sums_subquery.c.claim_id == Claim.id)
-            .where(Claim.doctor_id == doctor_id)
+            .where(Claim.doctor_id == doctor_id, Claim.clinic_id == clinic_id)
         )
         if q:
             like = f"%{q}%"

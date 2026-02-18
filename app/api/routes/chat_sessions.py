@@ -8,9 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.deps import AuditLoggerDep
 from app.core.security import get_current_user
+from app.core import policy
 from app.db.id_utils import next_id
-from app.db.models import ChatMessage, ChatSession, User
+from app.db.models import AuditLog, ChatMessage, ChatSession, User
 from app.db.session import get_db
 from app.schemas.chat_sessions import (
     ChatMessageResponse,
@@ -29,9 +31,7 @@ def list_sessions(db: DbSessionDep, current_user: CurrentUserDep) -> list[ChatSe
     sessions = (
         db.execute(
             select(ChatSession)
-            .where(
-                ChatSession.doctor_id == current_user.id,
-            )
+            .where(*policy.chat_scope_filters(current_user, ChatSession))
             .order_by(ChatSession.created_at.desc())
         )
         .scalars()
@@ -49,7 +49,7 @@ def get_session(
     session = db.execute(
         select(ChatSession).where(
             ChatSession.id == session_id,
-            ChatSession.doctor_id == current_user.id,
+            *policy.chat_scope_filters(current_user, ChatSession),
         )
     ).scalar_one_or_none()
     if session is None:
@@ -62,16 +62,27 @@ def create_session(
     payload: ChatSessionCreateRequest,
     db: DbSessionDep,
     current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
 ) -> ChatSessionResponse:
     session = ChatSession(
         id=next_id(db, ChatSession),
         doctor_id=current_user.id,
+        clinic_id=current_user.clinic_id,
         title=payload.title,
         created_at=utcnow(),
     )
     db.add(session)
     db.commit()
     db.refresh(session)
+    audit.log_event(
+        action="CREATE",
+        entity="chat_session",
+        entity_id=session.id,
+        actor=current_user,
+        clinic_id=session.clinic_id,
+        target_clinic_id=session.clinic_id,
+        diff={"fields": ["title"]} if payload.title else {"fields": []},
+    )
     return ChatSessionResponse.model_validate(session)
 
 
@@ -85,19 +96,35 @@ def delete_session(
     session_id: int,
     db: DbSessionDep,
     current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
 ) -> Response:
     session = db.execute(
         select(ChatSession).where(
             ChatSession.id == session_id,
-            ChatSession.doctor_id == current_user.id,
+            *policy.chat_scope_filters(current_user, ChatSession),
         )
     ).scalar_one_or_none()
     if session is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
+    db.execute(
+        AuditLog.__table__.delete().where(
+            AuditLog.entity == "chat_session",
+            AuditLog.entity_id == str(session.id),
+        )
+    )
     db.execute(ChatMessage.__table__.delete().where(ChatMessage.session_id == session.id))
     db.delete(session)
     db.commit()
+    audit.log_event(
+        action="DELETE",
+        entity="chat_session",
+        entity_id=session.id,
+        actor=current_user,
+        clinic_id=session.clinic_id,
+        target_clinic_id=session.clinic_id,
+        diff={"audit_pruned": True},
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -110,7 +137,7 @@ def list_messages(
     session = db.execute(
         select(ChatSession).where(
             ChatSession.id == session_id,
-            ChatSession.doctor_id == current_user.id,
+            *policy.chat_scope_filters(current_user, ChatSession),
         )
     ).scalar_one_or_none()
     if session is None:

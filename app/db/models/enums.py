@@ -10,3 +10,10 @@ class ClaimStatus(str, Enum):
     SUBMITTED = "SUBMITTED"
     PAID = "PAID"
     DENIED = "DENIED"
+
+
+class UserRole(str, Enum):
+    DOCTOR = "doctor"
+    CHIEF_DOCTOR = "chief_doctor"
+    CLINIC_ADMIN = "clinic_admin"
+    PLATFORM_STAFF_ADMIN = "platform_staff_admin"
