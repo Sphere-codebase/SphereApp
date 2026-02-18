@@ -31,9 +31,7 @@ CurrentUserDep = Annotated[User, Depends(get_current_user)]
 def _get_patient_or_404(db: Session, patient_id: int, current_user: User) -> Patient:
     filters = [Patient.id == patient_id]
     filters.extend(policy.patient_scope_filters(current_user, Patient))
-    patient = db.execute(
-        select(Patient).where(*filters)
-    ).scalar_one_or_none()
+    patient = db.execute(select(Patient).where(*filters)).scalar_one_or_none()
     if patient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
     return patient

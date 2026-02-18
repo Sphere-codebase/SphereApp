@@ -21,12 +21,8 @@ depends_on = None
 
 def upgrade() -> None:
     op.add_column("claims", sa.Column("clinic_id", sa.BigInteger(), nullable=True))
-    op.add_column(
-        "claim_procedure_facts", sa.Column("clinic_id", sa.BigInteger(), nullable=True)
-    )
-    op.add_column(
-        "claim_line_coverage", sa.Column("clinic_id", sa.BigInteger(), nullable=True)
-    )
+    op.add_column("claim_procedure_facts", sa.Column("clinic_id", sa.BigInteger(), nullable=True))
+    op.add_column("claim_line_coverage", sa.Column("clinic_id", sa.BigInteger(), nullable=True))
     op.add_column("chat_sessions", sa.Column("clinic_id", sa.BigInteger(), nullable=True))
     op.add_column("chat_messages", sa.Column("clinic_id", sa.BigInteger(), nullable=True))
 
@@ -91,8 +87,7 @@ def upgrade() -> None:
     )
     bind.execute(
         sa.text(
-            "UPDATE claim_procedure_facts "
-            "SET clinic_id = :clinic_id WHERE clinic_id IS NULL"
+            "UPDATE claim_procedure_facts " "SET clinic_id = :clinic_id WHERE clinic_id IS NULL"
         ),
         {"clinic_id": default_clinic_id},
     )
@@ -107,9 +102,7 @@ def upgrade() -> None:
         )
     )
     bind.execute(
-        sa.text(
-            "UPDATE claim_line_coverage SET clinic_id = :clinic_id WHERE clinic_id IS NULL"
-        ),
+        sa.text("UPDATE claim_line_coverage SET clinic_id = :clinic_id WHERE clinic_id IS NULL"),
         {"clinic_id": default_clinic_id},
     )
 

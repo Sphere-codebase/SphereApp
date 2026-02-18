@@ -33,18 +33,18 @@ def upsert_claim_line_coverage(
                     "created_at": utcnow(),
                 }
             )
-                .on_conflict_do_update(
-                    index_elements=[
-                        ClaimLineCoverage.claim_id,
-                        ClaimLineCoverage.mcp_code,
-                    ],
-                    set_={
-                        "clinic_id": clinic_id,
-                        "status": status,
-                        "reason": reason,
-                        "policy_link_id": None,
-                    },
-                )
+            .on_conflict_do_update(
+                index_elements=[
+                    ClaimLineCoverage.claim_id,
+                    ClaimLineCoverage.mcp_code,
+                ],
+                set_={
+                    "clinic_id": clinic_id,
+                    "status": status,
+                    "reason": reason,
+                    "policy_link_id": None,
+                },
+            )
         )
 
 

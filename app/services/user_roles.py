@@ -82,8 +82,4 @@ def set_user_roles(db: Session, user_id: int, role_codes: list[str]) -> None:
     db.execute(UserRole.__table__.delete().where(UserRole.user_id == user_id))
     role = ensure_role(db, primary_role, primary_role.replace("_", " ").title())
     db.add(UserRole(user_id=user_id, role_id=role.id))
-    db.execute(
-        User.__table__.update()
-        .where(User.id == user_id)
-        .values(role=primary_role)
-    )
+    db.execute(User.__table__.update().where(User.id == user_id).values(role=primary_role))

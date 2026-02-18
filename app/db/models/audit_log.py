@@ -27,9 +27,7 @@ class AuditLog(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     clinic_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("clinics.id"), nullable=False)
-    actor_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("users.id"), nullable=True
-    )
+    actor_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=True)
     actor_role: Mapped[str | None] = mapped_column(String, nullable=True)
     action: Mapped[str] = mapped_column(String, nullable=False)
     entity: Mapped[str] = mapped_column(String, nullable=False)

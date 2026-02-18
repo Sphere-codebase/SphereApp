@@ -67,9 +67,7 @@ class AuditLogger:
             or (getattr(actor, "clinic_id", None) if actor is not None else None)
         )
         if resolved_clinic_id is None:
-            self._handle_failure(
-                "audit log missing clinic_id action=%s entity=%s", action, entity
-            )
+            self._handle_failure("audit log missing clinic_id action=%s entity=%s", action, entity)
             return
 
         resolved_scope = scope or (
@@ -83,7 +81,7 @@ class AuditLogger:
                 log_entry = AuditLog(
                     id=next_id(audit_session, AuditLog),
                     clinic_id=resolved_clinic_id,
-            actor_id=getattr(actor, "id", None) if actor is not None else None,
+                    actor_id=getattr(actor, "id", None) if actor is not None else None,
                     actor_role=resolved_actor_role,
                     action=action,
                     entity=entity,

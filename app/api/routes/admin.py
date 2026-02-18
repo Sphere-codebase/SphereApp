@@ -166,9 +166,7 @@ def update_user(
         primary_role = resolve_primary_role(data["roles"])
         if user.id == current_user.id and user.role == "platform_staff_admin":
             admin_count = db.execute(
-                select(func.count())
-                .select_from(User)
-                .where(User.role == "platform_staff_admin")
+                select(func.count()).select_from(User).where(User.role == "platform_staff_admin")
             ).scalar_one()
             if int(admin_count or 0) <= 1:
                 return JSONResponse(

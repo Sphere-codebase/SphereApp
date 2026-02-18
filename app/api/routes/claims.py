@@ -66,9 +66,7 @@ class PdfLocalIngestRequest(BaseModel):
 def _get_claim_or_404(db: Session, claim_id: int, current_user: User) -> Claim:
     filters = [Claim.id == claim_id]
     filters.extend(policy.claim_scope_filters(current_user, Claim))
-    claim = db.execute(
-        select(Claim).where(*filters)
-    ).scalar_one_or_none()
+    claim = db.execute(select(Claim).where(*filters)).scalar_one_or_none()
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
     return claim
@@ -77,9 +75,7 @@ def _get_claim_or_404(db: Session, claim_id: int, current_user: User) -> Claim:
 def _require_patient(db: Session, patient_id: int, current_user: User) -> Patient:
     filters = [Patient.id == patient_id]
     filters.extend(policy.patient_scope_filters(current_user, Patient))
-    patient = db.execute(
-        select(Patient).where(*filters)
-    ).scalar_one_or_none()
+    patient = db.execute(select(Patient).where(*filters)).scalar_one_or_none()
     if patient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
     return patient

@@ -40,9 +40,7 @@ def upgrade() -> None:
     op.create_index("ix_audit_logs_action", "audit_logs", ["action"])
     op.create_index("ix_audit_logs_actor_id", "audit_logs", ["actor_id"])
     op.create_index("ix_audit_logs_clinic_id", "audit_logs", ["clinic_id"])
-    op.create_index(
-        "ix_audit_logs_clinic_id_created_at", "audit_logs", ["clinic_id", "created_at"]
-    )
+    op.create_index("ix_audit_logs_clinic_id_created_at", "audit_logs", ["clinic_id", "created_at"])
     op.create_index("ix_audit_logs_entity", "audit_logs", ["entity"])
     op.create_index("ix_audit_logs_entity_id", "audit_logs", ["entity_id"])
     op.create_index("ix_audit_logs_request_id", "audit_logs", ["request_id"])
