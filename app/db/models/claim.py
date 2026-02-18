@@ -45,3 +45,11 @@ class Claim(TimestampMixin, Base):
     doctor = relationship("User", backref="claims")
     patient = relationship("Patient", backref="claims")
     insurance_company = relationship("InsuranceCompany", backref="claims")
+    chat_sessions: Mapped[list["ChatSession"]] = relationship(
+        "ChatSession",
+        back_populates="claim",
+    )
+    claim_pdfs: Mapped[list["ClaimPDF"]] = relationship(
+        "ClaimPDF",
+        back_populates="claim",
+    )

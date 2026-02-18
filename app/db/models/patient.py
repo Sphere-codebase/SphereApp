@@ -41,3 +41,7 @@ class Patient(TimestampMixin, Base):
     clinic = relationship("Clinic", back_populates="patients")
     address = relationship("Address", back_populates="patients")
     insurance_policies = relationship("PatientInsurancePolicy", back_populates="patient")
+    chat_sessions: Mapped[list["ChatSession"]] = relationship(
+        "ChatSession",
+        back_populates="patient",
+    )

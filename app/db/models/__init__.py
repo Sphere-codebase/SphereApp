@@ -8,6 +8,7 @@ from app.db.models.claim import Claim
 from app.db.models.claim_diagnosis_code import ClaimDiagnosisCode
 from app.db.models.claim_line_coverage import ClaimLineCoverage
 from app.db.models.claim_mcp_code import ClaimMcpCode
+from app.db.models.claim_pdf import ClaimPDF
 from app.db.models.claim_procedure_diagnosis import ClaimProcedureDiagnosis
 from app.db.models.claim_procedure_fact import ClaimProcedureFact
 from app.db.models.clinic import Clinic
@@ -36,6 +37,7 @@ __all__ = [
     "ClaimDiagnosisCode",
     "ClaimLineCoverage",
     "ClaimMcpCode",
+    "ClaimPDF",
     "ClaimProcedureDiagnosis",
     "ClaimProcedureFact",
     "Address",
