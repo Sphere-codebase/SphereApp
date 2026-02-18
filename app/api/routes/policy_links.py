@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import AuditLoggerDep, require_platform_staff_admin
 from app.core.logging import error_payload
 from app.db.id_utils import next_id
 from app.db.models import InsuranceCompany, McpCode, PolicyLink, PolicyRule, User
@@ -27,7 +27,7 @@ from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/admin/policy-links", tags=["admin_policy_links"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
-AdminUserDep = Annotated[User, Depends(require_admin)]
+AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
 
 
 @router.get("", response_model=list[PolicyLinkResponse])
@@ -55,6 +55,7 @@ def create_policy_link(
     payload: PolicyLinkCreateRequest,
     db: DbSessionDep,
     current_user: AdminUserDep,
+    audit: AuditLoggerDep,
 ) -> PolicyLinkResponse | JSONResponse:
     company = db.execute(
         select(InsuranceCompany).where(InsuranceCompany.id == payload.insurance_company_id)
@@ -89,6 +90,19 @@ def create_policy_link(
     db.add(link)
     db.commit()
     db.refresh(link)
+    audit.log_event(
+        action="CREATE",
+        entity="policy_link",
+        entity_id=link.id,
+        actor=current_user,
+        clinic_id=current_user.clinic_id,
+        diff={
+            "fields": ["insurance_company_id", "mcp_code", "policy_url"],
+            "insurance_company_id": link.insurance_company_id,
+            "mcp_code": link.mcp_code,
+        },
+        scope="platform",
+    )
     return PolicyLinkResponse.model_validate(link)
 
 
@@ -98,6 +112,7 @@ def update_policy_link(
     payload: PolicyLinkUpdateRequest,
     db: DbSessionDep,
     current_user: AdminUserDep,
+    audit: AuditLoggerDep,
 ) -> PolicyLinkResponse | JSONResponse:
     link = db.execute(
         select(PolicyLink).where(PolicyLink.id == policy_link_id)
@@ -144,6 +159,15 @@ def update_policy_link(
     db.add(link)
     db.commit()
     db.refresh(link)
+    audit.log_event(
+        action="UPDATE",
+        entity="policy_link",
+        entity_id=link.id,
+        actor=current_user,
+        clinic_id=current_user.clinic_id,
+        diff={"fields": list(data.keys())},
+        scope="platform",
+    )
     return PolicyLinkResponse.model_validate(link)
 
 
@@ -153,12 +177,23 @@ async def parse_policy_link(
     payload: PolicyRulesParseRequest,
     db: DbSessionDep,
     current_user: AdminUserDep,
+    audit: AuditLoggerDep,
 ) -> dict[str, Any]:
-    return await parse_policy_link_and_store(
+    result = await parse_policy_link_and_store(
         policy_link_id=policy_link_id,
         confirm=payload.confirm,
         db=db,
     )
+    audit.log_event(
+        action="UPDATE" if payload.confirm else "AI_WRITE_PROPOSED",
+        entity="policy_link",
+        entity_id=policy_link_id,
+        actor=current_user,
+        clinic_id=current_user.clinic_id,
+        diff={"confirm": payload.confirm, "tool": "parse_policy_link_and_store"},
+        scope="platform",
+    )
+    return result
 
 
 @router.get("/{policy_link_id}/rules", response_model=PolicyRuleResponse)
@@ -219,6 +254,7 @@ def delete_policy_link(
     policy_link_id: int,
     db: DbSessionDep,
     current_user: AdminUserDep,
+    audit: AuditLoggerDep,
 ) -> Response:
     link = db.execute(
         select(PolicyLink).where(PolicyLink.id == policy_link_id)
@@ -227,4 +263,12 @@ def delete_policy_link(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy link not found")
     db.delete(link)
     db.commit()
+    audit.log_event(
+        action="DELETE",
+        entity="policy_link",
+        entity_id=policy_link_id,
+        actor=current_user,
+        clinic_id=current_user.clinic_id,
+        scope="platform",
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

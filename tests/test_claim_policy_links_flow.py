@@ -27,6 +27,8 @@ def _seed_users(db_session: Session) -> tuple[User, User]:
         email="admin@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
+        role="platform_staff_admin",
         created_at=utcnow(),
     )
     user = User(
@@ -34,6 +36,8 @@ def _seed_users(db_session: Session) -> tuple[User, User]:
         email="doctor@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
+        role="doctor",
         created_at=utcnow(),
     )
     db_session.add_all([admin, user])

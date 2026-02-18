@@ -15,3 +15,4 @@ class InsuranceCompany(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
 
     policy_links = relationship("PolicyLink", back_populates="insurance_company")
+    patient_policies = relationship("PatientInsurancePolicy", back_populates="insurance_company")

@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import AuditLoggerDep, require_platform_staff_admin
 from app.core.logging import error_payload
 from app.db.id_utils import next_id
 from app.db.models import InsuranceCompany, User
@@ -23,7 +23,7 @@ from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/admin/insurance-companies", tags=["admin_insurance_companies"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
-AdminUserDep = Annotated[User, Depends(require_admin)]
+AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
 
 
 @router.get("", response_model=list[InsuranceCompanyResponse])
@@ -42,6 +42,7 @@ def create_insurance_company(
     payload: InsuranceCompanyCreateRequest,
     db: DbSessionDep,
     current_user: AdminUserDep,
+    audit: AuditLoggerDep,
 ) -> InsuranceCompanyResponse | JSONResponse:
     name = payload.name.strip()
     if not name:
@@ -68,6 +69,15 @@ def create_insurance_company(
     db.add(company)
     db.commit()
     db.refresh(company)
+    audit.log_event(
+        action="CREATE",
+        entity="insurance_company",
+        entity_id=company.id,
+        actor=current_user,
+        clinic_id=current_user.clinic_id,
+        diff={"fields": ["name"]},
+        scope="platform",
+    )
     return InsuranceCompanyResponse.model_validate(company)
 
 
@@ -93,6 +103,7 @@ def update_insurance_company(
     payload: InsuranceCompanyUpdateRequest,
     db: DbSessionDep,
     current_user: AdminUserDep,
+    audit: AuditLoggerDep,
 ) -> InsuranceCompanyResponse | JSONResponse:
     company = db.execute(
         select(InsuranceCompany).where(InsuranceCompany.id == company_id)
@@ -130,6 +141,15 @@ def update_insurance_company(
     db.add(company)
     db.commit()
     db.refresh(company)
+    audit.log_event(
+        action="UPDATE",
+        entity="insurance_company",
+        entity_id=company.id,
+        actor=current_user,
+        clinic_id=current_user.clinic_id,
+        diff={"fields": list(updates.keys())},
+        scope="platform",
+    )
     return InsuranceCompanyResponse.model_validate(company)
 
 
@@ -138,6 +158,7 @@ def delete_insurance_company(
     company_id: int,
     db: DbSessionDep,
     current_user: AdminUserDep,
+    audit: AuditLoggerDep,
 ) -> Response:
     company = db.execute(
         select(InsuranceCompany).where(InsuranceCompany.id == company_id)
@@ -148,4 +169,12 @@ def delete_insurance_company(
         )
     db.delete(company)
     db.commit()
+    audit.log_event(
+        action="DELETE",
+        entity="insurance_company",
+        entity_id=company_id,
+        actor=current_user,
+        clinic_id=current_user.clinic_id,
+        scope="platform",
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

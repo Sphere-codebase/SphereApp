@@ -25,6 +25,7 @@ def _seed_user(db_session: Session) -> User:
         email="doctor@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add(user)
@@ -45,7 +46,10 @@ def test_messages_requires_auth() -> None:
 def test_messages_returns_ordered_with_timestamps(db_session: Session) -> None:
     user = _seed_user(db_session)
     session = ChatSession(
-        id=next_id(db_session, ChatSession), doctor_id=user.id, created_at=utcnow()
+        id=next_id(db_session, ChatSession),
+        doctor_id=user.id,
+        clinic_id=1,
+        created_at=utcnow(),
     )
     db_session.add(session)
     db_session.commit()
@@ -55,6 +59,7 @@ def test_messages_returns_ordered_with_timestamps(db_session: Session) -> None:
     msg1 = ChatMessage(
         id=first_message_id,
         session_id=session.id,
+        clinic_id=1,
         role="user",
         content="First",
         created_at=base_time,
@@ -62,6 +67,7 @@ def test_messages_returns_ordered_with_timestamps(db_session: Session) -> None:
     msg2 = ChatMessage(
         id=first_message_id + 1,
         session_id=session.id,
+        clinic_id=1,
         role="assistant",
         content="Second",
         created_at=base_time + timedelta(minutes=5),
@@ -69,6 +75,7 @@ def test_messages_returns_ordered_with_timestamps(db_session: Session) -> None:
     tool_msg = ChatMessage(
         id=first_message_id + 2,
         session_id=session.id,
+        clinic_id=1,
         role="tool",
         content="[tool] noop",
         created_at=base_time + timedelta(minutes=10),
@@ -104,11 +111,16 @@ def test_messages_other_user_session_404(db_session: Session) -> None:
         email="other@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add(other)
     db_session.flush()
-    session = ChatSession(id=next_id(db_session, ChatSession), doctor_id=other.id)
+    session = ChatSession(
+        id=next_id(db_session, ChatSession),
+        doctor_id=other.id,
+        clinic_id=1,
+    )
     db_session.add(session)
     db_session.commit()
 

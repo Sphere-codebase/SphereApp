@@ -21,13 +21,21 @@ from app.db.models import (
     Patient,
     User,
 )
-from app.parsers.pdf.interface import parse_pdf_document
+from app.parsers.pdf.remote_client import parse_pdf_document
 from app.services.claims.ingestion import ingest_parsed_pdf, ingest_pdf_from_path
 from app.utils.time import utcnow
 
 THIS_DIR = Path(__file__).resolve().parent
 file_for_test = THIS_DIR / "test_claim.pdf"
 SKIP_PDF_TESTS = os.getenv("SKIP_PDF_TESTS") == "1"
+PDF_PARSER_AVAILABLE = os.getenv("PDF_PARSER_AVAILABLE") == "1"
+
+
+def _require_pdf_parser() -> None:
+    if SKIP_PDF_TESTS:
+        pytest.skip("PDF ingestion tests disabled by SKIP_PDF_TESTS=1")
+    if not PDF_PARSER_AVAILABLE:
+        pytest.skip("PDF parser unavailable (set PDF_PARSER_AVAILABLE=1 to run)")
 
 
 def _seed_user(db_session: Session) -> User:
@@ -36,6 +44,7 @@ def _seed_user(db_session: Session) -> User:
         email="doctor@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add(user)
@@ -54,6 +63,7 @@ def _count_rows(db_session: Session, model: type) -> int:
 
 
 def test_ingest_pdf_idempotent(db_session: Session) -> None:
+    _require_pdf_parser()
     payload = _load_sample_payload()
     user = _seed_user(db_session)
 
@@ -109,6 +119,7 @@ def test_ingest_pdf_idempotent(db_session: Session) -> None:
 
 
 def test_ingest_pdf_rejects_parser_error(db_session: Session) -> None:
+    _require_pdf_parser()
     payload = _load_sample_payload()
     user = _seed_user(db_session)
     invalid_payload = copy.deepcopy(payload)
@@ -120,8 +131,8 @@ def test_ingest_pdf_rejects_parser_error(db_session: Session) -> None:
     assert exc.value.status_code == 422
 
 
-@pytest.mark.skipif(SKIP_PDF_TESTS, reason="PDF ingestion tests disabled by SKIP_PDF_TESTS=1")
 def test_ingest_pdf_from_path_happy(db_session: Session) -> None:
+    _require_pdf_parser()
     user = _seed_user(db_session)
 
     result = ingest_pdf_from_path(
@@ -148,6 +159,7 @@ def test_ingest_pdf_from_path_rejects_relative_path(db_session: Session) -> None
 
 
 def test_ingest_pdf_inserts_dx_codes_first(db_session: Session) -> None:
+    _require_pdf_parser()
     user = _seed_user(db_session)
     parsed = parse_pdf_document(Path(file_for_test))
     assert parsed.get("error_message") is None

@@ -2,22 +2,155 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import json
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from types import SimpleNamespace
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core import policy
 from app.db.id_utils import next_id
-from app.db.models import Claim, ClaimStatus, InsuranceCompany, Patient, User
+from app.db.models import (
+    Claim,
+    ClaimLineCoverage,
+    ClaimStatus,
+    InsuranceCompany,
+    McpCode,
+    Patient,
+    PolicyLink,
+    PolicyRule,
+    User,
+)
 from app.llm.tools import schemas
+from app.services.audit import AuditContext, AuditLogger
 from app.services.policy.rules_refresh import parse_policy_link_and_store
 from app.utils.time import utcnow
+
+BOT_CAPABILITIES_VERSION = "1.0"
+BOT_CAPABILITIES_NAME = "Sphere Coverage Assistant"
+BOT_CAPABILITIES_CATEGORIES = ("all", "procedure_codes", "policies", "claims", "system")
+BOT_CAPABILITIES_LANGUAGES = ("ru", "en")
+
+TOOL_METADATA: dict[str, dict[str, Any]] = {
+    "list_procedure_codes": {
+        "categories": ["procedure_codes"],
+        "summary": {
+            "ru": "Список или поиск доступных кодов процедур (CPT) по коду или описанию.",
+            "en": "List or search available procedure (CPT) codes by code or description.",
+        },
+        "examples": {
+            "ru": [
+                "Найди коды, начинающиеся на 27",
+                "Покажи коды по описанию 'injection'",
+            ],
+            "en": ["Find codes starting with 27", "Search codes by description 'injection'"],
+        },
+        "limits": {
+            "ru": ["Ограничение выдачи до 200 строк за запрос."],
+            "en": ["Result limit up to 200 rows per request."],
+        },
+    },
+    "get_procedure_code": {
+        "categories": ["procedure_codes"],
+        "summary": {
+            "ru": "Получить описание конкретного кода процедуры.",
+            "en": "Get details for a specific procedure code.",
+        },
+        "examples": {"ru": ["Описание кода 27096"], "en": ["Describe code 27096"]},
+        "limits": {"ru": [], "en": []},
+    },
+    "explain_coverage_for_code": {
+        "categories": ["procedure_codes", "policies"],
+        "summary": {
+            "ru": "Сводка покрытий по коду: политики и наблюдённые статусы в системе.",
+            "en": "Coverage summary by code using stored policy rules and observed outcomes.",
+        },
+        "examples": {
+            "ru": [
+                "Покажи покрытие CPT 27096",
+                "Проверить CPT 27096 для claim_id=123",
+            ],
+            "en": ["Coverage for CPT 27096", "Check CPT 27096 for claim_id=123"],
+        },
+        "limits": {
+            "ru": ["Данные основаны только на правилах/исходах, сохранённых в системе."],
+            "en": ["Based only on stored rules and observed outcomes in the system."],
+        },
+    },
+    "list_policy_links_for_code": {
+        "categories": ["policies"],
+        "summary": {
+            "ru": "Список ссылок на политики для заданного кода.",
+            "en": "List policy links for a given code.",
+        },
+        "examples": {
+            "ru": ["Ссылки политики для CPT 27096"],
+            "en": ["Policy links for CPT 27096"],
+        },
+        "limits": {"ru": [], "en": []},
+    },
+    "get_policy_rules_for_link": {
+        "categories": ["policies"],
+        "summary": {
+            "ru": "Последние извлечённые правила для policy_link_id.",
+            "en": "Latest extracted rules for a policy_link_id.",
+        },
+        "examples": {
+            "ru": ["Правила по policy_link_id 555"],
+            "en": ["Rules for policy_link_id 555"],
+        },
+        "limits": {"ru": [], "en": []},
+    },
+    "get_claim": {
+        "categories": ["claims"],
+        "summary": {"ru": "Получить данные по claim_id.", "en": "Get claim details by id."},
+        "examples": {"ru": ["Покажи claim_id 123"], "en": ["Show claim_id 123"]},
+        "limits": {
+            "ru": ["Доступ только к вашим заявкам."],
+            "en": ["Access limited to your claims."],
+        },
+    },
+    "list_claims": {
+        "categories": ["claims"],
+        "summary": {"ru": "Список заявок пациента.", "en": "List claims for a patient."},
+        "examples": {
+            "ru": ["Список claims для patient_id 77"],
+            "en": ["List claims for patient_id 77"],
+        },
+        "limits": {"ru": [], "en": []},
+    },
+    "get_bot_capabilities": {
+        "categories": ["system"],
+        "summary": {
+            "ru": "Список доступных инструментов и их возможностей.",
+            "en": "List available tools and their capabilities.",
+        },
+        "examples": {"ru": ["Что ты умеешь?"], "en": ["What can you do?"]},
+        "limits": {
+            "ru": ["Отображает только реально зарегистрированные инструменты."],
+            "en": ["Shows only tools registered in the system."],
+        },
+    },
+    "get_account": {
+        "categories": ["system"],
+        "summary": {"ru": "Информация о текущем пользователе.", "en": "Current user account info."},
+        "examples": {"ru": ["Покажи мой аккаунт"], "en": ["Show my account"]},
+        "limits": {"ru": [], "en": []},
+    },
+    "time_now": {
+        "categories": ["system"],
+        "summary": {"ru": "Текущее время в заданной зоне.", "en": "Current time in a timezone."},
+        "examples": {"ru": ["Время в Asia/Tbilisi"], "en": ["Time in Asia/Tbilisi"]},
+        "limits": {"ru": [], "en": []},
+    },
+}
 
 Handler = Callable[["ToolContext", Any], dict[str, Any]]
 
@@ -26,7 +159,12 @@ Handler = Callable[["ToolContext", Any], dict[str, Any]]
 class ToolContext:
     db: Session
     user_id: int | None = None
+    clinic_id: int | None = None
+    role: str | None = None
     chat_session_id: int | None = None
+    request_id: str | None = None
+    ip: str | None = None
+    user_agent: str | None = None
 
 
 @dataclass(frozen=True)
@@ -37,18 +175,50 @@ class ToolDefinition:
     handler: Handler
 
 
+def _tool_error(code: str, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
+    error: dict[str, Any] = {"code": code, "message": message}
+    if details:
+        error["details"] = details
+    return {"error": error}
+
+
+def _policy_user(ctx: ToolContext) -> User | SimpleNamespace:
+    if ctx.user_id is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User not found")
+    if ctx.role is not None and ctx.clinic_id is not None:
+        return SimpleNamespace(id=ctx.user_id, role=ctx.role, clinic_id=ctx.clinic_id)
+    if ctx.db is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User not found")
+    user = ctx.db.execute(select(User).where(User.id == ctx.user_id)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User not found")
+    return user
+
+
+def _audit_logger(ctx: ToolContext) -> AuditLogger:
+    return AuditLogger(
+        db=ctx.db,
+        context=AuditContext(
+            request_id=ctx.request_id,
+            ip=ctx.ip,
+            user_agent=ctx.user_agent,
+        ),
+    )
+
+
 def _find_patient_for_context(ctx: ToolContext, patient_id: int) -> Patient | None:
+    if ctx.user_id is None:
+        return None
+    policy_user = _policy_user(ctx)
     filters = [Patient.id == patient_id]
-    if ctx.user_id is not None:
-        filters.append(Patient.doctor_id == ctx.user_id)
+    filters.extend(policy.patient_scope_filters(policy_user, Patient))
     return ctx.db.execute(select(Patient).where(*filters)).scalar_one_or_none()
 
 
 def _search_patients(ctx: ToolContext, args: schemas.SearchPatientsArgs) -> dict[str, Any]:
     query = f"%{args.query}%"
-    filters = []
-    if ctx.user_id is not None:
-        filters.append(Patient.doctor_id == ctx.user_id)
+    policy_user = _policy_user(ctx)
+    filters = policy.patient_scope_filters(policy_user, Patient)
     rows = ctx.db.execute(
         select(Patient).where(
             *filters,
@@ -85,12 +255,14 @@ def _get_patient(ctx: ToolContext, args: schemas.GetPatientArgs) -> dict[str, An
 
 
 def _get_claim(ctx: ToolContext, args: schemas.GetClaimArgs) -> dict[str, Any]:
+    policy_user = _policy_user(ctx)
+    claim_filters = policy.claim_scope_filters(policy_user, Claim)
     claim = ctx.db.execute(
         select(Claim, Patient)
         .join(Patient)
         .where(
             Claim.id == args.claim_id,
-            *([Patient.doctor_id == ctx.user_id] if ctx.user_id is not None else []),
+            *claim_filters,
         )
     ).first()
     if claim is None:
@@ -113,12 +285,14 @@ def _get_claim(ctx: ToolContext, args: schemas.GetClaimArgs) -> dict[str, Any]:
 
 
 def _list_claims(ctx: ToolContext, args: schemas.ListClaimsArgs) -> dict[str, Any]:
+    policy_user = _policy_user(ctx)
+    claim_filters = policy.claim_scope_filters(policy_user, Claim)
     rows = ctx.db.execute(
         select(Claim)
         .join(Patient)
         .where(
             Claim.patient_id == args.patient_id,
-            *([Patient.doctor_id == ctx.user_id] if ctx.user_id is not None else []),
+            *claim_filters,
         )
     ).scalars()
     claims = [
@@ -159,12 +333,29 @@ def _time_now(_: ToolContext, args: schemas.TimeNowArgs) -> dict[str, Any]:
 
 
 def _create_claim_draft(ctx: ToolContext, args: schemas.CreateClaimDraftArgs) -> dict[str, Any]:
+    policy_user = _policy_user(ctx)
+    audit = _audit_logger(ctx)
+    if not policy.can(policy_user, policy.Action.CREATE, policy.Resource.CLAIM):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     patient = _find_patient_for_context(ctx, args.patient_id)
     if patient is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
 
     proposed = {"patient_id": str(args.patient_id), "fields": args.fields}
     if not args.confirm:
+        audit.log_event(
+            action="AI_WRITE_PROPOSED",
+            entity="claim",
+            entity_id=None,
+            actor=policy_user,
+            clinic_id=patient.clinic_id,
+            target_clinic_id=patient.clinic_id,
+            diff={
+                "tool": "create_claim_draft",
+                "patient_id": patient.id,
+                "fields": list(args.fields.keys()),
+            },
+        )
         return {"action_required": True, "proposed_changes": proposed}
 
     insurance_company_id = args.fields.get("insurance_company_id")
@@ -182,6 +373,7 @@ def _create_claim_draft(ctx: ToolContext, args: schemas.CreateClaimDraftArgs) ->
     claim = Claim(
         id=next_id(ctx.db, Claim),
         doctor_id=patient.doctor_id,
+        clinic_id=patient.clinic_id,
         patient_id=patient.id,
         insurance_company_id=insurance_company_id,
         claim_status=ClaimStatus.DRAFT.value,
@@ -197,22 +389,31 @@ def _create_claim_draft(ctx: ToolContext, args: schemas.CreateClaimDraftArgs) ->
     )
     ctx.db.add(claim)
     ctx.db.commit()
+    audit.log_event(
+        action="AI_WRITE_CONFIRMED",
+        entity="claim",
+        entity_id=claim.id,
+        actor=policy_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={
+            "tool": "create_claim_draft",
+            "fields": list(args.fields.keys()),
+        },
+    )
     return {"claim_id": claim.id}
 
 
 def _update_claim_fields(ctx: ToolContext, args: schemas.UpdateClaimFieldsArgs) -> dict[str, Any]:
+    policy_user = _policy_user(ctx)
+    audit = _audit_logger(ctx)
     filters = [Claim.id == args.claim_id]
-    if ctx.user_id is not None:
-        filters.append(Patient.doctor_id == ctx.user_id)
-    claim = ctx.db.execute(
-        select(Claim)
-        .join(Patient)
-        .where(
-            *filters,
-        )
-    ).scalar_one_or_none()
+    filters.extend(policy.claim_scope_filters(policy_user, Claim))
+    claim = ctx.db.execute(select(Claim).where(*filters)).scalar_one_or_none()
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+    if not policy.can(policy_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     allowed_fields = {
         "claim_status",
@@ -232,19 +433,41 @@ def _update_claim_fields(ctx: ToolContext, args: schemas.UpdateClaimFieldsArgs) 
             patch["claim_status"] = ClaimStatus[status_value].value
     proposed = {"claim_id": str(args.claim_id), "patch": patch}
     if not args.confirm:
+        audit.log_event(
+            action="AI_WRITE_PROPOSED",
+            entity="claim",
+            entity_id=claim.id,
+            actor=policy_user,
+            clinic_id=claim.clinic_id,
+            target_clinic_id=claim.clinic_id,
+            diff={
+                "tool": "update_claim_fields",
+                "fields": list(patch.keys()),
+            },
+        )
         return {"action_required": True, "proposed_changes": proposed}
 
     for key, value in patch.items():
         setattr(claim, key, value)
     ctx.db.commit()
+    audit.log_event(
+        action="AI_WRITE_CONFIRMED",
+        entity="claim",
+        entity_id=claim.id,
+        actor=policy_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={
+            "tool": "update_claim_fields",
+            "fields": list(patch.keys()),
+        },
+    )
     return {"updated": True}
 
 
 def _require_admin(ctx: ToolContext) -> None:
-    if ctx.user_id is None:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
-    user = ctx.db.execute(select(User).where(User.id == ctx.user_id)).scalar_one_or_none()
-    if user is None or not any(role.code == "admin" for role in user.roles):
+    policy_user = _policy_user(ctx)
+    if not policy.can(policy_user, policy.Action.READ, policy.Resource.ADMIN_DIRECTORY):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
 
 
@@ -252,11 +475,407 @@ def _parse_policy_link_and_store(
     ctx: ToolContext, args: schemas.ParsePolicyLinkAndStoreArgs
 ) -> dict[str, Any]:
     _require_admin(ctx)
+    audit = _audit_logger(ctx)
+    audit.log_event(
+        action="AI_WRITE_CONFIRMED" if args.confirm else "AI_WRITE_PROPOSED",
+        entity="policy_link",
+        entity_id=args.policy_link_id,
+        actor=_policy_user(ctx) if ctx.user_id else None,
+        clinic_id=ctx.clinic_id,
+        diff={
+            "tool": "parse_policy_link_and_store",
+            "confirm": args.confirm,
+        },
+        scope="platform",
+    )
     return parse_policy_link_and_store(
         policy_link_id=args.policy_link_id,
         confirm=args.confirm,
         db=ctx.db,
     )
+
+
+def _list_procedure_codes(ctx: ToolContext, args: schemas.ListProcedureCodesArgs) -> dict[str, Any]:
+    query = (args.query or "").strip()
+    stmt = select(McpCode)
+    if query:
+        if query.isdigit():
+            stmt = stmt.where(McpCode.code.ilike(f"{query}%"))
+        else:
+            stmt = stmt.where(McpCode.description.ilike(f"%{query}%"))
+    rows = ctx.db.execute(stmt.order_by(McpCode.code.asc()).limit(args.limit)).scalars().all()
+    items = [{"code": row.code, "description": row.description} for row in rows]
+    return {"items": items, "count": len(items)}
+
+
+def _get_procedure_code(ctx: ToolContext, args: schemas.GetProcedureCodeArgs) -> dict[str, Any]:
+    code = args.code.strip()
+    row = ctx.db.execute(select(McpCode).where(McpCode.code == code)).scalar_one_or_none()
+    if row is None:
+        return {"code": code, "description": None, "exists": False}
+    return {"code": row.code, "description": row.description, "exists": True}
+
+
+def _list_policy_links_for_code(
+    ctx: ToolContext, args: schemas.ListPolicyLinksForCodeArgs
+) -> dict[str, Any]:
+    stmt = select(PolicyLink).where(PolicyLink.mcp_code == args.code)
+    if args.insurance_company_id is not None:
+        stmt = stmt.where(PolicyLink.insurance_company_id == args.insurance_company_id)
+    rows = ctx.db.execute(
+        stmt.order_by(PolicyLink.insurance_company_id.asc(), PolicyLink.policy_url.asc())
+    ).scalars()
+    links = [
+        {
+            "policy_link_id": row.id,
+            "insurance_company_id": row.insurance_company_id,
+            "policy_url": row.policy_url,
+        }
+        for row in rows
+    ]
+    return {"code": args.code, "links": links}
+
+
+def _get_policy_rules_for_link(
+    ctx: ToolContext, args: schemas.GetPolicyRulesForLinkArgs
+) -> dict[str, Any]:
+    link = ctx.db.execute(
+        select(PolicyLink).where(PolicyLink.id == args.policy_link_id)
+    ).scalar_one_or_none()
+    if link is None:
+        return _tool_error(
+            "NOT_FOUND",
+            "Policy link not found",
+            {"policy_link_id": args.policy_link_id},
+        )
+    rule = (
+        ctx.db.execute(
+            select(PolicyRule)
+            .where(PolicyRule.policy_link_id == args.policy_link_id)
+            .order_by(PolicyRule.extracted_at.desc())
+        )
+        .scalars()
+        .first()
+    )
+    if rule is None:
+        return {"policy_link_id": args.policy_link_id, "found": False}
+
+    rules_payload: Any = rule.rules_json
+    if rule.rules_json:
+        try:
+            parsed = json.loads(rule.rules_json)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict | list):
+            rules_payload = parsed
+
+    return {
+        "policy_link_id": rule.policy_link_id,
+        "title": rule.title,
+        "extracted_at": rule.extracted_at.isoformat(),
+        "next_review_iso": rule.next_review_iso.isoformat() if rule.next_review_iso else None,
+        "rules_json": rules_payload,
+        "criteria_json": rule.criteria_json,
+        "notes_json": rule.notes_json,
+    }
+
+
+def _explain_coverage_for_code(
+    ctx: ToolContext, args: schemas.ExplainCoverageForCodeArgs
+) -> dict[str, Any]:
+    policy_user = _policy_user(ctx)
+
+    claim_context = {"claim_id": None, "insurance_company_id": None, "service_date": None}
+    claim = None
+    if args.claim_id is not None:
+        claim_filters = [Claim.id == args.claim_id]
+        claim_filters.extend(policy.claim_scope_filters(policy_user, Claim))
+        claim = ctx.db.execute(select(Claim).where(*claim_filters)).scalar_one_or_none()
+        if claim is None:
+            return _tool_error("NOT_FOUND", "Claim not found", {"claim_id": args.claim_id})
+        claim_context = {
+            "claim_id": claim.id,
+            "insurance_company_id": claim.insurance_company_id,
+            "service_date": claim.service_date.isoformat() if claim.service_date else None,
+        }
+
+    links = ctx.db.execute(
+        select(PolicyLink)
+        .where(PolicyLink.mcp_code == args.code)
+        .order_by(PolicyLink.insurance_company_id.asc(), PolicyLink.policy_url.asc())
+    ).scalars()
+    link_items = [
+        {
+            "policy_link_id": row.id,
+            "insurance_company_id": row.insurance_company_id,
+            "policy_url": row.policy_url,
+        }
+        for row in links
+    ]
+
+    link_ids = [item["policy_link_id"] for item in link_items]
+    latest_rules: list[dict[str, Any]] = []
+    if link_ids:
+        rule_rows = ctx.db.execute(
+            select(PolicyRule)
+            .where(PolicyRule.policy_link_id.in_(link_ids))
+            .order_by(PolicyRule.policy_link_id.asc(), PolicyRule.extracted_at.desc())
+        ).scalars()
+        seen: set[int] = set()
+        for rule in rule_rows:
+            if rule.policy_link_id in seen:
+                continue
+            seen.add(rule.policy_link_id)
+            latest_rules.append(
+                {
+                    "policy_link_id": rule.policy_link_id,
+                    "title": rule.title,
+                    "extracted_at": rule.extracted_at.isoformat(),
+                    "next_review_iso": rule.next_review_iso.isoformat()
+                    if rule.next_review_iso
+                    else None,
+                    "criteria_json": rule.criteria_json,
+                    "notes_json": rule.notes_json,
+                }
+            )
+
+    coverage_filters = [
+        ClaimLineCoverage.mcp_code == args.code,
+        *policy.claim_scope_filters(policy_user, Claim),
+    ]
+    total_rows = ctx.db.execute(
+        select(func.count())
+        .select_from(ClaimLineCoverage)
+        .join(Claim, ClaimLineCoverage.claim_id == Claim.id)
+        .where(*coverage_filters)
+    ).scalar_one()
+    total_rows = int(total_rows or 0)
+
+    status_rows = ctx.db.execute(
+        select(ClaimLineCoverage.status, func.count())
+        .select_from(ClaimLineCoverage)
+        .join(Claim, ClaimLineCoverage.claim_id == Claim.id)
+        .where(*coverage_filters)
+        .group_by(ClaimLineCoverage.status)
+    ).all()
+    status_counts = {status: int(count) for status, count in status_rows}
+
+    reason_rows = ctx.db.execute(
+        select(ClaimLineCoverage.reason, func.count())
+        .select_from(ClaimLineCoverage)
+        .join(Claim, ClaimLineCoverage.claim_id == Claim.id)
+        .where(
+            *coverage_filters,
+            ClaimLineCoverage.reason.is_not(None),
+            ClaimLineCoverage.reason != "",
+        )
+        .group_by(ClaimLineCoverage.reason)
+        .order_by(func.count().desc())
+        .limit(5)
+    ).all()
+    top_reasons = [{"reason": reason, "count": int(count)} for reason, count in reason_rows]
+
+    example_rows = ctx.db.execute(
+        select(ClaimLineCoverage)
+        .join(Claim, ClaimLineCoverage.claim_id == Claim.id)
+        .where(*coverage_filters)
+        .order_by(ClaimLineCoverage.created_at.desc())
+        .limit(args.max_examples)
+    ).scalars()
+    examples = [
+        {
+            "claim_id": row.claim_id,
+            "status": row.status,
+            "reason": row.reason,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+        for row in example_rows
+    ]
+
+    claim_line = None
+    matching_link_count = 0
+    if claim is not None:
+        claim_line = ctx.db.execute(
+            select(ClaimLineCoverage).where(
+                ClaimLineCoverage.claim_id == claim.id,
+                ClaimLineCoverage.mcp_code == args.code,
+            )
+        ).scalar_one_or_none()
+        matching_link_count = sum(
+            1 for item in link_items if item["insurance_company_id"] == claim.insurance_company_id
+        )
+
+    hint_parts: list[str] = []
+    if claim is not None:
+        hint_parts.append(f"Claim {claim.id} insurer {claim.insurance_company_id}.")
+        if claim_line is not None:
+            reason = f" reason={claim_line.reason}" if claim_line.reason else ""
+            hint_parts.append(f"Existing claim coverage row status={claim_line.status}{reason}.")
+        else:
+            hint_parts.append("No coverage row for this claim/code.")
+    if link_items:
+        if claim is not None:
+            hint_parts.append(
+                f"{len(link_items)} policy link(s) for code; "
+                f"{matching_link_count} match claim insurer."
+            )
+        else:
+            hint_parts.append(f"{len(link_items)} policy link(s) for code.")
+    else:
+        hint_parts.append("No policy links stored for this code.")
+    if latest_rules:
+        hint_parts.append(f"{len(latest_rules)} latest policy rule(s) available.")
+    else:
+        hint_parts.append("No extracted policy rules stored.")
+    if total_rows:
+        hint_parts.append(f"Observed {total_rows} coverage outcome row(s) across your claims.")
+    else:
+        hint_parts.append("No observed coverage outcomes yet.")
+    hint_parts.append("Answer based on stored policy links/rules and observed outcomes.")
+    answer_hint = " ".join(hint_parts)
+
+    return {
+        "code": args.code,
+        "claim_context": claim_context,
+        "policy": {"links": link_items, "latest_rules": latest_rules},
+        "observed_coverage": {
+            "summary": {
+                "total_rows": total_rows,
+                "status_counts": status_counts,
+                "top_reasons": top_reasons,
+            },
+            "examples": examples,
+        },
+        "answer_hint": answer_hint,
+    }
+
+
+def _normalize_categories(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, Iterable):
+        return [item for item in raw if isinstance(item, str)]
+    return []
+
+
+def _infer_tool_categories(definition: ToolDefinition) -> list[str]:
+    field_names = set(definition.args_model.model_fields.keys())
+    if "claim_id" in field_names or definition.name.startswith("claim_"):
+        return ["claims"]
+    if "claim" in definition.name or "claim" in definition.description.lower():
+        return ["claims"]
+    if "patient" in definition.name or "patient" in definition.description.lower():
+        return ["claims"]
+    if "policy" in definition.name or "policy" in definition.description.lower():
+        return ["policies"]
+    if "procedure" in definition.name or "mcp" in definition.description.lower():
+        return ["procedure_codes"]
+    return ["system"]
+
+
+def _localized(meta: dict[str, Any], key: str, language: str, fallback: Any) -> Any:
+    payload = meta.get(key, {})
+    if isinstance(payload, dict):
+        if language in payload:
+            return payload[language]
+        return payload.get("en", fallback)
+    return payload or fallback
+
+
+def _get_bot_capabilities(_: ToolContext, args: schemas.GetBotCapabilitiesArgs) -> dict[str, Any]:
+    if args.category not in BOT_CAPABILITIES_CATEGORIES:
+        return _tool_error(
+            "TOOL_VALIDATION_ERROR",
+            "Unsupported category",
+            {"allowed": list(BOT_CAPABILITIES_CATEGORIES)},
+        )
+    if args.language not in BOT_CAPABILITIES_LANGUAGES:
+        return _tool_error(
+            "TOOL_VALIDATION_ERROR",
+            "Unsupported language",
+            {"allowed": list(BOT_CAPABILITIES_LANGUAGES)},
+        )
+
+    categories: dict[str, list[dict[str, Any]]] = {
+        "procedure_codes": [],
+        "policies": [],
+        "claims": [],
+        "system": [],
+    }
+    for definition in TOOLS.values():
+        meta = TOOL_METADATA.get(definition.name, {})
+        tool_categories = _normalize_categories(meta.get("categories"))
+        if not tool_categories:
+            tool_categories = _infer_tool_categories(definition)
+
+        for category_id in tool_categories:
+            if category_id not in categories:
+                continue
+            if args.category != "all" and category_id != args.category:
+                continue
+            summary = _localized(meta, "summary", args.language, definition.description)
+            examples = _localized(meta, "examples", args.language, [])
+            limits = _localized(meta, "limits", args.language, [])
+            capability = {
+                "tool": definition.name,
+                "summary": summary,
+                "examples": examples,
+                "limits": limits,
+            }
+            if args.include_schemas:
+                capability["input_schema"] = definition.args_model.model_json_schema()
+            categories[category_id].append(capability)
+
+    title_map = {
+        "ru": {
+            "procedure_codes": "Коды процедур",
+            "policies": "Политики и правила",
+            "claims": "Заявки и пациенты",
+            "system": "Системные возможности",
+        },
+        "en": {
+            "procedure_codes": "Procedure Codes",
+            "policies": "Policies & Rules",
+            "claims": "Claims & Patients",
+            "system": "System Capabilities",
+        },
+    }
+    category_ids = ["procedure_codes", "policies", "claims", "system"]
+    if args.category != "all":
+        category_ids = [args.category]
+    response_categories = []
+    for category_id in category_ids:
+        response_categories.append(
+            {
+                "id": category_id,
+                "title": title_map[args.language][category_id],
+                "capabilities": categories[category_id],
+            }
+        )
+
+    global_limits = (
+        [
+            "Список формируется только из зарегистрированных инструментов.",
+            "Доступ к данным ограничен вашим аккаунтом.",
+            "Некоторые инструменты могут требовать подтверждения при изменениях.",
+        ]
+        if args.language == "ru"
+        else [
+            "The list is generated only from registered tools.",
+            "Data access is scoped to your account.",
+            "Some tools may require confirmation for changes.",
+        ]
+    )
+
+    return {
+        "name": BOT_CAPABILITIES_NAME,
+        "version": BOT_CAPABILITIES_VERSION,
+        "generated_at": utcnow().isoformat(),
+        "categories": response_categories,
+        "global_limits": global_limits,
+    }
 
 
 TOOLS: dict[str, ToolDefinition] = {
@@ -301,6 +920,42 @@ TOOLS: dict[str, ToolDefinition] = {
         description="Get current time in a timezone.",
         args_model=schemas.TimeNowArgs,
         handler=_time_now,
+    ),
+    "list_procedure_codes": ToolDefinition(
+        name="list_procedure_codes",
+        description="List or search procedure codes by code prefix or description.",
+        args_model=schemas.ListProcedureCodesArgs,
+        handler=_list_procedure_codes,
+    ),
+    "get_procedure_code": ToolDefinition(
+        name="get_procedure_code",
+        description="Get details for a procedure code.",
+        args_model=schemas.GetProcedureCodeArgs,
+        handler=_get_procedure_code,
+    ),
+    "list_policy_links_for_code": ToolDefinition(
+        name="list_policy_links_for_code",
+        description="List policy links for a procedure code.",
+        args_model=schemas.ListPolicyLinksForCodeArgs,
+        handler=_list_policy_links_for_code,
+    ),
+    "get_policy_rules_for_link": ToolDefinition(
+        name="get_policy_rules_for_link",
+        description="Get latest policy rules for a policy link.",
+        args_model=schemas.GetPolicyRulesForLinkArgs,
+        handler=_get_policy_rules_for_link,
+    ),
+    "explain_coverage_for_code": ToolDefinition(
+        name="explain_coverage_for_code",
+        description="Explain coverage evidence for a procedure code.",
+        args_model=schemas.ExplainCoverageForCodeArgs,
+        handler=_explain_coverage_for_code,
+    ),
+    "get_bot_capabilities": ToolDefinition(
+        name="get_bot_capabilities",
+        description="Return a structured list of available tools and capabilities.",
+        args_model=schemas.GetBotCapabilitiesArgs,
+        handler=_get_bot_capabilities,
     ),
     "create_claim_draft": ToolDefinition(
         name="create_claim_draft",

@@ -53,7 +53,15 @@ class ChatOrchestrator:
         self.user = user
         self.llm_client = llm_client or LLMClient()
 
-    def run(self, message: str, session_id: int | None) -> ChatResult:
+    def run(
+        self,
+        message: str,
+        session_id: int | None,
+        *,
+        request_id: str | None = None,
+        ip: str | None = None,
+        user_agent: str | None = None,
+    ) -> ChatResult:
         session = self._get_or_create_session(session_id)
         self._store_message(session.id, role="user", content=message)
 
@@ -87,7 +95,12 @@ class ChatOrchestrator:
             tool_context = ToolContext(
                 db=self.db,
                 user_id=self.user.id,
+                clinic_id=self.user.clinic_id,
+                role=self.user.role,
                 chat_session_id=session.id,
+                request_id=request_id,
+                ip=ip,
+                user_agent=user_agent,
             )
             messages.append(self._assistant_tool_call_message(result))
             for tool_call in result.tool_calls:
@@ -150,6 +163,7 @@ class ChatOrchestrator:
                 select(ChatSession).where(
                     ChatSession.id == session_id,
                     ChatSession.doctor_id == self.user.id,
+                    ChatSession.clinic_id == self.user.clinic_id,
                 )
             ).scalar_one_or_none()
             if session is None:
@@ -161,6 +175,7 @@ class ChatOrchestrator:
         session = ChatSession(
             id=next_id(self.db, ChatSession),
             doctor_id=self.user.id,
+            clinic_id=self.user.clinic_id,
             created_at=utcnow(),
         )
         self.db.add(session)
@@ -223,6 +238,7 @@ class ChatOrchestrator:
         message = ChatMessage(
             id=next_id(self.db, ChatMessage),
             session_id=session_id,
+            clinic_id=self.user.clinic_id,
             role=role,
             content=content or "",
             created_at=utcnow(),
@@ -240,6 +256,7 @@ class ChatOrchestrator:
         message = ChatMessage(
             id=next_id(self.db, ChatMessage),
             session_id=session_id,
+            clinic_id=self.user.clinic_id,
             role="assistant",
             content=content,
             created_at=utcnow(),
@@ -255,6 +272,7 @@ class ChatOrchestrator:
         message = ChatMessage(
             id=next_id(self.db, ChatMessage),
             session_id=session_id,
+            clinic_id=self.user.clinic_id,
             role="tool",
             content=content,
             created_at=utcnow(),
@@ -269,4 +287,4 @@ class ChatOrchestrator:
             rendered = str(payload)
         if len(rendered) <= settings.max_context_chars:
             return rendered
-        return f"{rendered[:settings.max_context_chars]}…"
+        return f"{rendered[: settings.max_context_chars]}…"

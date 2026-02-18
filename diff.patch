@@ -1,0 +1,390 @@
+diff --git a/Makefile b/Makefile
+index 0234fe1..e3399d1 100644
+--- a/Makefile
++++ b/Makefile
+@@ -121,6 +121,9 @@ type:
+ # CI-like pipeline
+ ci: fmt-check lint migrate test
+ 
++# Alias for CI pipeline
++all: ci
++
+ clean:
+ 	rm -rf .pytest_cache .mypy_cache .ruff_cache __pycache__ htmlcov .coverage
+ 
+diff --git a/app/api/routes/claims.py b/app/api/routes/claims.py
+index 1bf2200..92cc839 100644
+--- a/app/api/routes/claims.py
++++ b/app/api/routes/claims.py
+@@ -2,6 +2,7 @@
+ 
+ from __future__ import annotations
+ 
++from datetime import date
+ from typing import Annotated
+ 
+ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+@@ -25,6 +26,7 @@ from app.db.models import (
+ )
+ from app.db.session import get_db
+ from app.schemas.claims import (
++    ClaimSummaryListResponse,
+     ClaimCreateRequest,
+     ClaimMcpCodeCreateRequest,
+     ClaimMcpCodeResponse,
+@@ -33,8 +35,10 @@ from app.schemas.claims import (
+     ClaimResponse,
+     ClaimUpdateRequest,
+     McpCodeSummary,
++    MyClaimsListResponseSchema,
+ )
+ from app.services.claims.ingestion import ingest_pdf_from_path, ingest_pdf_from_upload
++from app.services.claims.summary import ClaimsService, MyClaimsFilters
+ from app.utils.time import utcnow
+ 
+ router = APIRouter(prefix="/api/claims", tags=["claims"])
+@@ -94,6 +98,49 @@ def list_claims(
+     return [ClaimResponse.model_validate(claim) for claim in claims]
+ 
+ 
++@router.get("/my", response_model=MyClaimsListResponseSchema)
++def list_my_claims(
++    db: DbSessionDep,
++    current_user: CurrentUserDep,
++    limit: Annotated[int, Query(ge=1)] = 20,
++    offset: Annotated[int, Query(ge=0)] = 0,
++    q: Annotated[str | None, Query()] = None,
++    date_from: Annotated[date | None, Query()] = None,
++    date_to: Annotated[date | None, Query()] = None,
++) -> MyClaimsListResponseSchema:
++    service = ClaimsService(db)
++    filters = MyClaimsFilters(
++        limit=limit,
++        offset=offset,
++        q=q,
++        date_from=date_from,
++        date_to=date_to,
++    )
++    return service.list_my_claims_summary(current_user=current_user, filters=filters)
++
++
++@router.get("/my-summary", response_model=ClaimSummaryListResponse)
++def list_my_claims_summary(
++    db: DbSessionDep,
++    current_user: CurrentUserDep,
++    limit: Annotated[int, Query(ge=1)] = 20,
++    offset: Annotated[int, Query(ge=0)] = 0,
++    q: Annotated[str | None, Query()] = None,
++    date_from: Annotated[date | None, Query()] = None,
++    date_to: Annotated[date | None, Query()] = None,
++) -> ClaimSummaryListResponse:
++    service = ClaimsService(db)
++    filters = MyClaimsFilters(
++        limit=limit,
++        offset=offset,
++        q=q,
++        date_from=date_from,
++        date_to=date_to,
++    )
++    summary = service.list_my_claims_summary(current_user=current_user, filters=filters)
++    return ClaimSummaryListResponse.model_validate(summary.model_dump())
++
++
+ @router.post("", response_model=ClaimResponse, status_code=status.HTTP_201_CREATED)
+ def create_claim(
+     payload: ClaimCreateRequest,
+diff --git a/app/api/routes/patients.py b/app/api/routes/patients.py
+index d70f01e..216a9e6 100644
+--- a/app/api/routes/patients.py
++++ b/app/api/routes/patients.py
+@@ -56,6 +56,7 @@ def create_patient(
+     patient = Patient(
+         id=next_id(db, Patient),
+         doctor_id=current_user.id,
++        clinic_id=current_user.clinic_id,
+         first_name=payload.first_name,
+         last_name=payload.last_name,
+         date_of_birth=payload.date_of_birth,
+diff --git a/app/db/models/__init__.py b/app/db/models/__init__.py
+index 03fb076..35adc40 100644
+--- a/app/db/models/__init__.py
++++ b/app/db/models/__init__.py
+@@ -8,6 +8,8 @@ from app.db.models.claim_line_coverage import ClaimLineCoverage
+ from app.db.models.claim_mcp_code import ClaimMcpCode
+ from app.db.models.claim_procedure_diagnosis import ClaimProcedureDiagnosis
+ from app.db.models.claim_procedure_fact import ClaimProcedureFact
++from app.db.models.address import Address
++from app.db.models.clinic import Clinic
+ from app.db.models.diagnosis_code import DiagnosisCode
+ from app.db.models.enums import ClaimStatus
+ from app.db.models.insurance_company import InsuranceCompany
+@@ -16,6 +18,7 @@ from app.db.models.mcp_payment_prediction import McpPaymentPrediction
+ from app.db.models.ml_prediction import MlPrediction
+ from app.db.models.ml_training_example import MlTrainingExample
+ from app.db.models.patient import Patient
++from app.db.models.patient_insurance_policy import PatientInsurancePolicy
+ from app.db.models.policy_link import PolicyLink
+ from app.db.models.policy_rule import PolicyRule
+ from app.db.models.role import Role
+@@ -32,6 +35,8 @@ __all__ = [
+     "ClaimMcpCode",
+     "ClaimProcedureDiagnosis",
+     "ClaimProcedureFact",
++    "Address",
++    "Clinic",
+     "ClaimStatus",
+     "DiagnosisCode",
+     "InsuranceCompany",
+@@ -40,6 +45,7 @@ __all__ = [
+     "MlPrediction",
+     "MlTrainingExample",
+     "Patient",
++    "PatientInsurancePolicy",
+     "PolicyLink",
+     "PolicyRule",
+     "Role",
+diff --git a/app/db/models/insurance_company.py b/app/db/models/insurance_company.py
+index ceffd9f..c5f4df4 100644
+--- a/app/db/models/insurance_company.py
++++ b/app/db/models/insurance_company.py
+@@ -15,3 +15,4 @@ class InsuranceCompany(TimestampMixin, Base):
+     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+ 
+     policy_links = relationship("PolicyLink", back_populates="insurance_company")
++    patient_policies = relationship("PatientInsurancePolicy", back_populates="insurance_company")
+diff --git a/app/db/models/patient.py b/app/db/models/patient.py
+index 1c0dec2..26c9498 100644
+--- a/app/db/models/patient.py
++++ b/app/db/models/patient.py
+@@ -4,7 +4,7 @@ from __future__ import annotations
+ 
+ from datetime import date
+ 
+-from sqlalchemy import BigInteger, Date, ForeignKey, Index, String
++from sqlalchemy import BigInteger, Date, ForeignKey, Index, String, text
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+ from app.db.models.base import Base, TimestampMixin
+@@ -16,8 +16,24 @@ class Patient(TimestampMixin, Base):
+ 
+     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+     doctor_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id"), nullable=False)
++    clinic_id: Mapped[int] = mapped_column(
++        BigInteger,
++        ForeignKey("clinics.id"),
++        nullable=False,
++        server_default=text("1"),
++    )
++    address_id: Mapped[int | None] = mapped_column(
++        BigInteger, ForeignKey("addresses.id"), nullable=True
++    )
+     first_name: Mapped[str | None] = mapped_column(String, nullable=True)
+     last_name: Mapped[str | None] = mapped_column(String, nullable=True)
+     date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)
++    chart_number: Mapped[str | None] = mapped_column(String, nullable=True)
++    gender: Mapped[str | None] = mapped_column(String, nullable=True)
++    primary_phone: Mapped[str | None] = mapped_column(String, nullable=True)
++    secondary_phone: Mapped[str | None] = mapped_column(String, nullable=True)
+ 
+     doctor = relationship("User", backref="patients")
++    clinic = relationship("Clinic", back_populates="patients")
++    address = relationship("Address", back_populates="patients")
++    insurance_policies = relationship("PatientInsurancePolicy", back_populates="patient")
+diff --git a/app/db/models/user.py b/app/db/models/user.py
+index 3f8e3a2..4fd7fc8 100644
+--- a/app/db/models/user.py
++++ b/app/db/models/user.py
+@@ -2,7 +2,7 @@
+ 
+ from __future__ import annotations
+ 
+-from sqlalchemy import BigInteger, Boolean, String
++from sqlalchemy import BigInteger, Boolean, ForeignKey, String, text
+ from sqlalchemy.orm import Mapped, mapped_column, relationship
+ 
+ from app.db.models.base import Base, TimestampMixin
+@@ -16,5 +16,12 @@ class User(TimestampMixin, Base):
+     password_hash: Mapped[str] = mapped_column(String, nullable=False)
+     full_name: Mapped[str | None] = mapped_column(String, nullable=True)
+     is_active: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
++    clinic_id: Mapped[int] = mapped_column(
++        BigInteger,
++        ForeignKey("clinics.id"),
++        nullable=False,
++        server_default=text("1"),
++    )
+ 
+     roles = relationship("Role", secondary="user_roles", back_populates="users", lazy="selectin")
++    clinic = relationship("Clinic", back_populates="users")
+diff --git a/app/repositories/claims.py b/app/repositories/claims.py
+index 5e6090b..3fa72e2 100644
+--- a/app/repositories/claims.py
++++ b/app/repositories/claims.py
+@@ -6,7 +6,7 @@ from collections.abc import Iterable
+ from datetime import date
+ from typing import Protocol
+ 
+-from sqlalchemy import func, select
++from sqlalchemy import func, or_, select
+ from sqlalchemy.dialects.postgresql import insert as pg_insert
+ from sqlalchemy.orm import Session
+ 
+@@ -18,6 +18,7 @@ from app.db.models import (
+     ClaimProcedureDiagnosis,
+     ClaimProcedureFact,
+     InsuranceCompany,
++    Patient,
+ )
+ from app.utils.time import utcnow
+ 
+@@ -243,3 +244,75 @@ def add_chat_message(
+     )
+     db.add(message)
+     return message
++
++
++class ClaimsRepository:
++    @staticmethod
++    def list_my_claims_summary(
++        db: Session,
++        *,
++        doctor_id: int,
++        limit: int,
++        offset: int,
++        q: str | None,
++        date_from: date | None,
++        date_to: date | None,
++    ) -> tuple[list[tuple[Claim, Patient, InsuranceCompany, float, float]], int]:
++        patient_name = func.trim(
++            func.concat(
++                func.coalesce(Patient.first_name, ""),
++                " ",
++                func.coalesce(Patient.last_name, ""),
++            )
++        )
++
++        base_stmt = select(Claim.id).join(Patient, Claim.patient_id == Patient.id)
++        base_stmt = base_stmt.where(Claim.doctor_id == doctor_id)
++        if q:
++            like = f"%{q}%"
++            base_stmt = base_stmt.where(
++                or_(patient_name.ilike(like), Claim.claim_number.ilike(like))
++            )
++        if date_from:
++            base_stmt = base_stmt.where(Claim.service_date >= date_from)
++        if date_to:
++            base_stmt = base_stmt.where(Claim.service_date <= date_to)
++
++        total = db.execute(select(func.count()).select_from(base_stmt.subquery())).scalar_one()
++
++        sums_subquery = (
++            select(
++                ClaimProcedureFact.claim_id.label("claim_id"),
++                func.coalesce(func.sum(ClaimProcedureFact.billed_amount), 0).label(
++                    "requested_total"
++                ),
++                func.coalesce(func.sum(ClaimProcedureFact.allowed_amount), 0).label(
++                    "approved_total"
++                ),
++            )
++            .group_by(ClaimProcedureFact.claim_id)
++            .subquery()
++        )
++
++        requested_total = func.coalesce(sums_subquery.c.requested_total, 0).label("requested_total")
++        approved_total = func.coalesce(sums_subquery.c.approved_total, 0).label("approved_total")
++
++        stmt = (
++            select(Claim, Patient, InsuranceCompany, requested_total, approved_total)
++            .join(Patient, Claim.patient_id == Patient.id)
++            .join(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
++            .outerjoin(sums_subquery, sums_subquery.c.claim_id == Claim.id)
++            .where(Claim.doctor_id == doctor_id)
++        )
++        if q:
++            like = f"%{q}%"
++            stmt = stmt.where(or_(patient_name.ilike(like), Claim.claim_number.ilike(like)))
++        if date_from:
++            stmt = stmt.where(Claim.service_date >= date_from)
++        if date_to:
++            stmt = stmt.where(Claim.service_date <= date_to)
++
++        stmt = stmt.order_by(Claim.service_date.desc().nullslast(), Claim.created_at.desc())
++        stmt = stmt.limit(limit).offset(offset)
++        rows = db.execute(stmt).all()
++        return rows, int(total or 0)
+diff --git a/app/repositories/patients.py b/app/repositories/patients.py
+index 512944c..6f2b053 100644
+--- a/app/repositories/patients.py
++++ b/app/repositories/patients.py
+@@ -16,6 +16,7 @@ def upsert_patient(
+     db: Session,
+     *,
+     doctor_id: int,
++    clinic_id: int | None = None,
+     first_name: str | None,
+     last_name: str | None,
+     date_of_birth: date | None,
+@@ -34,6 +35,7 @@ def upsert_patient(
+     patient = Patient(
+         id=next_id(db, Patient),
+         doctor_id=doctor_id,
++        clinic_id=clinic_id,
+         first_name=first_name,
+         last_name=last_name,
+         date_of_birth=date_of_birth,
+diff --git a/app/schemas/claims.py b/app/schemas/claims.py
+index 43c69ee..cc9ae8d 100644
+--- a/app/schemas/claims.py
++++ b/app/schemas/claims.py
+@@ -86,3 +86,38 @@ class ClaimPdfIngestResponse(BaseModel):
+     total_billed_cents: int
+     total_allowed_cents: int
+     total_paid_cents: int
++
++
++class MyClaimItemSchema(BaseModel):
++    id: int
++    patient_name: str
++    date_of_service: date | None
++    claim_number: str | None
++    policy: str | None
++    paid_amount: float
++    billed_amount: float
++    currency: str | None
++
++
++class MyClaimsListResponseSchema(BaseModel):
++    items: list[MyClaimItemSchema]
++    limit: int
++    offset: int
++    total: int
++
++
++class ClaimSummaryItem(BaseModel):
++    patient_name: str
++    date_of_service: date | None
++    claim_number: str | None
++    policy: str | None
++    paid_amount: float
++    billed_amount: float
++    currency: str | None
++
++
++class ClaimSummaryListResponse(BaseModel):
++    items: list[ClaimSummaryItem]
++    limit: int
++    offset: int
++    total: int
+diff --git a/app/services/claims/ingestion.py b/app/services/claims/ingestion.py
+index 6e3170b..2faed96 100644
+--- a/app/services/claims/ingestion.py
++++ b/app/services/claims/ingestion.py
+@@ -282,6 +282,7 @@ def ingest_parsed_payload(
+         patient = patient_repo.upsert_patient(
+             db,
+             doctor_id=current_user.id,
++            clinic_id=current_user.clinic_id,
+             first_name=parsed.patient_first_name,
+             last_name=parsed.patient_last_name,
+             date_of_birth=parsed.patient_dob,

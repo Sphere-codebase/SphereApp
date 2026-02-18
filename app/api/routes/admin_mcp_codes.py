@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import AuditLoggerDep, require_platform_staff_admin
 from app.core.logging import error_payload
 from app.db.models import McpCode, User
 from app.db.session import get_db
@@ -21,7 +21,7 @@ from app.schemas.admin_catalogs import (
 
 router = APIRouter(prefix="/api/admin/mcp-codes", tags=["admin_mcp_codes"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
-AdminUserDep = Annotated[User, Depends(require_admin)]
+AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
 
 
 @router.get("", response_model=list[McpCodeResponse])
@@ -35,6 +35,7 @@ def create_mcp_code(
     payload: McpCodeCreateRequest,
     db: DbSessionDep,
     current_user: AdminUserDep,
+    audit: AuditLoggerDep,
 ) -> McpCodeResponse | JSONResponse:
     code_value = payload.code.strip()
     if not code_value:
@@ -56,6 +57,15 @@ def create_mcp_code(
     db.add(code)
     db.commit()
     db.refresh(code)
+    audit.log_event(
+        action="CREATE",
+        entity="mcp_code",
+        entity_id=code.code,
+        actor=current_user,
+        clinic_id=current_user.clinic_id,
+        diff={"fields": ["code", "description"]},
+        scope="platform",
+    )
     return McpCodeResponse.model_validate(code)
 
 
@@ -77,6 +87,7 @@ def update_mcp_code(
     payload: McpCodeUpdateRequest,
     db: DbSessionDep,
     current_user: AdminUserDep,
+    audit: AuditLoggerDep,
 ) -> McpCodeResponse:
     mcp_code = db.execute(select(McpCode).where(McpCode.code == code)).scalar_one_or_none()
     if mcp_code is None:
@@ -87,6 +98,15 @@ def update_mcp_code(
     db.add(mcp_code)
     db.commit()
     db.refresh(mcp_code)
+    audit.log_event(
+        action="UPDATE",
+        entity="mcp_code",
+        entity_id=mcp_code.code,
+        actor=current_user,
+        clinic_id=current_user.clinic_id,
+        diff={"fields": list(updates.keys())},
+        scope="platform",
+    )
     return McpCodeResponse.model_validate(mcp_code)
 
 
@@ -95,10 +115,19 @@ def delete_mcp_code(
     code: str,
     db: DbSessionDep,
     current_user: AdminUserDep,
+    audit: AuditLoggerDep,
 ) -> Response:
     mcp_code = db.execute(select(McpCode).where(McpCode.code == code)).scalar_one_or_none()
     if mcp_code is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP code not found")
     db.delete(mcp_code)
     db.commit()
+    audit.log_event(
+        action="DELETE",
+        entity="mcp_code",
+        entity_id=code,
+        actor=current_user,
+        clinic_id=current_user.clinic_id,
+        scope="platform",
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)

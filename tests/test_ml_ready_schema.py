@@ -26,6 +26,7 @@ def _seed_claim_context(
         email="doctor@example.com",
         password_hash="hashed",
         is_active=True,
+        clinic_id=1,
         created_at=utcnow(),
     )
     company = InsuranceCompany(
@@ -36,6 +37,7 @@ def _seed_claim_context(
     patient = Patient(
         id=next_id(db_session, Patient),
         doctor_id=user.id,
+        clinic_id=1,
         first_name="Jane",
         last_name="Doe",
         created_at=utcnow(),
@@ -43,6 +45,7 @@ def _seed_claim_context(
     claim = Claim(
         id=next_id(db_session, Claim),
         doctor_id=user.id,
+        clinic_id=1,
         patient_id=patient.id,
         insurance_company_id=company.id,
         claim_status="DRAFT",
@@ -98,6 +101,7 @@ def test_claim_procedure_diagnosis_unique_constraint(db_session: Session) -> Non
     claim, code, diagnosis = _seed_claim_context(db_session)
     fact = ClaimProcedureFact(
         id=next_id(db_session, ClaimProcedureFact),
+        clinic_id=1,
         claim_id=claim.id,
         patient_id=claim.patient_id,
         insurance_company_id=claim.insurance_company_id,
@@ -129,6 +133,7 @@ def test_claim_line_coverage_unique_constraint(db_session: Session) -> None:
     claim, code, _diagnosis = _seed_claim_context(db_session)
     coverage = ClaimLineCoverage(
         id=next_id(db_session, ClaimLineCoverage),
+        clinic_id=1,
         claim_id=claim.id,
         mcp_code=code.code,
         status="COVERED",
@@ -139,6 +144,7 @@ def test_claim_line_coverage_unique_constraint(db_session: Session) -> None:
 
     duplicate = ClaimLineCoverage(
         id=next_id(db_session, ClaimLineCoverage),
+        clinic_id=1,
         claim_id=claim.id,
         mcp_code=code.code,
         status="COVERED",

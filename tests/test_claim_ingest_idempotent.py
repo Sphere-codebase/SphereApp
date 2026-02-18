@@ -21,6 +21,14 @@ from app.utils.time import utcnow
 THIS_DIR = Path(__file__).resolve().parent
 _FILE_FOR_TEST = THIS_DIR / "test_claim.pdf"
 SKIP_PDF_TESTS = os.getenv("SKIP_PDF_TESTS") == "1"
+PDF_PARSER_AVAILABLE = os.getenv("PDF_PARSER_AVAILABLE") == "1"
+
+
+def _require_pdf_parser() -> None:
+    if SKIP_PDF_TESTS:
+        pytest.skip("PDF ingestion tests disabled by SKIP_PDF_TESTS=1")
+    if not PDF_PARSER_AVAILABLE:
+        pytest.skip("PDF parser unavailable (set PDF_PARSER_AVAILABLE=1 to run)")
 
 
 def _seed_user(db_session: Session) -> User:
@@ -29,6 +37,7 @@ def _seed_user(db_session: Session) -> User:
         email="doctor_idempotent@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add(user)
@@ -41,6 +50,7 @@ def _count_rows(db_session: Session, model: type) -> int:
 
 
 def test_ingest_pdf_twice_idempotent(db_session: Session) -> None:
+    _require_pdf_parser()
     user = _seed_user(db_session)
 
     first = ingest_pdf_from_path(

@@ -58,6 +58,7 @@ def test_get_account_tool(db_session) -> None:
         email="account@example.com",
         password_hash="hashed",
         is_active=True,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add(user)

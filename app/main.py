@@ -13,6 +13,7 @@ from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from tenacity import RetryError
 
 from app.api.routes import (
+    admin_audit_logs_router,
     admin_claims_router,
     admin_diagnosis_codes_router,
     admin_insurance_companies_router,
@@ -23,7 +24,9 @@ from app.api.routes import (
     chat_router,
     chat_sessions_router,
     claims_router,
+    clinic_audit_logs_router,
     health_router,
+    insurance_companies_router,
     patients_router,
     policy_links_router,
 )
@@ -88,6 +91,7 @@ app.add_exception_handler(
 
 # Admin routers
 app.include_router(admin_router)
+app.include_router(admin_audit_logs_router)
 app.include_router(admin_claims_router)
 app.include_router(admin_diagnosis_codes_router)
 app.include_router(admin_insurance_companies_router)
@@ -99,7 +103,9 @@ app.include_router(policy_links_router)
 app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(chat_sessions_router)
+app.include_router(clinic_audit_logs_router)
 app.include_router(patients_router)
+app.include_router(insurance_companies_router)
 app.include_router(claims_router)
 app.include_router(health_router)
 app.include_router(policy_parse_router)

@@ -87,6 +87,10 @@ migrate: require-db-url
 	@echo "Running migrations against DATABASE_URL from .env"
 	DATABASE_URL="$(DATABASE_URL)" $(PY) -m alembic -c alembic.ini upgrade head
 
+migrate-local:
+	DATABASE_URL="postgresql+psycopg2://postgres:postgres@localhost:5432/claims_assistant" \
+	$(PY) -m alembic -c alembic.ini upgrade head
+
 # -----------------------
 # App run
 # -----------------------

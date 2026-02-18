@@ -42,6 +42,7 @@ def _seed_user(db_session: Session, email: str) -> User:
         email=email,
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add(user)
@@ -57,6 +58,7 @@ def _seed_claim(db_session: Session) -> tuple[User, Claim]:
     patient = Patient(
         id=next_id(db_session, Patient),
         doctor_id=user.id,
+        clinic_id=1,
         first_name="Jane",
         last_name="Doe",
         created_at=utcnow(),
@@ -64,6 +66,7 @@ def _seed_claim(db_session: Session) -> tuple[User, Claim]:
     claim = Claim(
         id=next_id(db_session, Claim),
         doctor_id=user.id,
+        clinic_id=1,
         patient_id=patient.id,
         insurance_company_id=company.id,
         claim_status="DRAFT",

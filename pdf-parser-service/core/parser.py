@@ -1,25 +1,32 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import pdfplumber
 
 
-def parse_data(path_from: Path, path_to: Path) -> dict[str, list]:
-    result_obj: dict[str, list] = {"user_info": {}, "codes": [], "info": []}
+def parse_pdf(pdf_path: Path) -> dict[str, Any]:
+    """
+    Parses a claim PDF and returns structured data.
+    Ported from monolith's app/parsers/pdf/pdf_parse.py
+    """
+    result_obj: dict[str, Any] = {"user_info": {}, "codes": [], "info": []}
     info_step = -1
 
-    if not path_from.exists():
+    if not pdf_path.exists():
         return result_obj
 
-    with pdfplumber.open(path_from) as pdf:
+    with pdfplumber.open(pdf_path) as pdf:
+        # Extract patient info from first few lines
         lines = pdf.pages[0].extract_text_simple().split("\n")[:20]
         name_taken = False
         in_codes = False
         for line in lines:
             words = line.split()
+            if not words:
+                continue
             if " ".join(words[0:3]) == "Patient Account Number":
                 result_obj["user_info"]["account_number"] = words[3]
             elif words[0] == "Patient" and words[1] != "Information" and not name_taken:
@@ -31,9 +38,14 @@ def parse_data(path_from: Path, path_to: Path) -> dict[str, list]:
                 name_taken = True
             elif words[0] == "DOB":
                 result_obj["user_info"]["date_of_birth"] = words[1]
+
+        # Extract tables for claim codes and lines
         for p in pdf.pages:
             for t in p.extract_tables():
                 for r in t:
+                    if not r or not r[0]:
+                        continue
+
                     check_header = r[0].split("\n")[0].strip()
                     try:
                         res = bool(datetime.strptime(check_header, "%m/%d/%Y"))
@@ -68,20 +80,26 @@ def parse_data(path_from: Path, path_to: Path) -> dict[str, list]:
                             }
                         )
                     elif check_header == "Adjustments":
-                        adj_values = (
-                            r[0]
-                            .removeprefix("Adjustments\nAmount Type Code Quantity Description\n")
-                            .split()
-                        )
+                        adj_header_prefix = "Adjustments\nAmount Type Code Quantity Description\n"
+                        if r[0].startswith(adj_header_prefix):
+                            adj_values = r[0].removeprefix(adj_header_prefix).split()
+                        else:
+                            adj_values = r[0].split()
+
                         payment_indexes = [
                             index for index, value in enumerate(adj_values) if value.startswith("$")
                         ]
                         for i in range(len(payment_indexes)):
                             step_index = payment_indexes[i]
+                            # Safeguard against short arrays
+                            if step_index + 3 >= len(adj_values):
+                                continue
+
                             append_obj = {
                                 "amount": adj_values[step_index],
                                 "type": " ".join(adj_values[step_index + 1 : step_index + 3]),
                                 "code": adj_values[step_index + 3],
+                                "description": "",
                             }
                             if i == len(payment_indexes) - 1:
                                 append_obj["description"] = " ".join(
@@ -91,24 +109,27 @@ def parse_data(path_from: Path, path_to: Path) -> dict[str, list]:
                                 append_obj["description"] = " ".join(
                                     adj_values[step_index + 4 : payment_indexes[i + 1]]
                                 ).replace("\n", " ")
-                            result_obj["info"][info_step]["adjustments"].append(append_obj)
+
+                            if info_step >= 0:
+                                result_obj["info"][info_step]["adjustments"].append(append_obj)
+
                     elif check_header.startswith("$") and len(r) == 5:
-                        exist_adj = [
-                            item
-                            for item in result_obj["info"][info_step]["adjustments"]
-                            if item["code"] == r[2]
-                        ]
-                        if len(exist_adj) == 0:
-                            result_obj["info"][info_step]["adjustments"].append(
-                                {
-                                    "amount": r[0],
-                                    "type": r[1],
-                                    "code": r[2],
-                                    "description": r[4].replace("\n", " "),
-                                }
-                            )
+                        if info_step >= 0:
+                            exist_adj = [
+                                item
+                                for item in result_obj["info"][info_step]["adjustments"]
+                                if item["code"] == r[2]
+                            ]
+                            if len(exist_adj) == 0:
+                                result_obj["info"][info_step]["adjustments"].append(
+                                    {
+                                        "amount": r[0],
+                                        "type": r[1],
+                                        "code": r[2],
+                                        "description": r[4].replace("\n", " "),
+                                    }
+                                )
                     elif check_header == "Type" and r[1] == "Code" and r[2] == "Description":
                         in_codes = True
-    with open(path_to, "w") as json_file:
-        json.dump(result_obj, json_file, indent=4)
+
     return result_obj

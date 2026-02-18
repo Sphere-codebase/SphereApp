@@ -38,5 +38,15 @@ def test_migrations_and_crud(db_session: Session) -> None:
     db_session.add_all([user, company, patient, claim])
     db_session.commit()
 
+    loaded_user = db_session.execute(select(User).where(User.id == user.id)).scalar_one()
+    assert loaded_user.clinic_id == 1
+    assert loaded_user.role == "doctor"
+
+    loaded_patient = db_session.execute(
+        select(Patient).where(Patient.id == patient.id)
+    ).scalar_one()
+    assert loaded_patient.clinic_id == 1
+
     loaded_claim = db_session.execute(select(Claim).where(Claim.id == claim.id)).scalar_one()
     assert loaded_claim.doctor_id == user.id
+    assert loaded_claim.clinic_id == 1

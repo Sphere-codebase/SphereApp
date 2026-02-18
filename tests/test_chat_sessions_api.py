@@ -22,6 +22,7 @@ def _seed_user(db_session: Session, name: str) -> User:
         email=f"doctor-{name.lower()}@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add(user)
@@ -47,16 +48,19 @@ def test_list_sessions_scoped_to_user(db_session: Session) -> None:
     session_a1 = ChatSession(
         id=first_session_id,
         doctor_id=user_a.id,
+        clinic_id=1,
         created_at=utcnow(),
     )
     session_a2 = ChatSession(
         id=first_session_id + 1,
         doctor_id=user_a.id,
+        clinic_id=1,
         created_at=utcnow(),
     )
     session_b = ChatSession(
         id=first_session_id + 2,
         doctor_id=user_b.id,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add_all([session_a1, session_a2, session_b])
@@ -123,6 +127,7 @@ def test_get_session_returns_200(db_session: Session) -> None:
     session = ChatSession(
         id=next_id(db_session, ChatSession),
         doctor_id=user.id,
+        clinic_id=1,
         created_at=utcnow(),
     )
     db_session.add(session)

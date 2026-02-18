@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import BigInteger, Date, ForeignKey, Index, Numeric, String
+from sqlalchemy import BigInteger, Date, ForeignKey, Index, Numeric, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.models.base import Base, TimestampMixin
@@ -13,6 +13,7 @@ from app.db.models.base import Base, TimestampMixin
 class ClaimProcedureFact(TimestampMixin, Base):
     __tablename__ = "claim_procedure_facts"
     __table_args__ = (
+        Index("ix_claim_procedure_facts_clinic_id", "clinic_id"),
         Index("ix_claim_procedure_facts_claim_id", "claim_id"),
         Index(
             "ix_claim_procedure_facts_insurance_company_id_mcp_code",
@@ -30,6 +31,12 @@ class ClaimProcedureFact(TimestampMixin, Base):
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    clinic_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("clinics.id"),
+        nullable=False,
+        server_default=text("1"),
+    )
     claim_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("claims.id"), nullable=False)
     patient_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("patients.id"), nullable=False)
     insurance_company_id: Mapped[int] = mapped_column(

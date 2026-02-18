@@ -40,6 +40,8 @@ def _seed_admin(db: Session) -> User:
         email="admin@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
+        role="platform_staff_admin",
         created_at=utcnow(),
     )
     db.add(user)

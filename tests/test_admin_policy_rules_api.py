@@ -39,6 +39,8 @@ def _seed_user(db_session: Session, is_admin: bool) -> User:
         email="admin@example.com" if is_admin else "member@example.com",
         password_hash=get_password_hash("secret"),
         is_active=True,
+        clinic_id=1,
+        role="platform_staff_admin" if is_admin else "doctor",
         created_at=utcnow(),
     )
     db_session.add(user)

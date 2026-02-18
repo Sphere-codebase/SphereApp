@@ -13,6 +13,7 @@ def upsert_claim_line_coverage(
     db: Session,
     *,
     claim_id: int,
+    clinic_id: int,
     line_coverage: dict[str, tuple[str, str | None]],
 ) -> None:
     if not line_coverage:
@@ -24,6 +25,7 @@ def upsert_claim_line_coverage(
             .values(
                 {
                     "claim_id": claim_id,
+                    "clinic_id": clinic_id,
                     "mcp_code": mcp_code,
                     "status": status,
                     "reason": reason,
@@ -37,6 +39,7 @@ def upsert_claim_line_coverage(
                     ClaimLineCoverage.mcp_code,
                 ],
                 set_={
+                    "clinic_id": clinic_id,
                     "status": status,
                     "reason": reason,
                     "policy_link_id": None,
