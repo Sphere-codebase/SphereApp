@@ -25,7 +25,7 @@ class AuditContext:
     user_agent: str | None = None
 
     @classmethod
-    def from_request(cls, request: Request) -> "AuditContext":
+    def from_request(cls, request: Request) -> AuditContext:
         request_id = getattr(request.state, "request_id", None) or request.headers.get(
             "x-request-id"
         )

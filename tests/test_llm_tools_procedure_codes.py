@@ -2,7 +2,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.id_utils import next_id
-from app.db.models import Clinic, Claim, InsuranceCompany, McpCode, Patient, Role, User, UserRole
+from app.db.models import Claim, Clinic, InsuranceCompany, McpCode, Patient, Role, User, UserRole
 from app.llm.tools import execute_tool
 from app.llm.tools.registry import ToolContext
 from app.utils.time import utcnow

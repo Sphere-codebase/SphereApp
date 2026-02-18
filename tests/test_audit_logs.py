@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash
 from app.db.id_utils import next_id
-from app.db.models import AuditLog, Clinic, Claim, InsuranceCompany, Patient, User
+from app.db.models import AuditLog, Claim, Clinic, InsuranceCompany, Patient, User
 from app.db.session import get_db
 from app.llm.tools import ToolContext, execute_tool
 from app.main import app
@@ -147,7 +147,9 @@ def test_pdf_ingest_creates_audit_log(db_session: Session) -> None:
     }
     audit = AuditLogger(db_session, context=AuditContext(request_id="req-pdf"))
 
-    result = ingest_parsed_pdf(payload=payload, current_user=user, db=db_session, audit_logger=audit)
+    result = ingest_parsed_pdf(
+        payload=payload, current_user=user, db=db_session, audit_logger=audit
+    )
     claim_id = result["claim_id"]
 
     with _fresh_session(db_session) as fresh:

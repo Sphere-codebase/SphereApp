@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, Generator, cast
+from typing import Annotated, Any, cast
 
 from fastapi import Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -52,7 +54,9 @@ CredentialsDep = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_s
 DbSessionDep = Annotated[Session, Depends(get_db)]
 
 
-def get_current_user(credentials: CredentialsDep, db: DbSessionDep) -> Generator[User, None, None]:
+async def get_current_user(
+    credentials: CredentialsDep, db: DbSessionDep
+) -> AsyncGenerator[User, None]:
     if credentials is None or not credentials.credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
 
@@ -68,10 +72,16 @@ def get_current_user(credentials: CredentialsDep, db: DbSessionDep) -> Generator
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
         ) from exc
 
-    user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+    # Resolve the user in a worker thread to avoid blocking the event loop.
+    def _load_user() -> User | None:
+        return db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+
+    user = await run_in_threadpool(_load_user)
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
+    # Keep ContextVar set/reset in the same async context to avoid token errors
+    # when FastAPI runs sync endpoints in threadpool workers.
     token = set_current_clinic_id(user.clinic_id)
     try:
         yield user

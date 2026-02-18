@@ -9,8 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuditLoggerDep
-from app.core.security import get_current_user
 from app.core import policy
+from app.core.security import get_current_user
 from app.db.id_utils import next_id
 from app.db.models import AuditLog, ChatMessage, ChatSession, User
 from app.db.session import get_db

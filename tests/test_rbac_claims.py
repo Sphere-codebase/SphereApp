@@ -53,7 +53,9 @@ def _seed_patient(db_session: Session, doctor: User, name: str) -> Patient:
     return patient
 
 
-def _seed_claim(db_session: Session, doctor: User, patient: Patient, company: InsuranceCompany) -> Claim:
+def _seed_claim(
+    db_session: Session, doctor: User, patient: Patient, company: InsuranceCompany
+) -> Claim:
     claim = Claim(
         id=next_id(db_session, Claim),
         doctor_id=doctor.id,

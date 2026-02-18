@@ -5,8 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
-from fastapi import HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 

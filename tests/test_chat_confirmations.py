@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.api.routes.chat import get_llm_client
 from app.core.security import create_access_token, get_password_hash
 from app.db.id_utils import next_id
-from app.db.models import Clinic, Claim, InsuranceCompany, Patient, Role, User, UserRole
+from app.db.models import Claim, Clinic, InsuranceCompany, Patient, Role, User, UserRole
 from app.db.session import get_db
 from app.llm.client import ChatCompletionResult, ToolCall
 from app.main import app

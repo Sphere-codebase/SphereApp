@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core import policy
 from app.db.id_utils import next_id
 from app.db.models import (
     Claim,
@@ -27,7 +28,6 @@ from app.db.models import (
     PolicyRule,
     User,
 )
-from app.core import policy
 from app.llm.tools import schemas
 from app.services.audit import AuditContext, AuditLogger
 from app.services.policy.rules_refresh import parse_policy_link_and_store

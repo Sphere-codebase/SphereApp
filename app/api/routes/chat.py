@@ -8,13 +8,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
+from tenacity import RetryError
 
 from app.core.config import settings
 from app.core.logging import log_chat_event
 from app.core.security import get_current_user
 from app.db.models import User
 from app.db.session import get_db
-from app.llm.client import LLMClient
+from app.llm.client import LLMClient, LLMUnavailable
 from app.schemas.chat import ChatRequest, ChatResponse
 from app.services.chat_orchestrator import ChatOrchestrator
 
@@ -57,13 +58,20 @@ def chat(
             "message": payload.message[: settings.max_user_message_chars],
         },
     )
-    result = orchestrator.run(
-        message=payload.message,
-        session_id=payload.session_id,
-        request_id=request_id,
-        ip=ip,
-        user_agent=user_agent,
-    )
+    try:
+        result = orchestrator.run(
+            message=payload.message,
+            session_id=payload.session_id,
+            request_id=request_id,
+            ip=ip,
+            user_agent=user_agent,
+        )
+    except RetryError as exc:
+        logger.exception("LLM retry exhausted during chat", exc_info=exc)
+        raise LLMUnavailable("LLM service is unavailable") from exc
+    except LLMUnavailable as exc:
+        logger.exception("LLM unavailable during chat", exc_info=exc)
+        raise
     latency_ms = (time.monotonic() - start) * 1000
     log_chat_event(
         "chat_response",

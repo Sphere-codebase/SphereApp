@@ -9,8 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuditLoggerDep
-from app.core.security import get_current_user
 from app.core import policy
+from app.core.security import get_current_user
 from app.db.models import Patient, User
 from app.db.session import get_db
 from app.repositories.patients import list_patients_query
