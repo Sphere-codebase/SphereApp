@@ -31,7 +31,7 @@ export default function BootstrapPage() {
       setError(null);
       try {
         await bootstrapCreateUser(form);
-        navigate("/app/chat", { replace: true });
+        navigate("/app/dashboard", { replace: true });
       } catch (err: unknown) {
         setError(err);
       }

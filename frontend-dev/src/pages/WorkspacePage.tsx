@@ -1,6 +1,6 @@
 import { Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
   addDiagnosisCode,
@@ -84,6 +84,11 @@ function WorkspaceShell() {
   } = useChat();
   const { logout, me, hasRole } = useAuth();
   const navigate = useNavigate();
+  const { sessionId: routeSessionId } = useParams<{ sessionId?: string }>();
+  const [searchParams] = useSearchParams();
+  const openCreateClaim = searchParams.get("openCreateClaim") === "1";
+  const autoOpenRef = useRef(false);
+  const parsedRouteSessionId = routeSessionId ? Number(routeSessionId) : null;
   const [draft, setDraft] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -122,6 +127,36 @@ function WorkspaceShell() {
       setCreateClaimOpen(false);
     }
   }, [isReadOnly]);
+
+  useEffect(() => {
+    if (!parsedRouteSessionId || !Number.isFinite(parsedRouteSessionId)) {
+      return;
+    }
+    if (activeSessionId === parsedRouteSessionId) {
+      return;
+    }
+    const exists = sessions.some((session) => session.id === parsedRouteSessionId);
+    if (exists) {
+      selectSession(parsedRouteSessionId);
+    }
+  }, [activeSessionId, parsedRouteSessionId, selectSession, sessions]);
+
+  useEffect(() => {
+    if (!openCreateClaim || autoOpenRef.current) {
+      return;
+    }
+    if (isReadOnly) {
+      return;
+    }
+    if (!activeSessionId) {
+      return;
+    }
+    if (parsedRouteSessionId && activeSessionId !== parsedRouteSessionId) {
+      return;
+    }
+    autoOpenRef.current = true;
+    setCreateClaimOpen(true);
+  }, [activeSessionId, isReadOnly, openCreateClaim, parsedRouteSessionId]);
 
   const handleSend = () => {
     if (isReadOnly) {

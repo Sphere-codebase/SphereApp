@@ -46,7 +46,6 @@ describe("auth flow", () => {
   });
 
   test("login success stores token and redirects", async () => {
-    const sessionId = 42;
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof input === "string"
@@ -79,26 +78,15 @@ describe("auth flow", () => {
           })
         );
       }
-      if (url.endsWith("/api/chat/sessions") && method === "GET") {
+      if (url.endsWith("/api/dashboard/doctor") && method === "GET") {
         return Promise.resolve(
           buildJsonResponse({
             status: 200,
-            body: [
-              {
-                id: sessionId,
-                doctor_id: 7,
-                created_at: "2026-01-14T05:00:00",
-                title: null,
-              },
-            ],
-          })
-        );
-      }
-      if (url.includes(`/api/chat/sessions/${sessionId}/messages`)) {
-        return Promise.resolve(
-          buildJsonResponse({
-            status: 200,
-            body: [],
+            body: {
+              doctor: { id: 7, full_name: "Doc One" },
+              active_sessions: [],
+              recent_claims: [],
+            },
           })
         );
       }
@@ -116,7 +104,7 @@ describe("auth flow", () => {
       expect(stored).not.toBeNull();
     });
 
-    expect(await screen.findByText(/Chat sessions/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Dashboard/i)).toBeInTheDocument();
   });
 
   test("login failure shows error", async () => {

@@ -14,7 +14,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (me) {
-      navigate("/app/chat", { replace: true });
+      navigate("/app/dashboard", { replace: true });
     }
   }, [me, navigate]);
 
@@ -24,7 +24,7 @@ export default function LoginPage() {
       setError(null);
       try {
         await login(email, password);
-        navigate("/app/chat", { replace: true });
+        navigate("/app/dashboard", { replace: true });
       } catch (err: unknown) {
         setError(err);
       }

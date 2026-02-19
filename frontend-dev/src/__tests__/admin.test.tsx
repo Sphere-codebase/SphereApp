@@ -347,29 +347,23 @@ describe("admin ui", () => {
       if (url.endsWith("/auth/me")) {
         return Promise.resolve(buildJsonResponse({ status: 200, body: memberUser }));
       }
-      if (url.endsWith("/api/chat/sessions") && method === "GET") {
+      if (url.endsWith("/api/dashboard/doctor") && method === "GET") {
         return Promise.resolve(
           buildJsonResponse({
             status: 200,
-            body: [
-              {
-                id: 501,
-                doctor_id: 202,
-                created_at: "2026-02-01T00:00:00",
-                title: null,
-              },
-            ],
+            body: {
+              doctor: { id: 202, full_name: "Doctor User" },
+              active_sessions: [],
+              recent_claims: [],
+            },
           })
         );
-      }
-      if (url.includes("/api/chat/sessions/501/messages")) {
-        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
       }
       return Promise.reject(new Error(`Unexpected request: ${url}`));
     });
 
     renderWithProviders(["/app/admin"]);
 
-    expect(await screen.findByText(/Chat sessions/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Dashboard/i)).toBeInTheDocument();
   });
 });

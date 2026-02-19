@@ -53,6 +53,9 @@ export default function WorkspaceTopBar({
       </div>
       <div className="flex items-center gap-2">
         <ChatStatusHud busy={isSending} />
+        <Button asChild type="button" variant="outline">
+          <Link to="/app/dashboard">Dashboard</Link>
+        </Button>
         {isReadOnly ? (
           <div
             className={cn(

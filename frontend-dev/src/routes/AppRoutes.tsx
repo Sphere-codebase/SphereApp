@@ -4,6 +4,7 @@ import AdminPage from "@/pages/AdminPage";
 import AdminPolicyRulesPage from "@/pages/AdminPolicyRulesPage";
 import BootstrapPage from "@/pages/BootstrapPage";
 import ChatPage from "@/pages/ChatPage";
+import DoctorDashboardPage from "@/pages/DoctorDashboardPage";
 import LoginPage from "@/pages/LoginPage";
 import ProtectedRoute from "@/routes/ProtectedRoute";
 import RoleRoute from "@/routes/RoleRoute";
@@ -13,9 +14,32 @@ export default function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/bootstrap" element={<BootstrapPage />} />
-      <Route path="/app/dashboard" element={<Navigate to="/app/chat" replace />} />
+      <Route
+        path="/app/dashboard"
+        element={
+          <ProtectedRoute>
+            <DoctorDashboardPage />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/app/chat"
+        element={
+          <ProtectedRoute>
+            <ChatPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/app/workspace"
+        element={
+          <ProtectedRoute>
+            <ChatPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/app/workspace/:sessionId"
         element={
           <ProtectedRoute>
             <ChatPage />
