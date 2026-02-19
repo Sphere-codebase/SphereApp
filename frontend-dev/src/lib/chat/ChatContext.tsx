@@ -51,6 +51,7 @@ export interface ChatContextValue {
   deleteSession: (sessionId: number) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   addLocalMessage: (role: ChatRole, content: string) => void;
+  clearProposal: () => void;
   clearError: () => void;
 }
 
@@ -313,6 +314,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setError(null);
   }, []);
 
+  const clearProposal = useCallback(() => {
+    setActionRequired(false);
+    setProposedChanges(null);
+  }, []);
+
   useEffect(() => {
     if (didBootstrapRef.current) {
       return;
@@ -348,6 +354,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       deleteSession,
       sendMessage,
       addLocalMessage,
+      clearProposal,
       clearError,
     }),
     [
@@ -368,6 +375,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       deleteSession,
       sendMessage,
       addLocalMessage,
+      clearProposal,
       clearError,
     ]
   );

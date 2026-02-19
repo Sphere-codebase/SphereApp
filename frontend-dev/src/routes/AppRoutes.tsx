@@ -25,25 +25,25 @@ export default function AppRoutes() {
       <Route
         path="/app/chat"
         element={
-          <ProtectedRoute>
+          <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
             <ChatPage />
-          </ProtectedRoute>
+          </RoleRoute>
         }
       />
       <Route
         path="/app/workspace"
         element={
-          <ProtectedRoute>
+          <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
             <ChatPage />
-          </ProtectedRoute>
+          </RoleRoute>
         }
       />
       <Route
         path="/app/workspace/:sessionId"
         element={
-          <ProtectedRoute>
+          <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
             <ChatPage />
-          </ProtectedRoute>
+          </RoleRoute>
         }
       />
       <Route

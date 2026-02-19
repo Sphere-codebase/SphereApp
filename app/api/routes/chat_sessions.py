@@ -12,12 +12,13 @@ from app.api.deps import AuditLoggerDep
 from app.core import policy
 from app.core.security import get_current_user
 from app.db.id_utils import next_id
-from app.db.models import AuditLog, ChatMessage, ChatSession, User
+from app.db.models import AuditLog, ChatMessage, ChatSession, Claim, User
 from app.db.session import get_db
 from app.schemas.chat_sessions import (
     ChatMessageResponse,
     ChatSessionCreateRequest,
     ChatSessionResponse,
+    ChatSessionUpdateRequest,
 )
 from app.utils.time import utcnow
 
@@ -64,16 +65,34 @@ def create_session(
     current_user: CurrentUserDep,
     audit: AuditLoggerDep,
 ) -> ChatSessionResponse:
+    claim = None
+    if payload.claim_id is not None:
+        claim = db.execute(
+            select(Claim).where(
+                Claim.id == payload.claim_id,
+                *policy.claim_scope_filters(current_user, Claim),
+            )
+        ).scalar_one_or_none()
+        if claim is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+
     session = ChatSession(
         id=next_id(db, ChatSession),
         doctor_id=current_user.id,
         clinic_id=current_user.clinic_id,
         title=payload.title,
+        claim_id=claim.id if claim else None,
+        patient_id=claim.patient_id if claim else None,
         created_at=utcnow(),
     )
     db.add(session)
     db.commit()
     db.refresh(session)
+    created_fields: list[str] = []
+    if payload.title:
+        created_fields.append("title")
+    if claim is not None:
+        created_fields.extend(["claim_id", "patient_id"])
     audit.log_event(
         action="CREATE",
         entity="chat_session",
@@ -81,8 +100,59 @@ def create_session(
         actor=current_user,
         clinic_id=session.clinic_id,
         target_clinic_id=session.clinic_id,
-        diff={"fields": ["title"]} if payload.title else {"fields": []},
+        diff={"fields": created_fields},
     )
+    return ChatSessionResponse.model_validate(session)
+
+
+@router.patch("/{session_id}", response_model=ChatSessionResponse)
+def update_session(
+    session_id: int,
+    payload: ChatSessionUpdateRequest,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+) -> ChatSessionResponse:
+    session = db.execute(
+        select(ChatSession).where(
+            ChatSession.id == session_id,
+            *policy.chat_scope_filters(current_user, ChatSession),
+        )
+    ).scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    updated_fields: list[str] = []
+    if payload.title is not None:
+        session.title = payload.title
+        updated_fields.append("title")
+    if payload.claim_id is not None:
+        claim = db.execute(
+            select(Claim).where(
+                Claim.id == payload.claim_id,
+                *policy.claim_scope_filters(current_user, Claim),
+            )
+        ).scalar_one_or_none()
+        if claim is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+        session.claim_id = claim.id
+        session.patient_id = claim.patient_id
+        updated_fields.append("claim_id")
+        updated_fields.append("patient_id")
+
+    if updated_fields:
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+        audit.log_event(
+            action="UPDATE",
+            entity="chat_session",
+            entity_id=session.id,
+            actor=current_user,
+            clinic_id=session.clinic_id,
+            target_clinic_id=session.clinic_id,
+            diff={"fields": updated_fields},
+        )
     return ChatSessionResponse.model_validate(session)
 
 

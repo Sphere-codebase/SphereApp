@@ -105,7 +105,7 @@ export default function DoctorDashboardPage() {
             <Button type="button" onClick={handleStartNewClaim} disabled={isCreating}>
               {isCreating ? "Starting..." : "Start New Claim"}
             </Button>
-            <Button type="button" variant="outline" onClick={() => navigate("/app/chat")}>
+            <Button type="button" variant="outline" onClick={() => navigate("/app/workspace")}>
               Workspace
             </Button>
           </div>
@@ -115,7 +115,7 @@ export default function DoctorDashboardPage() {
           <Button type="button" variant="secondary" disabled>
             Dashboard
           </Button>
-          <Button type="button" variant="ghost" onClick={() => navigate("/app/chat")}>
+          <Button type="button" variant="ghost" onClick={() => navigate("/app/workspace")}>
             Workspace
           </Button>
           <Button type="button" variant="ghost" disabled>
@@ -193,7 +193,7 @@ export default function DoctorDashboardPage() {
                   <button
                     key={claim.id}
                     type="button"
-                    onClick={() => navigate("/app/chat")}
+                    onClick={() => navigate("/app/workspace")}
                     className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-sm text-slate-700 shadow-sm transition hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
                   >
                     <div>

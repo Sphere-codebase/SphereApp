@@ -23,6 +23,7 @@ import type { ClaimDraftPreview } from "@/components/workspace/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { confirmChatAction } from "@/lib/api/chat";
 import { ApiError } from "@/lib/api/errors";
 import { ChatProvider, useChat } from "@/lib/chat/ChatContext";
 import { cn } from "@/lib/utils";
@@ -81,6 +82,7 @@ function WorkspaceShell() {
     sendMessage,
     clearError,
     addLocalMessage,
+    clearProposal,
   } = useChat();
   const { logout, me, hasRole } = useAuth();
   const navigate = useNavigate();
@@ -100,6 +102,8 @@ function WorkspaceShell() {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [draftPreview, setDraftPreview] = useState<Partial<ClaimDraftPreview>>({});
+  const [isConfirmingProposal, setIsConfirmingProposal] = useState(false);
+  const [proposalError, setProposalError] = useState<string | null>(null);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -127,6 +131,14 @@ function WorkspaceShell() {
       setCreateClaimOpen(false);
     }
   }, [isReadOnly]);
+
+  useEffect(() => {
+    if (!actionRequired) {
+      setProposalError(null);
+      return;
+    }
+    setProposalError(null);
+  }, [actionRequired, proposedChanges]);
 
   useEffect(() => {
     if (!parsedRouteSessionId || !Number.isFinite(parsedRouteSessionId)) {
@@ -265,6 +277,77 @@ function WorkspaceShell() {
     }
   };
 
+  const handleProposalDecision = async (decision: "confirm" | "reject") => {
+    if (!activeSessionId) {
+      setProposalError("No active session available.");
+      return;
+    }
+    if (!proposedChanges || typeof proposedChanges !== "object") {
+      setProposalError("Missing proposal details.");
+      return;
+    }
+    const proposal = proposedChanges as Record<string, unknown>;
+    const tool = typeof proposal.tool === "string" ? proposal.tool : null;
+    if (!tool) {
+      setProposalError("Missing proposal tool information.");
+      return;
+    }
+    const argumentsPayload =
+      proposal.arguments && typeof proposal.arguments === "object"
+        ? (proposal.arguments as Record<string, unknown>)
+        : {};
+    const proposalId = typeof proposal.proposal_id === "string" ? proposal.proposal_id : null;
+    const payload =
+      proposal.proposed_changes && typeof proposal.proposed_changes === "object"
+        ? (proposal.proposed_changes as Record<string, unknown>)
+        : null;
+
+    setIsConfirmingProposal(true);
+    setProposalError(null);
+    try {
+      const result = await confirmChatAction({
+        session_id: activeSessionId,
+        proposal_id: proposalId,
+        decision,
+        tool,
+        arguments: argumentsPayload,
+        payload,
+      });
+      clearProposal();
+      addLocalMessage(
+        "system",
+        decision === "confirm" ? "AI proposal confirmed." : "AI proposal rejected."
+      );
+
+      if (decision === "confirm") {
+        let claimId: number | null = null;
+        const resultClaimId = result.result ? result.result["claim_id"] : undefined;
+        if (typeof resultClaimId === "number") {
+          claimId = resultClaimId;
+        } else if (tool === "update_claim_fields") {
+          const argumentId = argumentsPayload["claim_id"];
+          if (typeof argumentId === "number") {
+            claimId = argumentId;
+          } else if (currentClaim) {
+            claimId = currentClaim.id;
+          }
+        }
+        if (claimId) {
+          await loadClaim(claimId);
+        }
+        await loadSessions();
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setProposalError("Unable to apply proposal.");
+    } finally {
+      setIsConfirmingProposal(false);
+    }
+  };
+
   const handleAddMcpCode = async (code: MCPCodeDTO) => {
     if (!currentClaim || currentClaim.claim_status === "final") {
       return;
@@ -375,6 +458,7 @@ function WorkspaceShell() {
           isSending={isSending}
           showAdmin={hasRole("platform_staff_admin")}
           isReadOnly={isReadOnly}
+          claimStatus={currentClaim?.claim_status ?? null}
           onOpenUploadPdf={() => {
             if (!isReadOnly) {
               setUploadOpen(true);
@@ -496,6 +580,36 @@ function WorkspaceShell() {
                   <pre className="mt-3 max-h-40 overflow-auto rounded-2xl bg-white p-3 text-xs text-slate-700">
                     {JSON.stringify(proposedChanges ?? {}, null, 2)}
                   </pre>
+                  {proposalError ? (
+                    <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                      {proposalError}
+                    </div>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void handleProposalDecision("confirm")}
+                      disabled={isReadOnly || isConfirmingProposal}
+                    >
+                      {isConfirmingProposal ? "Confirming..." : "Confirm"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void handleProposalDecision("reject")}
+                      disabled={isReadOnly || isConfirmingProposal}
+                    >
+                      Reject
+                    </Button>
+                    {isReadOnly ? (
+                      <span className="text-xs text-amber-700">
+                        Claim is finalized. Proposals are locked.
+                      </span>
+                    ) : null}
+                  </div>
                 </CardContent>
               </Card>
             ) : null}

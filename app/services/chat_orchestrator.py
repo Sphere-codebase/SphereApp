@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -140,13 +141,19 @@ class ChatOrchestrator:
                 if tool_call.name == "request_form" and isinstance(tool_result, dict):
                     ui_actions.append(tool_result)
                 if isinstance(tool_result, dict) and tool_result.get("action_required"):
+                    proposal_payload = {
+                        "proposal_id": str(uuid.uuid4()),
+                        "tool": tool_call.name,
+                        "arguments": tool_call.arguments,
+                        "proposed_changes": tool_result.get("proposed_changes"),
+                    }
                     return ChatResult(
                         session_id=session.id,
                         assistant_message="Confirmation required to proceed.",
                         ui_actions=ui_actions,
                         debug=debug if settings.env in {"dev", "test"} else None,
                         action_required=True,
-                        proposed_changes=tool_result.get("proposed_changes"),
+                        proposed_changes=proposal_payload,
                     )
                 messages.append(self._tool_result_message(tool_call, tool_result))
 

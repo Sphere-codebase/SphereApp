@@ -15,6 +15,7 @@ type WorkspaceTopBarProps = {
   isSending: boolean;
   showAdmin: boolean;
   isReadOnly: boolean;
+  claimStatus?: "draft" | "final" | null;
   onOpenUploadPdf: () => void;
   onOpenCreateClaim: () => void;
   onToggleTheme: () => void;
@@ -28,6 +29,7 @@ export default function WorkspaceTopBar({
   isSending,
   showAdmin,
   isReadOnly,
+  claimStatus = null,
   onOpenUploadPdf,
   onOpenCreateClaim,
   onToggleTheme,
@@ -53,6 +55,18 @@ export default function WorkspaceTopBar({
       </div>
       <div className="flex items-center gap-2">
         <ChatStatusHud busy={isSending} />
+        {claimStatus ? (
+          <span
+            className={cn(
+              "rounded-full px-3 py-1 text-xs font-semibold",
+              claimStatus === "final"
+                ? "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                : "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200"
+            )}
+          >
+            {claimStatus === "final" ? "Finalized" : "Draft"}
+          </span>
+        ) : null}
         <Button asChild type="button" variant="outline">
           <Link to="/app/dashboard">Dashboard</Link>
         </Button>

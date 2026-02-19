@@ -22,6 +22,7 @@ from app.api.routes import (
     admin_router,
     auth_router,
     chat_router,
+    chat_actions_router,
     chat_sessions_router,
     codes_router,
     claims_router,
@@ -105,6 +106,7 @@ app.include_router(policy_links_router)
 # Core features
 app.include_router(auth_router)
 app.include_router(chat_router)
+app.include_router(chat_actions_router)
 app.include_router(chat_sessions_router)
 app.include_router(codes_router)
 app.include_router(dashboard_router)
