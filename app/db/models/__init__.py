@@ -23,6 +23,7 @@ from app.db.models.ml_training_example import MlTrainingExample
 from app.db.models.patient import Patient
 from app.db.models.patient_insurance_policy import PatientInsurancePolicy
 from app.db.models.policy_link import PolicyLink
+from app.db.models.policy_override import ClinicPolicyOverride, DoctorPolicyOverride
 from app.db.models.policy_rule import PolicyRule
 from app.db.models.role import Role
 from app.db.models.user import User
@@ -52,6 +53,8 @@ __all__ = [
     "MlTrainingExample",
     "Patient",
     "PatientInsurancePolicy",
+    "ClinicPolicyOverride",
+    "DoctorPolicyOverride",
     "PolicyLink",
     "PolicyRule",
     "Role",

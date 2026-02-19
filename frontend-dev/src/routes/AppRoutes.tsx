@@ -6,6 +6,7 @@ import AIHistoryPage from "@/pages/AIHistoryPage";
 import BootstrapPage from "@/pages/BootstrapPage";
 import ChatPage from "@/pages/ChatPage";
 import DoctorDashboardPage from "@/pages/DoctorDashboardPage";
+import InsuranceRulesPage from "@/pages/InsuranceRulesPage";
 import LoginPage from "@/pages/LoginPage";
 import PatientProfilePage from "@/pages/PatientProfilePage";
 import PatientsListPage from "@/pages/PatientsListPage";
@@ -70,6 +71,14 @@ export default function AppRoutes() {
         element={
           <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
             <AIHistoryPage />
+          </RoleRoute>
+        }
+      />
+      <Route
+        path="/app/insurance-rules"
+        element={
+          <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
+            <InsuranceRulesPage />
           </RoleRoute>
         }
       />
