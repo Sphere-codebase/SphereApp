@@ -3,6 +3,7 @@ import { z } from "zod";
 import type {
   ClaimDTO,
   ClaimFinancialSummaryDTO,
+  ClaimRequirementsDTO,
   DiagnosisCodeDTO,
   MCPCodeDTO,
   PatientDTO,
@@ -81,6 +82,25 @@ const claimPdfResponseSchema = z.object({
   pdf_url: z.string(),
 });
 
+const requirementFieldSchema = z.object({
+  key: z.string(),
+  source: z.enum(["base", "policy"]),
+  severity: z.enum(["required", "recommended"]),
+  reason: z.string().nullable().optional(),
+});
+
+const missingFieldSchema = z.object({
+  key: z.string(),
+  question: z.string(),
+});
+
+const claimRequirementsSchema = z.object({
+  claim_id: z.number(),
+  required_fields: z.array(requirementFieldSchema),
+  missing: z.array(missingFieldSchema),
+  is_complete: z.boolean(),
+});
+
 const mcpCodesSchema = z.array(mcpCodeSchema);
 const diagnosisCodesSchema = z.array(diagnosisCodeSchema);
 
@@ -153,6 +173,12 @@ function toFinancialSummary(
   return dto;
 }
 
+function toClaimRequirements(
+  dto: z.infer<typeof claimRequirementsSchema>
+): ClaimRequirementsDTO {
+  return dto;
+}
+
 export async function ingestPdf(
   file: File,
   sessionId?: number | null
@@ -199,6 +225,20 @@ export async function getClaimFinancialSummary(
     "claim financial summary"
   );
   return toFinancialSummary(parsed);
+}
+
+export async function getClaimRequirements(
+  claimId: number
+): Promise<ClaimRequirementsDTO> {
+  const data = await requestJson<unknown>(`/api/claims/${claimId}/requirements`, {
+    method: "POST",
+  });
+  const parsed = parseWithSchema(
+    claimRequirementsSchema,
+    data,
+    "claim requirements"
+  );
+  return toClaimRequirements(parsed);
 }
 
 export async function refreshClaimFinancialSummary(

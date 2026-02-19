@@ -22,6 +22,7 @@ from app.api.routes import (
     admin_router,
     auth_router,
     ai_history_router,
+    agent_router,
     chat_router,
     chat_actions_router,
     clinic_admin_router,
@@ -126,4 +127,5 @@ app.include_router(insurance_rules_router)
 app.include_router(platform_admin_router)
 app.include_router(claims_router)
 app.include_router(health_router)
+app.include_router(agent_router)
 app.include_router(policy_parse_router)

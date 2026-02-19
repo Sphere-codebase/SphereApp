@@ -15,6 +15,7 @@ import {
 import type {
   ClaimDTO,
   ClaimFinancialSummaryDTO,
+  ClaimRequirementsDTO,
   DiagnosisCodeDTO,
   MCPCodeDTO,
 } from "@/types/claim";
@@ -76,6 +77,10 @@ type ClaimDraftPanelProps = {
   isLoadingFinancial: boolean;
   financialError: string | null;
   onRefreshFinancial: () => void;
+  requirements: ClaimRequirementsDTO | null;
+  isCheckingRequirements: boolean;
+  requirementsError: string | null;
+  onCheckRequirements: () => void;
 };
 
 export default function ClaimDraftPanel({
@@ -97,6 +102,10 @@ export default function ClaimDraftPanel({
   isLoadingFinancial,
   financialError,
   onRefreshFinancial,
+  requirements,
+  isCheckingRequirements,
+  requirementsError,
+  onCheckRequirements,
 }: ClaimDraftPanelProps) {
   const [activeTab, setActiveTab] = useState<"procedures" | "diagnoses" | "financial">(
     "procedures"
@@ -116,6 +125,13 @@ export default function ClaimDraftPanel({
   const hasClaim = Boolean(currentClaim);
   const isFinal = currentClaim?.claim_status === "final";
   const isDisabled = !currentClaim || isFinal;
+  const missingCount = requirements?.missing?.length ?? null;
+  const completenessLabel =
+    missingCount === null
+      ? "Unknown"
+      : missingCount === 0
+        ? "Complete"
+        : `${missingCount} missing`;
 
   if (!currentClaim && !hasPreview) {
     return (
@@ -187,6 +203,9 @@ export default function ClaimDraftPanel({
           >
             {status}
           </span>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+            {completenessLabel}
+          </span>
         </div>
       </div>
 
@@ -223,6 +242,17 @@ export default function ClaimDraftPanel({
           <Button
             type="button"
             size="sm"
+            variant="outline"
+            onClick={onCheckRequirements}
+            disabled={isCheckingRequirements}
+          >
+            {isCheckingRequirements ? "Checking..." : "Check Requirements"}
+          </Button>
+        ) : null}
+        {currentClaim ? (
+          <Button
+            type="button"
+            size="sm"
             variant="secondary"
             onClick={onGeneratePdf}
             disabled={isGeneratingPdf}
@@ -249,6 +279,11 @@ export default function ClaimDraftPanel({
       {claimError ? (
         <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
           {claimError}
+        </div>
+      ) : null}
+      {requirementsError ? (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+          {requirementsError}
         </div>
       ) : null}
 

@@ -69,3 +69,22 @@ export interface ClaimFinancialSummaryDTO {
   flags: ClaimFinancialFlag[];
   updated_at: string;
 }
+
+export type ClaimRequirementFieldDTO = {
+  key: string;
+  source: "base" | "policy";
+  severity: "required" | "recommended";
+  reason?: string;
+};
+
+export type ClaimMissingFieldDTO = {
+  key: string;
+  question: string;
+};
+
+export interface ClaimRequirementsDTO {
+  claim_id: number;
+  required_fields: ClaimRequirementFieldDTO[];
+  missing: ClaimMissingFieldDTO[];
+  is_complete: boolean;
+}

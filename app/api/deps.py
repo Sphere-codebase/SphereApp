@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Header, Request, status
 from sqlalchemy.orm import Session
 
 from app.core import policy
+from app.core.config import settings
 from app.core.security import get_current_user
 from app.core.tenancy import apply_rls_context, reset_current_is_platform_admin, set_current_is_platform_admin
 from app.db.models import User
@@ -46,3 +47,10 @@ def require_roles(*roles: str):
         return current_user
 
     return _dependency
+
+
+def require_agent_token(
+    x_agent_token: Annotated[str | None, Header(alias="X-Agent-Token")] = None,
+) -> None:
+    if not settings.agent_api_key or x_agent_token != settings.agent_api_key:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Agent token required")

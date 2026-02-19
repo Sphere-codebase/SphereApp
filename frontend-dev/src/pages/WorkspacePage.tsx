@@ -8,6 +8,7 @@ import {
   finalizeClaim,
   getClaim,
   getClaimFinancialSummary,
+  getClaimRequirements,
   generateClaimPdf,
   removeDiagnosisCode,
   removeMcpCode,
@@ -33,6 +34,7 @@ import { cn } from "@/lib/utils";
 import type {
   ClaimDTO,
   ClaimFinancialSummaryDTO,
+  ClaimRequirementsDTO,
   DiagnosisCodeDTO,
   MCPCodeDTO,
 } from "@/types/claim";
@@ -81,6 +83,7 @@ function WorkspaceShell() {
     isSending,
     actionRequired,
     proposedChanges,
+    uiActions,
     error,
     lastRequestId,
     llmUnavailable,
@@ -92,6 +95,7 @@ function WorkspaceShell() {
     clearError,
     addLocalMessage,
     clearProposal,
+    clearUiActions,
   } = useChat();
   const { logout, me, hasRole } = useAuth();
   const navigate = useNavigate();
@@ -126,6 +130,13 @@ function WorkspaceShell() {
   const [isLoadingFinancial, setIsLoadingFinancial] = useState(false);
   const [financialError, setFinancialError] = useState<string | null>(null);
   const financialKeyRef = useRef<string | null>(null);
+  const [requirements, setRequirements] = useState<ClaimRequirementsDTO | null>(null);
+  const [isCheckingRequirements, setIsCheckingRequirements] = useState(false);
+  const [requirementsError, setRequirementsError] = useState<string | null>(null);
+  const [missingFieldAnswers, setMissingFieldAnswers] = useState<Record<string, string>>(
+    {}
+  );
+  const [formResponses, setFormResponses] = useState<Record<string, string>>({});
 
   const handleUnauthorized = useCallback(() => {
     logout();
@@ -230,6 +241,24 @@ function WorkspaceShell() {
         setIsLoadingPatient(false);
       });
   }, [parsedPatientId, handleUnauthorized]);
+
+  useEffect(() => {
+    setRequirements(null);
+    setRequirementsError(null);
+    setMissingFieldAnswers({});
+    setFormResponses({});
+  }, [currentClaim?.id]);
+
+  const formAction = useMemo(() => {
+    if (!uiActions?.length) {
+      return null;
+    }
+    const action = uiActions.find((item) => item.type === "form");
+    if (!action || !Array.isArray(action.fields)) {
+      return null;
+    }
+    return action as { type: string; fields: Array<Record<string, unknown>> };
+  }, [uiActions]);
 
   const handleSend = () => {
     if (isReadOnly) {
@@ -405,6 +434,26 @@ function WorkspaceShell() {
       setClaimError("Unable to generate PDF.");
     } finally {
       setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleCheckRequirements = async () => {
+    if (!currentClaim) {
+      return;
+    }
+    setIsCheckingRequirements(true);
+    setRequirementsError(null);
+    try {
+      const response = await getClaimRequirements(currentClaim.id);
+      setRequirements(response);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setRequirementsError("Unable to check claim requirements.");
+    } finally {
+      setIsCheckingRequirements(false);
     }
   };
 
@@ -764,6 +813,133 @@ function WorkspaceShell() {
               />
             </div>
 
+            {formAction ? (
+              <Card className="border-indigo-200 bg-indigo-50">
+                <CardHeader>
+                  <CardTitle>Additional Info Requested</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-indigo-900">
+                  <div className="text-sm">
+                    The assistant needs a few more details to continue.
+                  </div>
+                  <div className="space-y-2">
+                    {formAction.fields.map((field, index) => {
+                      const key =
+                        (field.key as string) ||
+                        (field.name as string) ||
+                        `field_${index}`;
+                      const label =
+                        (field.label as string) ||
+                        (field.question as string) ||
+                        key;
+                      return (
+                        <label key={key} className="flex flex-col gap-1 text-xs">
+                          <span className="font-semibold">{label}</span>
+                          <input
+                            type="text"
+                            value={formResponses[key] ?? ""}
+                            onChange={(event) =>
+                              setFormResponses((prev) => ({
+                                ...prev,
+                                [key]: event.target.value,
+                              }))
+                            }
+                            className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-900"
+                            disabled={isReadOnly}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        const payload = { fields: formAction.fields, answers: formResponses };
+                        void sendMessage(`Form responses: ${JSON.stringify(payload)}`);
+                        setFormResponses({});
+                        clearUiActions();
+                      }}
+                      disabled={isReadOnly}
+                    >
+                      Send to Assistant
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => clearUiActions()}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {requirements?.missing?.length ? (
+              <Card className="border-amber-200 bg-amber-50">
+                <CardHeader>
+                  <CardTitle>Missing Claim Fields</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-amber-900">
+                  <div className="text-sm">
+                    The following fields are still missing. You can answer here to
+                    send them back to the assistant.
+                  </div>
+                  <div className="space-y-2">
+                    {requirements.missing.map((item) => (
+                      <label key={item.key} className="flex flex-col gap-1 text-xs">
+                        <span className="font-semibold">{item.question}</span>
+                        <input
+                          type="text"
+                          value={missingFieldAnswers[item.key] ?? ""}
+                          onChange={(event) =>
+                            setMissingFieldAnswers((prev) => ({
+                              ...prev,
+                              [item.key]: event.target.value,
+                            }))
+                          }
+                          className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm text-slate-900"
+                          disabled={isReadOnly}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        const payload = {
+                          missing_fields: requirements.missing.map((item) => item.key),
+                          answers: missingFieldAnswers,
+                        };
+                        void sendMessage(
+                          `Missing field answers: ${JSON.stringify(payload)}`
+                        );
+                        setMissingFieldAnswers({});
+                      }}
+                      disabled={isReadOnly}
+                    >
+                      Send to Assistant
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setRequirements(null)}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
             <PromptInput
               value={draft}
               onChange={setDraft}
@@ -806,6 +982,10 @@ function WorkspaceShell() {
             isLoadingFinancial={isLoadingFinancial}
             financialError={financialError}
             onRefreshFinancial={handleRefreshFinancial}
+            requirements={requirements}
+            isCheckingRequirements={isCheckingRequirements}
+            requirementsError={requirementsError}
+            onCheckRequirements={handleCheckRequirements}
           />
         </div>
       </div>

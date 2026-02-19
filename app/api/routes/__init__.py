@@ -20,6 +20,7 @@ from app.api.routes.files import router as files_router
 from app.api.routes.health import router as health_router
 from app.api.routes.insurance_companies import router as insurance_companies_router
 from app.api.routes.insurance_rules import router as insurance_rules_router
+from app.api.routes.agent import router as agent_router
 from app.api.routes.platform_admin import router as platform_admin_router
 from app.api.routes.patients import router as patients_router
 from app.api.routes.policy_links import router as policy_links_router
@@ -45,6 +46,7 @@ __all__ = [
     "health_router",
     "insurance_companies_router",
     "insurance_rules_router",
+    "agent_router",
     "platform_admin_router",
     "patients_router",
     "policy_links_router",

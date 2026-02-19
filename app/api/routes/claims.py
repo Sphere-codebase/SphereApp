@@ -64,9 +64,11 @@ from app.schemas.claims import (
     MyClaimsListResponseSchema,
     PatientSummary,
 )
+from app.schemas.agent import ClaimRequirementsResponse
 from app.repositories import patients as patient_repo
 from app.services.claims.ingestion import ingest_pdf_from_path, ingest_pdf_from_upload
 from app.services.claims.pdf import build_claim_pdf_data
+from app.services.claims.requirements import build_claim_requirements
 from app.services.claims.summary import ClaimsService, MyClaimsFilters
 from app.utils.time import utcnow
 from app.pdf.claim_pdf import generate_pdf_bytes, save_pdf
@@ -461,6 +463,17 @@ def get_claim(
 ) -> ClaimDetailResponse:
     claim = _get_claim_or_404(db, claim_id, current_user)
     return _build_claim_detail(db, claim)
+
+
+@router.post("/{claim_id}/requirements", response_model=ClaimRequirementsResponse)
+def get_claim_requirements(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+) -> ClaimRequirementsResponse:
+    claim = _get_claim_or_404(db, claim_id, current_user)
+    requirements, _, _ = build_claim_requirements(db, claim)
+    return ClaimRequirementsResponse(**requirements)
 
 
 @router.patch("/{claim_id}", response_model=ClaimResponse)

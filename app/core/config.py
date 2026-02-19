@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field("HS256", alias="JWT_ALGORITHM")
     jwt_expires_minutes: int = Field(60, alias="JWT_EXPIRES_MINUTES")
     admin_api_key: str | None = Field(None, alias="ADMIN_API_KEY")
+    agent_api_key: str | None = Field(None, alias="AGENT_API_KEY")
     chat_file_logs: bool | None = Field(None, alias="CHAT_FILE_LOGS")
     chat_log_dir: str = Field("logs", alias="CHAT_LOG_DIR")
 
