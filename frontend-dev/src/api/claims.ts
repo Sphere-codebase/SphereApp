@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type {
   ClaimDTO,
+  ClaimFinancialSummaryDTO,
   DiagnosisCodeDTO,
   MCPCodeDTO,
   PatientDTO,
@@ -39,6 +40,29 @@ const mcpCodeSchema = z.object({
 const diagnosisCodeSchema = z.object({
   code: z.string(),
   description: z.string().nullable().optional(),
+});
+
+const financialPredictionSchema = z.object({
+  mcp_code: z.string(),
+  predicted_paid_amount: z.number(),
+  confidence: z.number().nullable().optional(),
+  explanation: z.string().nullable().optional(),
+  source: z.enum(["ml_predictions", "mcp_payment_predictions"]),
+});
+
+const financialFlagSchema = z.object({
+  code: z.string(),
+  severity: z.enum(["info", "warn", "high"]),
+  message: z.string(),
+});
+
+const claimFinancialSummarySchema = z.object({
+  claim_id: z.number(),
+  currency: z.literal("USD"),
+  predicted_total_paid_amount: z.number(),
+  predicted_per_mcp: z.array(financialPredictionSchema),
+  flags: z.array(financialFlagSchema),
+  updated_at: z.string(),
 });
 
 const claimDetailSchema = z.object({
@@ -123,6 +147,12 @@ function toClaim(dto: z.infer<typeof claimDetailSchema>): ClaimDTO {
   };
 }
 
+function toFinancialSummary(
+  dto: z.infer<typeof claimFinancialSummarySchema>
+): ClaimFinancialSummaryDTO {
+  return dto;
+}
+
 export async function ingestPdf(
   file: File,
   sessionId?: number | null
@@ -157,6 +187,32 @@ export async function getClaim(claimId: number): Promise<ClaimDTO> {
   const data = await requestJson<unknown>(`/api/claims/${claimId}`);
   const parsed = parseWithSchema(claimDetailSchema, data, "get claim");
   return toClaim(parsed);
+}
+
+export async function getClaimFinancialSummary(
+  claimId: number
+): Promise<ClaimFinancialSummaryDTO> {
+  const data = await requestJson<unknown>(`/api/claims/${claimId}/financial`);
+  const parsed = parseWithSchema(
+    claimFinancialSummarySchema,
+    data,
+    "claim financial summary"
+  );
+  return toFinancialSummary(parsed);
+}
+
+export async function refreshClaimFinancialSummary(
+  claimId: number
+): Promise<ClaimFinancialSummaryDTO> {
+  const data = await requestJson<unknown>(`/api/claims/${claimId}/financial/refresh`, {
+    method: "POST",
+  });
+  const parsed = parseWithSchema(
+    claimFinancialSummarySchema,
+    data,
+    "claim financial refresh"
+  );
+  return toFinancialSummary(parsed);
 }
 
 export async function finalizeClaim(claimId: number): Promise<ClaimDTO> {

@@ -7,9 +7,11 @@ import {
   addMcpCode,
   finalizeClaim,
   getClaim,
+  getClaimFinancialSummary,
   generateClaimPdf,
   removeDiagnosisCode,
   removeMcpCode,
+  refreshClaimFinancialSummary,
 } from "@/api/claims";
 import { getPatient } from "@/api/patients";
 import { Conversation } from "@/components/ai/conversation";
@@ -28,7 +30,12 @@ import { confirmChatAction } from "@/lib/api/chat";
 import { ApiError } from "@/lib/api/errors";
 import { ChatProvider, useChat } from "@/lib/chat/ChatContext";
 import { cn } from "@/lib/utils";
-import type { ClaimDTO, DiagnosisCodeDTO, MCPCodeDTO } from "@/types/claim";
+import type {
+  ClaimDTO,
+  ClaimFinancialSummaryDTO,
+  DiagnosisCodeDTO,
+  MCPCodeDTO,
+} from "@/types/claim";
 import type { PatientDetailDTO } from "@/types/patients";
 
 type ThemeMode = "light" | "dark";
@@ -113,6 +120,12 @@ function WorkspaceShell() {
   const [isLoadingPatient, setIsLoadingPatient] = useState(false);
   const [isConfirmingProposal, setIsConfirmingProposal] = useState(false);
   const [proposalError, setProposalError] = useState<string | null>(null);
+  const [financialSummary, setFinancialSummary] = useState<ClaimFinancialSummaryDTO | null>(
+    null
+  );
+  const [isLoadingFinancial, setIsLoadingFinancial] = useState(false);
+  const [financialError, setFinancialError] = useState<string | null>(null);
+  const financialKeyRef = useRef<string | null>(null);
 
   const handleUnauthorized = useCallback(() => {
     logout();
@@ -253,6 +266,44 @@ function WorkspaceShell() {
     }
   };
 
+  const financialKey = useMemo(() => {
+    if (!currentClaim) {
+      return null;
+    }
+    const mcpKey = currentClaim.mcp_codes.map((code) => code.code).sort().join("|");
+    const diagnosisKey = currentClaim.diagnosis_codes
+      .map((code) => code.code)
+      .sort()
+      .join("|");
+    return `${currentClaim.id}:${currentClaim.insurance_company_id}:${mcpKey}:${diagnosisKey}`;
+  }, [currentClaim]);
+
+  const fetchFinancialSummary = useCallback(
+    async (claim: ClaimDTO, options?: { force?: boolean; refresh?: boolean }) => {
+      if (!options?.force && financialKeyRef.current === financialKey) {
+        return;
+      }
+      setIsLoadingFinancial(true);
+      setFinancialError(null);
+      try {
+        const summary = options?.refresh
+          ? await refreshClaimFinancialSummary(claim.id)
+          : await getClaimFinancialSummary(claim.id);
+        setFinancialSummary(summary);
+        financialKeyRef.current = financialKey;
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        setFinancialError("Unable to load financial insights.");
+      } finally {
+        setIsLoadingFinancial(false);
+      }
+    },
+    [financialKey, getClaimFinancialSummary, handleUnauthorized, refreshClaimFinancialSummary]
+  );
+
   useEffect(() => {
     if (!parsedClaimId || !Number.isFinite(parsedClaimId)) {
       return;
@@ -288,6 +339,20 @@ function WorkspaceShell() {
     setCreateClaimOpen(false);
     setUploadOpen(false);
   }, [activeSessionId, activeSession?.claim_id, parsedClaimId]);
+
+  useEffect(() => {
+    if (!currentClaim) {
+      setFinancialSummary(null);
+      setFinancialError(null);
+      setIsLoadingFinancial(false);
+      financialKeyRef.current = null;
+      return;
+    }
+    if (financialSummary && financialSummary.claim_id !== currentClaim.id) {
+      setFinancialSummary(null);
+    }
+    void fetchFinancialSummary(currentClaim);
+  }, [currentClaim, fetchFinancialSummary, financialSummary]);
 
   const handleClaimCreated = (claim: ClaimDTO) => {
     setCurrentClaim(claim);
@@ -341,6 +406,13 @@ function WorkspaceShell() {
     } finally {
       setIsGeneratingPdf(false);
     }
+  };
+
+  const handleRefreshFinancial = async () => {
+    if (!currentClaim) {
+      return;
+    }
+    await fetchFinancialSummary(currentClaim, { force: true, refresh: true });
   };
 
   const handleProposalDecision = async (decision: "confirm" | "reject") => {
@@ -730,6 +802,10 @@ function WorkspaceShell() {
             isGeneratingPdf={isGeneratingPdf}
             pdfPreviewUrl={pdfPreviewUrl}
             onClosePdfPreview={() => setPdfPreviewUrl(null)}
+            financialSummary={financialSummary}
+            isLoadingFinancial={isLoadingFinancial}
+            financialError={financialError}
+            onRefreshFinancial={handleRefreshFinancial}
           />
         </div>
       </div>

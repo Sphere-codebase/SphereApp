@@ -36,6 +36,8 @@ from app.db.models import (
     ClaimPDF,
     DiagnosisCode,
     InsuranceCompany,
+    McpPaymentPrediction,
+    MlPrediction,
     McpCode,
     Patient,
     PolicyLink,
@@ -44,6 +46,9 @@ from app.db.models import (
 from app.db.session import get_db
 from app.schemas.claims import (
     ClaimDetailResponse,
+    ClaimFinancialFlag,
+    ClaimFinancialPrediction,
+    ClaimFinancialSummary,
     ClaimDiagnosisCodeCreateRequest,
     ClaimDiagnosisCodeResponse,
     ClaimCreateRequest,
@@ -171,6 +176,139 @@ def _pdf_filename(claim_id: int) -> tuple[str, str]:
     pdf_id = f"claim_{claim_id}_{timestamp}"
     filename = f"{pdf_id}.pdf"
     return pdf_id, filename
+
+
+def _build_claim_financial_summary(db: Session, claim: Claim) -> ClaimFinancialSummary:
+    mcp_codes = db.execute(
+        select(ClaimMcpCode.mcp_code)
+        .where(ClaimMcpCode.claim_id == claim.id)
+        .order_by(ClaimMcpCode.mcp_code.asc())
+    ).scalars().all()
+    diagnosis_codes = db.execute(
+        select(ClaimDiagnosisCode.diagnosis_code).where(
+            ClaimDiagnosisCode.claim_id == claim.id
+        )
+    ).scalars().all()
+
+    predictions: list[ClaimFinancialPrediction] = []
+    flags: list[ClaimFinancialFlag] = []
+
+    if not diagnosis_codes:
+        flags.append(
+            ClaimFinancialFlag(
+                code="missing_diagnosis",
+                severity="warn",
+                message="No diagnosis codes attached to this claim.",
+            )
+        )
+
+    payment_map: dict[str, McpPaymentPrediction] = {}
+    ml_map: dict[str, MlPrediction] = {}
+
+    if mcp_codes:
+        today = date.today()
+        payment_rows = db.execute(
+            select(McpPaymentPrediction)
+            .where(
+                McpPaymentPrediction.insurance_company_id == claim.insurance_company_id,
+                McpPaymentPrediction.mcp_code.in_(mcp_codes),
+                McpPaymentPrediction.prediction_date <= today,
+            )
+            .order_by(
+                McpPaymentPrediction.mcp_code.asc(),
+                McpPaymentPrediction.prediction_date.desc(),
+            )
+        ).scalars().all()
+        for row in payment_rows:
+            if row.mcp_code not in payment_map:
+                payment_map[row.mcp_code] = row
+
+        ml_rows = db.execute(
+            select(MlPrediction)
+            .where(
+                MlPrediction.claim_id == claim.id,
+                MlPrediction.insurance_company_id == claim.insurance_company_id,
+                MlPrediction.mcp_code.in_(mcp_codes),
+            )
+            .order_by(MlPrediction.mcp_code.asc(), MlPrediction.created_at.desc())
+        ).scalars().all()
+        for row in ml_rows:
+            if row.mcp_code not in ml_map:
+                ml_map[row.mcp_code] = row
+
+    for code in mcp_codes:
+        if code in payment_map:
+            row = payment_map[code]
+            predicted_amount = float(row.predicted_paid_amount)
+            predictions.append(
+                ClaimFinancialPrediction(
+                    mcp_code=code,
+                    predicted_paid_amount=predicted_amount,
+                    confidence=row.confidence,
+                    explanation=None,
+                    source="mcp_payment_predictions",
+                )
+            )
+            if row.confidence is not None and row.confidence < 0.5:
+                severity = "high" if row.confidence < 0.3 else "warn"
+                flags.append(
+                    ClaimFinancialFlag(
+                        code=f"low_confidence:{code}",
+                        severity=severity,
+                        message=f"Low confidence prediction for {code}.",
+                    )
+                )
+            continue
+
+        if code in ml_map:
+            row = ml_map[code]
+            predictions.append(
+                ClaimFinancialPrediction(
+                    mcp_code=code,
+                    predicted_paid_amount=0.0,
+                    confidence=row.confidence,
+                    explanation=row.explanation,
+                    source="ml_predictions",
+                )
+            )
+            if row.confidence is not None and row.confidence < 0.5:
+                severity = "high" if row.confidence < 0.3 else "warn"
+                flags.append(
+                    ClaimFinancialFlag(
+                        code=f"low_confidence:{code}",
+                        severity=severity,
+                        message=f"Low confidence prediction for {code}.",
+                    )
+                )
+            continue
+
+        predictions.append(
+            ClaimFinancialPrediction(
+                mcp_code=code,
+                predicted_paid_amount=0.0,
+                confidence=None,
+                explanation="No prediction found.",
+                source="ml_predictions",
+            )
+        )
+        flags.append(
+            ClaimFinancialFlag(
+                code=f"missing_prediction:{code}",
+                severity="warn",
+                message=f"No prediction available for {code}.",
+            )
+        )
+
+    predicted_total = sum(item.predicted_paid_amount for item in predictions)
+
+    return ClaimFinancialSummary(
+        claim_id=claim.id,
+        currency="USD",
+        predicted_total_paid_amount=predicted_total,
+        predicted_per_mcp=predictions,
+        flags=flags,
+        updated_at=utcnow(),
+    )
 
 
 @router.get("", response_model=list[ClaimResponse])
@@ -658,6 +796,43 @@ def resolve_policy_links(
             )
         )
     return items
+
+
+@router.get("/{claim_id}/financial", response_model=ClaimFinancialSummary)
+def get_claim_financial(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+) -> ClaimFinancialSummary:
+    claim = _get_claim_unscoped_or_404(db, claim_id)
+    if not policy.can(current_user, policy.Action.READ, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    return _build_claim_financial_summary(db, claim)
+
+
+@router.post("/{claim_id}/financial/refresh", response_model=ClaimFinancialSummary)
+def refresh_claim_financial(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+) -> ClaimFinancialSummary:
+    claim = _get_claim_unscoped_or_404(db, claim_id)
+    if not policy.can(current_user, policy.Action.READ, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    summary = _build_claim_financial_summary(db, claim)
+    audit.log_event(
+        action="claim.financial_refreshed",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={"reason": "user_clicked_refresh"},
+        scope="clinic",
+        actor_role=current_user.role,
+    )
+    return summary
 
 
 @router.post("/ingest-pdf", response_model=ClaimPdfIngestResponse)
