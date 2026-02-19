@@ -41,6 +41,7 @@ function formatDate(value?: string | null): string {
 export default function DoctorDashboardPage() {
   const navigate = useNavigate();
   const { me, logout } = useAuth();
+  const isPlatformAdmin = me?.role === "platform_staff_admin";
   const [dashboard, setDashboard] = useState<DoctorDashboardDTO | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -102,12 +103,20 @@ export default function DoctorDashboardPage() {
             </h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" onClick={handleStartNewClaim} disabled={isCreating}>
-              {isCreating ? "Starting..." : "Start New Claim"}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => navigate("/app/workspace")}>
-              Workspace
-            </Button>
+            {isPlatformAdmin ? (
+              <Button type="button" onClick={() => navigate("/app/platform/clinics")}>
+                Platform Admin
+              </Button>
+            ) : (
+              <>
+                <Button type="button" onClick={handleStartNewClaim} disabled={isCreating}>
+                  {isCreating ? "Starting..." : "Start New Claim"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => navigate("/app/workspace")}>
+                  Workspace
+                </Button>
+              </>
+            )}
           </div>
         </header>
 
@@ -115,23 +124,35 @@ export default function DoctorDashboardPage() {
           <Button type="button" variant="secondary" disabled>
             Dashboard
           </Button>
-          <Button type="button" variant="ghost" onClick={() => navigate("/app/workspace")}>
-            Workspace
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => navigate("/app/patients")}>
-            Patients
-          </Button>
-          {me?.role && ["chief_doctor", "clinic_admin"].includes(me.role) ? (
-            <Button type="button" variant="ghost" onClick={() => navigate("/app/clinic")}>
-              Clinic
+          {isPlatformAdmin ? (
+            <Button type="button" variant="ghost" onClick={() => navigate("/app/platform/clinics")}>
+              Platform
             </Button>
-          ) : null}
-          <Button type="button" variant="ghost" onClick={() => navigate("/app/insurance-rules")}>
-            Insurance Rules
-          </Button>
-          <Button type="button" variant="ghost" onClick={() => navigate("/app/ai-history")}>
-            AI History
-          </Button>
+          ) : (
+            <>
+              <Button type="button" variant="ghost" onClick={() => navigate("/app/workspace")}>
+                Workspace
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => navigate("/app/patients")}>
+                Patients
+              </Button>
+              {me?.role && ["chief_doctor", "clinic_admin"].includes(me.role) ? (
+                <Button type="button" variant="ghost" onClick={() => navigate("/app/clinic")}>
+                  Clinic
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => navigate("/app/insurance-rules")}
+              >
+                Insurance Rules
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => navigate("/app/ai-history")}>
+                AI History
+              </Button>
+            </>
+          )}
         </nav>
 
         {error ? (

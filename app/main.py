@@ -33,6 +33,7 @@ from app.api.routes import (
     health_router,
     insurance_companies_router,
     insurance_rules_router,
+    platform_admin_router,
     patients_router,
     policy_links_router,
 )
@@ -118,6 +119,7 @@ app.include_router(files_router)
 app.include_router(patients_router)
 app.include_router(insurance_companies_router)
 app.include_router(insurance_rules_router)
+app.include_router(platform_admin_router)
 app.include_router(claims_router)
 app.include_router(health_router)
 app.include_router(policy_parse_router)

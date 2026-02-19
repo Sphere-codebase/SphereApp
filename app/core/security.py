@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.tenancy import reset_current_clinic_id, set_current_clinic_id
-from app.db.models import User
+from app.db.models import Clinic, User
 from app.db.session import get_db
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
@@ -73,12 +73,20 @@ async def get_current_user(
         ) from exc
 
     # Resolve the user in a worker thread to avoid blocking the event loop.
-    def _load_user() -> User | None:
-        return db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+    def _load_user() -> tuple[User | None, bool]:
+        user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+        if user is None:
+            return None, False
+        is_blocked = db.execute(
+            select(Clinic.is_blocked).where(Clinic.id == user.clinic_id)
+        ).scalar_one_or_none()
+        return user, bool(is_blocked) if is_blocked is not None else False
 
-    user = await run_in_threadpool(_load_user)
+    user, is_blocked = await run_in_threadpool(_load_user)
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    if is_blocked and user.role != "platform_staff_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Clinic is blocked")
 
     request.state.current_user_id = user.id
     request.state.current_user_role = user.role

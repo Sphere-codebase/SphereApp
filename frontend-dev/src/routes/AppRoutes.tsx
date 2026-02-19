@@ -13,6 +13,9 @@ import PatientsListPage from "@/pages/PatientsListPage";
 import ClinicDashboardPage from "@/pages/ClinicDashboardPage";
 import ClinicDoctorsPage from "@/pages/ClinicDoctorsPage";
 import ClinicAuditLogsPage from "@/pages/ClinicAuditLogsPage";
+import PlatformAuditPage from "@/pages/PlatformAuditPage";
+import PlatformClinicsPage from "@/pages/PlatformClinicsPage";
+import PlatformUsagePage from "@/pages/PlatformUsagePage";
 import ProtectedRoute from "@/routes/ProtectedRoute";
 import RoleRoute from "@/routes/RoleRoute";
 
@@ -106,6 +109,30 @@ export default function AppRoutes() {
         element={
           <RoleRoute allowedRoles={["chief_doctor", "clinic_admin"]}>
             <ClinicAuditLogsPage />
+          </RoleRoute>
+        }
+      />
+      <Route
+        path="/app/platform/clinics"
+        element={
+          <RoleRoute allowedRoles={["platform_staff_admin"]}>
+            <PlatformClinicsPage />
+          </RoleRoute>
+        }
+      />
+      <Route
+        path="/app/platform/audit"
+        element={
+          <RoleRoute allowedRoles={["platform_staff_admin"]}>
+            <PlatformAuditPage />
+          </RoleRoute>
+        }
+      />
+      <Route
+        path="/app/platform/usage"
+        element={
+          <RoleRoute allowedRoles={["platform_staff_admin"]}>
+            <PlatformUsagePage />
           </RoleRoute>
         }
       />

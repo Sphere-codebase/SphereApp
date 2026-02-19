@@ -14,7 +14,9 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (me) {
-      navigate("/app/dashboard", { replace: true });
+      const nextRoute =
+        me.role === "platform_staff_admin" ? "/app/platform/clinics" : "/app/dashboard";
+      navigate(nextRoute, { replace: true });
     }
   }, [me, navigate]);
 
@@ -24,7 +26,6 @@ export default function LoginPage() {
       setError(null);
       try {
         await login(email, password);
-        navigate("/app/dashboard", { replace: true });
       } catch (err: unknown) {
         setError(err);
       }

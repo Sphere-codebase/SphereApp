@@ -119,7 +119,7 @@ export default function WorkspaceTopBar({
         )}
         {showAdmin ? (
           <Button asChild type="button" variant="outline">
-            <Link to="/app/admin">Admin</Link>
+            <Link to="/app/platform/clinics">Platform</Link>
           </Button>
         ) : null}
         <Button type="button" variant="outline" onClick={onLogout}>

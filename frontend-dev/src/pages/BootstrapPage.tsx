@@ -31,7 +31,7 @@ export default function BootstrapPage() {
       setError(null);
       try {
         await bootstrapCreateUser(form);
-        navigate("/app/dashboard", { replace: true });
+        navigate("/app/platform/clinics", { replace: true });
       } catch (err: unknown) {
         setError(err);
       }
