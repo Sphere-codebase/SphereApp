@@ -121,6 +121,11 @@ export default function DoctorDashboardPage() {
           <Button type="button" variant="ghost" onClick={() => navigate("/app/patients")}>
             Patients
           </Button>
+          {me?.role && ["chief_doctor", "clinic_admin"].includes(me.role) ? (
+            <Button type="button" variant="ghost" onClick={() => navigate("/app/clinic")}>
+              Clinic
+            </Button>
+          ) : null}
           <Button type="button" variant="ghost" onClick={() => navigate("/app/insurance-rules")}>
             Insurance Rules
           </Button>

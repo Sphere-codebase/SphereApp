@@ -24,12 +24,12 @@ from app.api.routes import (
     ai_history_router,
     chat_router,
     chat_actions_router,
+    clinic_admin_router,
     chat_sessions_router,
     codes_router,
     claims_router,
     dashboard_router,
     files_router,
-    clinic_audit_logs_router,
     health_router,
     insurance_companies_router,
     insurance_rules_router,
@@ -110,10 +110,10 @@ app.include_router(auth_router)
 app.include_router(ai_history_router)
 app.include_router(chat_router)
 app.include_router(chat_actions_router)
+app.include_router(clinic_admin_router)
 app.include_router(chat_sessions_router)
 app.include_router(codes_router)
 app.include_router(dashboard_router)
-app.include_router(clinic_audit_logs_router)
 app.include_router(files_router)
 app.include_router(patients_router)
 app.include_router(insurance_companies_router)
