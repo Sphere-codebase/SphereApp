@@ -9,6 +9,7 @@ from app.api.routes.admin_patients import router as admin_patients_router
 from app.api.routes.audit_logs import admin_router as admin_audit_logs_router
 from app.api.routes.audit_logs import clinic_router as clinic_audit_logs_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.ai_history import router as ai_history_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.chat_actions import router as chat_actions_router
 from app.api.routes.chat_sessions import router as chat_sessions_router
@@ -29,6 +30,7 @@ __all__ = [
     "admin_mcp_codes_router",
     "admin_patients_router",
     "admin_audit_logs_router",
+    "ai_history_router",
     "auth_router",
     "clinic_audit_logs_router",
     "chat_router",

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import AdminPage from "@/pages/AdminPage";
 import AdminPolicyRulesPage from "@/pages/AdminPolicyRulesPage";
+import AIHistoryPage from "@/pages/AIHistoryPage";
 import BootstrapPage from "@/pages/BootstrapPage";
 import ChatPage from "@/pages/ChatPage";
 import DoctorDashboardPage from "@/pages/DoctorDashboardPage";
@@ -61,6 +62,14 @@ export default function AppRoutes() {
         element={
           <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
             <ChatPage />
+          </RoleRoute>
+        }
+      />
+      <Route
+        path="/app/ai-history"
+        element={
+          <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
+            <AIHistoryPage />
           </RoleRoute>
         }
       />

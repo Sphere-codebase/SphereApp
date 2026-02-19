@@ -121,7 +121,7 @@ export default function DoctorDashboardPage() {
           <Button type="button" variant="ghost" onClick={() => navigate("/app/patients")}>
             Patients
           </Button>
-          <Button type="button" variant="ghost" disabled>
+          <Button type="button" variant="ghost" onClick={() => navigate("/app/ai-history")}>
             AI History
           </Button>
         </nav>

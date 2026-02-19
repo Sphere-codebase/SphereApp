@@ -21,6 +21,7 @@ from app.api.routes import (
     admin_patients_router,
     admin_router,
     auth_router,
+    ai_history_router,
     chat_router,
     chat_actions_router,
     chat_sessions_router,
@@ -105,6 +106,7 @@ app.include_router(policy_links_router)
 
 # Core features
 app.include_router(auth_router)
+app.include_router(ai_history_router)
 app.include_router(chat_router)
 app.include_router(chat_actions_router)
 app.include_router(chat_sessions_router)

@@ -92,9 +92,11 @@ function WorkspaceShell() {
   const [searchParams] = useSearchParams();
   const openCreateClaim = searchParams.get("openCreateClaim") === "1";
   const patientIdParam = searchParams.get("patientId");
+  const claimIdParam = searchParams.get("claimId");
   const autoOpenRef = useRef(false);
   const parsedRouteSessionId = routeSessionId ? Number(routeSessionId) : null;
   const parsedPatientId = patientIdParam ? Number(patientIdParam) : null;
+  const parsedClaimId = claimIdParam ? Number(claimIdParam) : null;
   const [draft, setDraft] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -252,17 +254,40 @@ function WorkspaceShell() {
   };
 
   useEffect(() => {
-    setCurrentClaim(null);
+    if (!parsedClaimId || !Number.isFinite(parsedClaimId)) {
+      return;
+    }
+    const match = sessions.find((session) => session.claim_id === parsedClaimId);
+    if (match && activeSessionId !== match.id) {
+      selectSession(match.id);
+    }
+  }, [activeSessionId, parsedClaimId, selectSession, sessions]);
+
+  useEffect(() => {
     setClaimError(null);
     setIsLoadingClaim(false);
+    setPdfPreviewUrl(null);
+    if (activeSession?.claim_id) {
+      setCurrentClaim(null);
+      setDraftPreview({});
+      setCreateClaimOpen(false);
+      setUploadOpen(false);
+      void loadClaim(activeSession.claim_id);
+      return;
+    }
+    if (parsedClaimId && Number.isFinite(parsedClaimId)) {
+      setCurrentClaim(null);
+      setDraftPreview({});
+      setCreateClaimOpen(false);
+      setUploadOpen(false);
+      void loadClaim(parsedClaimId);
+      return;
+    }
+    setCurrentClaim(null);
     setDraftPreview({});
     setCreateClaimOpen(false);
     setUploadOpen(false);
-    setPdfPreviewUrl(null);
-    if (activeSession?.claim_id) {
-      void loadClaim(activeSession.claim_id);
-    }
-  }, [activeSessionId, activeSession?.claim_id]);
+  }, [activeSessionId, activeSession?.claim_id, parsedClaimId]);
 
   const handleClaimCreated = (claim: ClaimDTO) => {
     setCurrentClaim(claim);
