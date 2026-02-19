@@ -28,7 +28,10 @@ from app.core.security import get_current_user
 from app.db.id_utils import next_id
 from app.db.models import (
     Claim,
+    ClaimDiagnosisCode,
     ClaimMcpCode,
+    ChatSession,
+    DiagnosisCode,
     InsuranceCompany,
     McpCode,
     Patient,
@@ -37,6 +40,9 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.schemas.claims import (
+    ClaimDetailResponse,
+    ClaimDiagnosisCodeCreateRequest,
+    ClaimDiagnosisCodeResponse,
     ClaimCreateRequest,
     ClaimMcpCodeCreateRequest,
     ClaimMcpCodeResponse,
@@ -45,9 +51,12 @@ from app.schemas.claims import (
     ClaimResponse,
     ClaimSummaryListResponse,
     ClaimUpdateRequest,
+    DiagnosisCodeSummary,
     McpCodeSummary,
     MyClaimsListResponseSchema,
+    PatientSummary,
 )
+from app.repositories import patients as patient_repo
 from app.services.claims.ingestion import ingest_pdf_from_path, ingest_pdf_from_upload
 from app.services.claims.summary import ClaimsService, MyClaimsFilters
 from app.utils.time import utcnow
@@ -88,6 +97,53 @@ def _require_insurance_company(db: Session, company_id: int) -> InsuranceCompany
     if company is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
     return company
+
+
+def _require_claim_draft(claim: Claim) -> None:
+    if claim.claim_status and claim.claim_status.upper() != "DRAFT":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Claim is finalized",
+        )
+
+
+def _build_claim_detail(db: Session, claim: Claim) -> ClaimDetailResponse:
+    mcp_rows = db.execute(
+        select(ClaimMcpCode, McpCode)
+        .join(McpCode, ClaimMcpCode.mcp_code == McpCode.code)
+        .where(ClaimMcpCode.claim_id == claim.id)
+        .order_by(McpCode.code.asc())
+    ).all()
+    mcp_codes = [
+        McpCodeSummary(code=code.code, description=code.description) for _link, code in mcp_rows
+    ]
+
+    diagnosis_rows = db.execute(
+        select(ClaimDiagnosisCode, DiagnosisCode)
+        .join(DiagnosisCode, ClaimDiagnosisCode.diagnosis_code == DiagnosisCode.code)
+        .where(ClaimDiagnosisCode.claim_id == claim.id)
+        .order_by(DiagnosisCode.code.asc())
+    ).all()
+    diagnosis_codes = [
+        DiagnosisCodeSummary(code=code.code, description=code.description)
+        for _link, code in diagnosis_rows
+    ]
+
+    patient = claim.patient
+    return ClaimDetailResponse(
+        id=claim.id,
+        claim_status=claim.claim_status or "DRAFT",
+        patient=PatientSummary(
+            id=patient.id,
+            first_name=patient.first_name,
+            last_name=patient.last_name,
+            date_of_birth=patient.date_of_birth,
+        ),
+        insurance_company_id=claim.insurance_company_id,
+        service_date=claim.service_date,
+        mcp_codes=mcp_codes,
+        diagnosis_codes=diagnosis_codes,
+    )
 
 
 @router.get("", response_model=list[ClaimResponse])
@@ -161,7 +217,35 @@ def create_claim(
 ) -> ClaimResponse | JSONResponse:
     if not policy.can(current_user, policy.Action.CREATE, policy.Resource.CLAIM):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    patient = _require_patient(db, payload.patient_id, current_user)
+    chat_session: ChatSession | None = None
+    if payload.session_id is not None:
+        chat_session = db.execute(
+            select(ChatSession).where(
+                ChatSession.id == payload.session_id,
+                *policy.chat_scope_filters(current_user, ChatSession),
+            )
+        ).scalar_one_or_none()
+        if chat_session is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat session not found",
+            )
+    if payload.patient_id is not None:
+        patient = _require_patient(db, payload.patient_id, current_user)
+    elif payload.patient is not None:
+        patient = patient_repo.upsert_patient(
+            db,
+            doctor_id=current_user.id,
+            clinic_id=current_user.clinic_id,
+            first_name=payload.patient.first_name,
+            last_name=payload.patient.last_name,
+            date_of_birth=payload.patient.date_of_birth,
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="patient_id or patient is required",
+        )
     _require_insurance_company(db, payload.insurance_company_id)
     claim = Claim(
         id=next_id(db, Claim),
@@ -170,7 +254,7 @@ def create_claim(
         patient_id=patient.id,
         insurance_company_id=payload.insurance_company_id,
         claim_number=payload.claim_number,
-        claim_status=payload.claim_status,
+        claim_status=payload.claim_status or "DRAFT",
         service_date=payload.service_date,
         claim_date=payload.claim_date,
         billed_amount_total=payload.billed_amount_total,
@@ -183,6 +267,11 @@ def create_claim(
     db.add(claim)
     db.commit()
     db.refresh(claim)
+    if chat_session is not None:
+        chat_session.claim_id = claim.id
+        chat_session.patient_id = patient.id
+        db.add(chat_session)
+        db.commit()
     audit.log_event(
         action="CREATE",
         entity="claim",
@@ -199,14 +288,14 @@ def create_claim(
     return ClaimResponse.model_validate(claim)
 
 
-@router.get("/{claim_id}", response_model=ClaimResponse)
+@router.get("/{claim_id}", response_model=ClaimDetailResponse)
 def get_claim(
     claim_id: int,
     db: DbSessionDep,
     current_user: CurrentUserDep,
-) -> ClaimResponse:
+) -> ClaimDetailResponse:
     claim = _get_claim_or_404(db, claim_id, current_user)
-    return ClaimResponse.model_validate(claim)
+    return _build_claim_detail(db, claim)
 
 
 @router.patch("/{claim_id}", response_model=ClaimResponse)
@@ -253,15 +342,19 @@ def add_mcp_codes(
     claim = _get_claim_or_404(db, claim_id, current_user)
     if not policy.can(current_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
-    if not payload.mcp_codes:
+    _require_claim_draft(claim)
+    codes_to_add = payload.mcp_codes
+    if payload.code:
+        codes_to_add = [payload.code] + codes_to_add
+    if not codes_to_add:
         return []
-    codes = db.execute(select(McpCode).where(McpCode.code.in_(payload.mcp_codes))).scalars().all()
+    codes = db.execute(select(McpCode).where(McpCode.code.in_(codes_to_add))).scalars().all()
     code_by_value = {code.code: code for code in codes}
-    missing = [code for code in payload.mcp_codes if code not in code_by_value]
+    missing = [code for code in codes_to_add if code not in code_by_value]
     if missing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP code not found")
     responses: list[ClaimMcpCodeResponse] = []
-    for code_value in payload.mcp_codes:
+    for code_value in codes_to_add:
         existing = db.execute(
             select(ClaimMcpCode).where(
                 ClaimMcpCode.claim_id == claim.id,
@@ -270,7 +363,7 @@ def add_mcp_codes(
         ).scalar_one_or_none()
         if existing is not None:
             return JSONResponse(
-                status_code=status.HTTP_409_CONFLICT,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 content=error_payload(
                     code="MCP_CODE_ALREADY_LINKED",
                     message="MCP code already linked to claim",
@@ -288,9 +381,142 @@ def add_mcp_codes(
         actor=current_user,
         clinic_id=claim.clinic_id,
         target_clinic_id=claim.clinic_id,
-        diff={"mcp_codes": payload.mcp_codes},
+        diff={"mcp_codes": codes_to_add},
     )
     return responses
+
+
+@router.delete("/{claim_id}/mcp-codes/{code}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_mcp_code(
+    claim_id: int,
+    code: str,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+) -> Response:
+    claim = _get_claim_or_404(db, claim_id, current_user)
+    if not policy.can(current_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    _require_claim_draft(claim)
+    link = db.execute(
+        select(ClaimMcpCode).where(
+            ClaimMcpCode.claim_id == claim.id,
+            ClaimMcpCode.mcp_code == code,
+        )
+    ).scalar_one_or_none()
+    if link is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP code not linked")
+    db.delete(link)
+    db.commit()
+    audit.log_event(
+        action="UPDATE",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={"removed_mcp_code": code},
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{claim_id}/diagnosis-codes", response_model=list[ClaimDiagnosisCodeResponse])
+def add_diagnosis_codes(
+    claim_id: int,
+    payload: ClaimDiagnosisCodeCreateRequest,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+) -> list[ClaimDiagnosisCodeResponse] | JSONResponse:
+    claim = _get_claim_or_404(db, claim_id, current_user)
+    if not policy.can(current_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    _require_claim_draft(claim)
+    codes_to_add = payload.diagnosis_codes
+    if payload.code:
+        codes_to_add = [payload.code] + codes_to_add
+    if not codes_to_add:
+        return []
+    codes = (
+        db.execute(select(DiagnosisCode).where(DiagnosisCode.code.in_(codes_to_add)))
+        .scalars()
+        .all()
+    )
+    code_by_value = {code.code: code for code in codes}
+    missing = [code for code in codes_to_add if code not in code_by_value]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Diagnosis code not found"
+        )
+    responses: list[ClaimDiagnosisCodeResponse] = []
+    for code_value in codes_to_add:
+        existing = db.execute(
+            select(ClaimDiagnosisCode).where(
+                ClaimDiagnosisCode.claim_id == claim.id,
+                ClaimDiagnosisCode.diagnosis_code == code_value,
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content=error_payload(
+                    code="DIAGNOSIS_CODE_ALREADY_LINKED",
+                    message="Diagnosis code already linked to claim",
+                    details={"diagnosis_code": code_value},
+                ),
+            )
+        link = ClaimDiagnosisCode(claim_id=claim.id, diagnosis_code=code_value)
+        db.add(link)
+        responses.append(
+            ClaimDiagnosisCodeResponse(claim_id=claim.id, diagnosis_code=code_value)
+        )
+    db.commit()
+    audit.log_event(
+        action="UPDATE",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={"diagnosis_codes": codes_to_add},
+    )
+    return responses
+
+
+@router.delete("/{claim_id}/diagnosis-codes/{code}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_diagnosis_code(
+    claim_id: int,
+    code: str,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+) -> Response:
+    claim = _get_claim_or_404(db, claim_id, current_user)
+    if not policy.can(current_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    _require_claim_draft(claim)
+    link = db.execute(
+        select(ClaimDiagnosisCode).where(
+            ClaimDiagnosisCode.claim_id == claim.id,
+            ClaimDiagnosisCode.diagnosis_code == code,
+        )
+    ).scalar_one_or_none()
+    if link is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Diagnosis code not linked"
+        )
+    db.delete(link)
+    db.commit()
+    audit.log_event(
+        action="UPDATE",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={"removed_diagnosis_code": code},
+    )
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{claim_id}/policy-links", response_model=list[ClaimPolicyLinkItem])

@@ -23,7 +23,7 @@ import { getLastRequestId } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
 
-type ChatRole = "user" | "assistant";
+type ChatRole = "user" | "assistant" | "system";
 
 export interface ChatMessageView {
   id: number | string;
@@ -50,6 +50,7 @@ export interface ChatContextValue {
   createNewSession: () => Promise<void>;
   deleteSession: (sessionId: number) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
+  addLocalMessage: (role: ChatRole, content: string) => void;
   clearError: () => void;
 }
 
@@ -292,6 +293,22 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     [activeSessionId, createSessionAndSelect, handleApiError, handleChatResponse, syncRequestId]
   );
 
+  const addLocalMessage = useCallback((role: ChatRole, content: string) => {
+    const trimmed = content.trim();
+    if (!trimmed) {
+      return;
+    }
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `local-${createClientMessageId()}`,
+        role,
+        content: trimmed,
+        created_at: new Date().toISOString(),
+      },
+    ]);
+  }, []);
+
   const clearError = useCallback(() => {
     setError(null);
   }, []);
@@ -330,6 +347,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       createNewSession,
       deleteSession,
       sendMessage,
+      addLocalMessage,
       clearError,
     }),
     [
@@ -349,6 +367,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       createNewSession,
       deleteSession,
       sendMessage,
+      addLocalMessage,
       clearError,
     ]
   );

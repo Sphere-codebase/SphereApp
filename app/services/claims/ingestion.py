@@ -371,6 +371,8 @@ def ingest_parsed_payload(
             doctor_id=current_user.id,
             clinic_id=current_user.clinic_id,
             session_id=session_id,
+            claim_id=claim.id,
+            patient_id=patient.id,
         )
 
         summary = (

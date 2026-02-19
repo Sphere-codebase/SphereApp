@@ -17,6 +17,8 @@ class ChatSessionResponse(BaseModel):
     id: int
     doctor_id: int
     created_at: datetime | None
+    claim_id: int | None = None
+    patient_id: int | None = None
     title: str | None = None
 
 

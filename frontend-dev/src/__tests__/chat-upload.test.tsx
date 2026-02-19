@@ -45,7 +45,7 @@ describe("chat pdf upload", () => {
     vi.unstubAllGlobals();
   });
 
-  test("shows summary after upload and can close", async () => {
+  test("uploads a PDF from the tools menu", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof input === "string"
@@ -114,16 +114,18 @@ describe("chat pdf upload", () => {
 
     renderWithProviders();
 
-    const fileInput = await screen.findByLabelText("Upload PDF");
+    await userEvent.click(await screen.findByText("Tools", { selector: "summary" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Upload PDF" }));
+
+    const fileInput = await screen.findByLabelText("Upload PDF file");
     const file = new File(["pdf"], "claim.pdf", { type: "application/pdf" });
     await userEvent.upload(fileInput, file);
 
-    expect(await screen.findByText("Claim summary")).toBeInTheDocument();
-    expect(await screen.findByText("Lloyd Goldfarb")).toBeInTheDocument();
-    expect(await screen.findByText("Total billed: $3,700.00")).toBeInTheDocument();
-    expect(screen.queryByText("Account:")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Upload" }));
 
-    await userEvent.click(screen.getByRole("button", { name: /close claim summary/i }));
-    expect(await screen.findByText("Upload PDF")).toBeInTheDocument();
+    expect(await screen.findByText("Response Preview")).toBeInTheDocument();
+    expect(await screen.findByText(/Lloyd Goldfarb/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
   });
 });

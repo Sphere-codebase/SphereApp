@@ -6,6 +6,8 @@ const chatSessionSchema = z.object({
   id: z.number(),
   doctor_id: z.number(),
   created_at: z.string().nullable(),
+  claim_id: z.number().nullable().optional(),
+  patient_id: z.number().nullable().optional(),
   title: z.string().nullable().optional(),
 });
 

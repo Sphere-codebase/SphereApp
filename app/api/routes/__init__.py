@@ -11,6 +11,7 @@ from app.api.routes.audit_logs import clinic_router as clinic_audit_logs_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.chat_sessions import router as chat_sessions_router
+from app.api.routes.codes import router as codes_router
 from app.api.routes.claims import router as claims_router
 from app.api.routes.health import router as health_router
 from app.api.routes.insurance_companies import router as insurance_companies_router
@@ -29,6 +30,7 @@ __all__ = [
     "clinic_audit_logs_router",
     "chat_router",
     "chat_sessions_router",
+    "codes_router",
     "claims_router",
     "health_router",
     "insurance_companies_router",

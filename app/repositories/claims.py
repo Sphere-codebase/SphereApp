@@ -210,6 +210,8 @@ def upsert_chat_session(
     doctor_id: int,
     clinic_id: int,
     session_id: int | None,
+    claim_id: int | None = None,
+    patient_id: int | None = None,
 ) -> ChatSession:
     chat_session = None
     if session_id:
@@ -242,6 +244,10 @@ def upsert_chat_session(
             created_at=utcnow(),
         )
         db.add(chat_session)
+    if claim_id is not None:
+        chat_session.claim_id = claim_id
+    if patient_id is not None:
+        chat_session.patient_id = patient_id
     return chat_session
 
 

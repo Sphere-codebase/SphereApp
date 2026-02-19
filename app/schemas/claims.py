@@ -7,8 +7,16 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class ClaimPatientInput(BaseModel):
+    first_name: str
+    last_name: str
+    date_of_birth: date | None = None
+
+
 class ClaimCreateRequest(BaseModel):
-    patient_id: int
+    patient_id: int | None = None
+    patient: ClaimPatientInput | None = None
+    session_id: int | None = None
     insurance_company_id: int
     claim_number: str | None = None
     claim_status: str | None = None
@@ -55,6 +63,7 @@ class ClaimResponse(BaseModel):
 
 
 class ClaimMcpCodeCreateRequest(BaseModel):
+    code: str | None = None
     mcp_codes: list[str] = Field(default_factory=list)
 
 
@@ -66,6 +75,40 @@ class ClaimMcpCodeResponse(BaseModel):
 class McpCodeSummary(BaseModel):
     code: str
     description: str | None
+
+
+class DiagnosisCodeSummary(BaseModel):
+    code: str
+    description: str | None
+
+
+class ClaimDiagnosisCodeCreateRequest(BaseModel):
+    code: str | None = None
+    diagnosis_codes: list[str] = Field(default_factory=list)
+
+
+class ClaimDiagnosisCodeResponse(BaseModel):
+    claim_id: int
+    diagnosis_code: str
+
+
+class PatientSummary(BaseModel):
+    id: int
+    first_name: str | None
+    last_name: str | None
+    date_of_birth: date | None
+
+
+class ClaimDetailResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    claim_status: str | None
+    patient: PatientSummary
+    insurance_company_id: int
+    service_date: date | None
+    mcp_codes: list[McpCodeSummary] = Field(default_factory=list)
+    diagnosis_codes: list[DiagnosisCodeSummary] = Field(default_factory=list)
 
 
 class ClaimPolicyLinkItem(BaseModel):
