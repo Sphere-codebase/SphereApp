@@ -4,6 +4,14 @@ import type { ClaimDraftPreview } from "@/components/workspace/types";
 import CodeSearchDiagnosis from "@/components/workspace/CodeSearchDiagnosis";
 import CodeSearchMCP from "@/components/workspace/CodeSearchMCP";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type { ClaimDTO, DiagnosisCodeDTO, MCPCodeDTO } from "@/types/claim";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +50,12 @@ type ClaimDraftPanelProps = {
   onRemoveMcpCode: (code: MCPCodeDTO) => void;
   onAddDiagnosisCode: (code: DiagnosisCodeDTO) => void;
   onRemoveDiagnosisCode: (code: DiagnosisCodeDTO) => void;
+  onFinalizeClaim: () => void;
+  isFinalizing: boolean;
+  onGeneratePdf: () => void;
+  isGeneratingPdf: boolean;
+  pdfPreviewUrl: string | null;
+  onClosePdfPreview: () => void;
 };
 
 export default function ClaimDraftPanel({
@@ -53,10 +67,17 @@ export default function ClaimDraftPanel({
   onRemoveMcpCode,
   onAddDiagnosisCode,
   onRemoveDiagnosisCode,
+  onFinalizeClaim,
+  isFinalizing,
+  onGeneratePdf,
+  isGeneratingPdf,
+  pdfPreviewUrl,
+  onClosePdfPreview,
 }: ClaimDraftPanelProps) {
   const [activeTab, setActiveTab] = useState<"procedures" | "diagnoses">(
     "procedures"
   );
+  const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
 
   const hasPreview = hasPreviewValues(draftPreview);
   const hasClaim = Boolean(currentClaim);
@@ -100,24 +121,21 @@ export default function ClaimDraftPanel({
   );
 
   return (
-    <aside
-      className={cn(
-        "flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200",
-        isFinal && "pointer-events-none opacity-60"
-      )}
-    >
+    <aside className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold">Claim Header</div>
-        <span
-          className={cn(
-            "rounded-full px-3 py-1 text-xs font-semibold",
-            status.includes("Final")
-              ? "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
-              : "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200"
-          )}
-        >
-          {status}
-        </span>
+        <div className="flex items-center gap-2">
+          <span
+            className={cn(
+              "rounded-full px-3 py-1 text-xs font-semibold",
+              status.includes("Final")
+                ? "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                : "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200"
+            )}
+          >
+            {status}
+          </span>
+        </div>
       </div>
 
       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
@@ -136,6 +154,41 @@ export default function ClaimDraftPanel({
           Claim is finalized. Editing disabled.
         </div>
       ) : null}
+
+      <div className="flex flex-wrap gap-2">
+        {!isFinal && currentClaim ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setShowFinalizeConfirm(true)}
+            disabled={isFinalizing}
+          >
+            {isFinalizing ? "Finalizing..." : "Finalize Claim"}
+          </Button>
+        ) : null}
+        {currentClaim ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={onGeneratePdf}
+            disabled={isGeneratingPdf}
+          >
+            {isGeneratingPdf ? "Generating..." : "Generate PDF"}
+          </Button>
+        ) : null}
+        {pdfPreviewUrl ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={onClosePdfPreview}
+          >
+            Close Preview
+          </Button>
+        ) : null}
+      </div>
 
       {isLoading ? (
         <div className="text-xs text-slate-500">Loading claim...</div>
@@ -253,6 +306,64 @@ export default function ClaimDraftPanel({
           />
         </div>
       )}
+
+      <Dialog open={showFinalizeConfirm} onOpenChange={setShowFinalizeConfirm}>
+        <DialogContent className="max-w-md dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+          <DialogHeader>
+            <DialogTitle>Finalize claim?</DialogTitle>
+            <DialogDescription className="dark:text-slate-300">
+              This will lock editing in the workspace.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowFinalizeConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                setShowFinalizeConfirm(false);
+                onFinalizeClaim();
+              }}
+              disabled={isFinalizing}
+            >
+              Finalize
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(pdfPreviewUrl)} onOpenChange={(open) => !open && onClosePdfPreview()}>
+        <DialogContent className="max-w-4xl dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+          <DialogHeader>
+            <DialogTitle>Claim PDF Preview</DialogTitle>
+            <DialogDescription className="dark:text-slate-300">
+              Preview the latest generated PDF.
+            </DialogDescription>
+          </DialogHeader>
+          {pdfPreviewUrl ? (
+            <div className="h-[60vh] overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
+              <iframe title="Claim PDF" src={pdfPreviewUrl} className="h-full w-full" />
+            </div>
+          ) : null}
+          <DialogFooter>
+            {pdfPreviewUrl ? (
+              <Button type="button" variant="outline" asChild>
+                <a href={pdfPreviewUrl} target="_blank" rel="noreferrer">
+                  Open in new tab
+                </a>
+              </Button>
+            ) : null}
+            <Button type="button" onClick={onClosePdfPreview}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 }

@@ -1,4 +1,4 @@
-"""Claim to PDF Parser"""
+# app/pdf/claim_pdf.py
 
 from __future__ import annotations
 

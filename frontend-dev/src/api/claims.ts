@@ -44,11 +44,17 @@ const diagnosisCodeSchema = z.object({
 const claimDetailSchema = z.object({
   id: z.number(),
   claim_status: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
   patient: patientSchema,
   insurance_company_id: z.number(),
   service_date: z.string().nullable().optional(),
   mcp_codes: z.array(mcpCodeSchema).optional(),
   diagnosis_codes: z.array(diagnosisCodeSchema).optional(),
+});
+
+const claimPdfResponseSchema = z.object({
+  pdf_id: z.string(),
+  pdf_url: z.string(),
 });
 
 const mcpCodesSchema = z.array(mcpCodeSchema);
@@ -150,6 +156,23 @@ export async function getClaim(claimId: number): Promise<ClaimDTO> {
   const data = await requestJson<unknown>(`/api/claims/${claimId}`);
   const parsed = parseWithSchema(claimDetailSchema, data, "get claim");
   return toClaim(parsed);
+}
+
+export async function finalizeClaim(claimId: number): Promise<ClaimDTO> {
+  const data = await requestJson<unknown>(`/api/claims/${claimId}/finalize`, {
+    method: "POST",
+  });
+  const parsed = parseWithSchema(claimDetailSchema, data, "finalize claim");
+  return toClaim(parsed);
+}
+
+export async function generateClaimPdf(
+  claimId: number
+): Promise<{ pdf_url: string; pdf_id: string }> {
+  const data = await requestJson<unknown>(`/api/claims/${claimId}/pdf`, {
+    method: "POST",
+  });
+  return parseWithSchema(claimPdfResponseSchema, data, "generate claim pdf");
 }
 
 export async function searchMcpCodes(query: string): Promise<MCPCodeDTO[]> {

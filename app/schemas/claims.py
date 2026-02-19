@@ -104,6 +104,7 @@ class ClaimDetailResponse(BaseModel):
 
     id: int
     claim_status: str | None
+    updated_at: datetime | None = None
     patient: PatientSummary
     insurance_company_id: int
     service_date: date | None

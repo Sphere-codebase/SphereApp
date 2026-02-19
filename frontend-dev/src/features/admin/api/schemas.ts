@@ -135,7 +135,13 @@ export const adminPatientSchema = z.object({
   created_at: dateString.nullable(),
 });
 
-export const claimStatusSchema = z.enum(["DRAFT", "SUBMITTED", "PAID", "DENIED"]);
+export const claimStatusSchema = z.enum([
+  "DRAFT",
+  "SUBMITTED",
+  "PAID",
+  "DENIED",
+  "FINAL",
+]);
 const claimStatusNullableSchema = claimStatusSchema.nullable();
 
 export const adminClaimSummarySchema = z.object({

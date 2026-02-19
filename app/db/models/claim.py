@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Date, ForeignKey, Index, Numeric, String, text
+from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Index, Numeric, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.models.base import Base, TimestampMixin
@@ -41,6 +41,10 @@ class Claim(TimestampMixin, Base):
     coinsurance_amount_total: Mapped[float | None] = mapped_column(Numeric, nullable=True)
     copay_amount_total: Mapped[float | None] = mapped_column(Numeric, nullable=True)
     deductible_amount_total: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False),
+        nullable=True,
+    )
 
     doctor = relationship("User", backref="claims")
     patient = relationship("Patient", backref="claims")

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
+import logging
+import os
 from typing import Annotated
 
 from fastapi import (
@@ -31,6 +33,7 @@ from app.db.models import (
     ClaimDiagnosisCode,
     ClaimMcpCode,
     ChatSession,
+    ClaimPDF,
     DiagnosisCode,
     InsuranceCompany,
     McpCode,
@@ -58,13 +61,19 @@ from app.schemas.claims import (
 )
 from app.repositories import patients as patient_repo
 from app.services.claims.ingestion import ingest_pdf_from_path, ingest_pdf_from_upload
+from app.services.claims.pdf import build_claim_pdf_data
 from app.services.claims.summary import ClaimsService, MyClaimsFilters
 from app.utils.time import utcnow
+from app.pdf.claim_pdf import generate_pdf_bytes, save_pdf
 
 router = APIRouter(prefix="/api/claims", tags=["claims"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
+
+PDF_STORAGE_DIR = os.path.join("var", "pdfs")
+
+logger = logging.getLogger(__name__)
 
 
 class PdfLocalIngestRequest(BaseModel):
@@ -76,6 +85,13 @@ def _get_claim_or_404(db: Session, claim_id: int, current_user: User) -> Claim:
     filters = [Claim.id == claim_id]
     filters.extend(policy.claim_scope_filters(current_user, Claim))
     claim = db.execute(select(Claim).where(*filters)).scalar_one_or_none()
+    if claim is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+    return claim
+
+
+def _get_claim_unscoped_or_404(db: Session, claim_id: int) -> Claim:
+    claim = db.execute(select(Claim).where(Claim.id == claim_id)).scalar_one_or_none()
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
     return claim
@@ -108,6 +124,9 @@ def _require_claim_draft(claim: Claim) -> None:
 
 
 def _build_claim_detail(db: Session, claim: Claim) -> ClaimDetailResponse:
+    status_value = claim.claim_status or "DRAFT"
+    if status_value.upper() == "FINAL":
+        status_value = "final"
     mcp_rows = db.execute(
         select(ClaimMcpCode, McpCode)
         .join(McpCode, ClaimMcpCode.mcp_code == McpCode.code)
@@ -132,7 +151,8 @@ def _build_claim_detail(db: Session, claim: Claim) -> ClaimDetailResponse:
     patient = claim.patient
     return ClaimDetailResponse(
         id=claim.id,
-        claim_status=claim.claim_status or "DRAFT",
+        claim_status=status_value,
+        updated_at=claim.updated_at,
         patient=PatientSummary(
             id=patient.id,
             first_name=patient.first_name,
@@ -144,6 +164,13 @@ def _build_claim_detail(db: Session, claim: Claim) -> ClaimDetailResponse:
         mcp_codes=mcp_codes,
         diagnosis_codes=diagnosis_codes,
     )
+
+
+def _pdf_filename(claim_id: int) -> tuple[str, str]:
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    pdf_id = f"claim_{claim_id}_{timestamp}"
+    filename = f"{pdf_id}.pdf"
+    return pdf_id, filename
 
 
 @router.get("", response_model=list[ClaimResponse])
@@ -517,6 +544,83 @@ def remove_diagnosis_code(
         diff={"removed_diagnosis_code": code},
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{claim_id}/finalize", response_model=ClaimDetailResponse)
+def finalize_claim(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+) -> ClaimDetailResponse:
+    claim = _get_claim_unscoped_or_404(db, claim_id)
+    if not policy.can(current_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if claim.claim_status and claim.claim_status.lower() == "final":
+        return _build_claim_detail(db, claim)
+    claim.claim_status = "FINAL"
+    claim.updated_at = utcnow()
+    db.add(claim)
+    db.commit()
+    db.refresh(claim)
+    audit.log_event(
+        action="claim.finalized",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={"from": "draft", "to": "final"},
+        scope="clinic",
+        actor_role=current_user.role,
+    )
+    return _build_claim_detail(db, claim)
+
+
+@router.post("/{claim_id}/pdf")
+def generate_claim_pdf(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+) -> dict[str, str]:
+    claim = _get_claim_unscoped_or_404(db, claim_id)
+    if not policy.can(current_user, policy.Action.READ, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    claim_data = build_claim_pdf_data(db, claim)
+    try:
+        pdf_bytes = generate_pdf_bytes(claim_data)
+        pdf_id, filename = _pdf_filename(claim.id)
+        output_path = os.path.join(PDF_STORAGE_DIR, filename)
+        save_pdf(pdf_bytes, output_path)
+    except Exception as exc:
+        logger.exception("Failed to generate PDF for claim %s", claim.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate PDF",
+        ) from exc
+
+    record = ClaimPDF(
+        clinic_id=claim.clinic_id,
+        claim_id=claim.id,
+        storage_key=filename,
+        version=1,
+        created_by=current_user.id,
+    )
+    db.add(record)
+    db.commit()
+    audit.log_event(
+        action="claim.pdf_generated",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={"pdf_id": pdf_id, "filename": filename, "bytes": len(pdf_bytes)},
+        scope="clinic",
+        actor_role=current_user.role,
+    )
+    return {"pdf_id": pdf_id, "pdf_url": f"/api/files/pdfs/{filename}"}
 
 
 @router.get("/{claim_id}/policy-links", response_model=list[ClaimPolicyLinkItem])

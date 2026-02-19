@@ -14,6 +14,7 @@ type WorkspaceTopBarProps = {
   theme: ThemeMode;
   isSending: boolean;
   showAdmin: boolean;
+  isReadOnly: boolean;
   onOpenUploadPdf: () => void;
   onOpenCreateClaim: () => void;
   onToggleTheme: () => void;
@@ -26,6 +27,7 @@ export default function WorkspaceTopBar({
   theme,
   isSending,
   showAdmin,
+  isReadOnly,
   onOpenUploadPdf,
   onOpenCreateClaim,
   onToggleTheme,
@@ -51,42 +53,53 @@ export default function WorkspaceTopBar({
       </div>
       <div className="flex items-center gap-2">
         <ChatStatusHud busy={isSending} />
-        <details ref={toolsRef} className="relative">
-          <summary
+        {isReadOnly ? (
+          <div
             className={cn(
-              "list-none rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm",
-              "cursor-pointer transition hover:border-slate-300 hover:text-slate-900",
-              "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500"
+              "rounded-full border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-500",
+              "dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
             )}
           >
-            <span className="inline-flex items-center gap-2">
-              Tools
-              <ChevronDown className="h-4 w-4" />
-            </span>
-          </summary>
-          <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white text-sm text-slate-700 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-            <button
-              type="button"
-              className="w-full px-4 py-2 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
-              onClick={() => {
-                closeToolsMenu();
-                onOpenUploadPdf();
-              }}
-            >
-              Upload PDF
-            </button>
-            <button
-              type="button"
-              className="w-full px-4 py-2 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
-              onClick={() => {
-                closeToolsMenu();
-                onOpenCreateClaim();
-              }}
-            >
-              Create Claim
-            </button>
+            Tools
           </div>
-        </details>
+        ) : (
+          <details ref={toolsRef} className="relative">
+            <summary
+              className={cn(
+                "list-none rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm",
+                "cursor-pointer transition hover:border-slate-300 hover:text-slate-900",
+                "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500"
+              )}
+            >
+              <span className="inline-flex items-center gap-2">
+                Tools
+                <ChevronDown className="h-4 w-4" />
+              </span>
+            </summary>
+            <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white text-sm text-slate-700 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
+              <button
+                type="button"
+                className="w-full px-4 py-2 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => {
+                  closeToolsMenu();
+                  onOpenUploadPdf();
+                }}
+              >
+                Upload PDF
+              </button>
+              <button
+                type="button"
+                className="w-full px-4 py-2 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => {
+                  closeToolsMenu();
+                  onOpenCreateClaim();
+                }}
+              >
+                Create Claim
+              </button>
+            </div>
+          </details>
+        )}
         {showAdmin ? (
           <Button asChild type="button" variant="outline">
             <Link to="/app/admin">Admin</Link>

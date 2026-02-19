@@ -5,7 +5,9 @@ import { useNavigate } from "react-router-dom";
 import {
   addDiagnosisCode,
   addMcpCode,
+  finalizeClaim,
   getClaim,
+  generateClaimPdf,
   removeDiagnosisCode,
   removeMcpCode,
 } from "@/api/claims";
@@ -90,6 +92,9 @@ function WorkspaceShell() {
   const [currentClaim, setCurrentClaim] = useState<ClaimDTO | null>(null);
   const [isLoadingClaim, setIsLoadingClaim] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [draftPreview, setDraftPreview] = useState<Partial<ClaimDraftPreview>>({});
 
   useEffect(() => {
@@ -110,8 +115,19 @@ function WorkspaceShell() {
 
   const activeSession =
     sessions.find((session) => session.id === activeSessionId) ?? null;
+  const isReadOnly = currentClaim?.claim_status === "final";
+
+  useEffect(() => {
+    if (isReadOnly) {
+      setUploadOpen(false);
+      setCreateClaimOpen(false);
+    }
+  }, [isReadOnly]);
 
   const handleSend = () => {
+    if (isReadOnly) {
+      return;
+    }
     const trimmed = draft.trim();
     if (!trimmed) {
       return;
@@ -154,6 +170,8 @@ function WorkspaceShell() {
     setIsLoadingClaim(false);
     setDraftPreview({});
     setCreateClaimOpen(false);
+    setUploadOpen(false);
+    setPdfPreviewUrl(null);
     if (activeSession?.claim_id) {
       void loadClaim(activeSession.claim_id);
     }
@@ -171,6 +189,46 @@ function WorkspaceShell() {
       service_date: claim.service_date ?? "",
     });
     void loadSessions();
+  };
+
+  const handleFinalizeClaim = async () => {
+    if (!currentClaim || currentClaim.claim_status === "final") {
+      return;
+    }
+    setIsFinalizing(true);
+    setClaimError(null);
+    try {
+      const updated = await finalizeClaim(currentClaim.id);
+      setCurrentClaim(updated);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setClaimError("Unable to finalize claim.");
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
+
+  const handleGeneratePdf = async () => {
+    if (!currentClaim) {
+      return;
+    }
+    setIsGeneratingPdf(true);
+    setClaimError(null);
+    try {
+      const result = await generateClaimPdf(currentClaim.id);
+      setPdfPreviewUrl(result.pdf_url);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setClaimError("Unable to generate PDF.");
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
   const handleAddMcpCode = async (code: MCPCodeDTO) => {
@@ -282,8 +340,17 @@ function WorkspaceShell() {
           theme={theme}
           isSending={isSending}
           showAdmin={canAccessAdmin(user)}
-          onOpenUploadPdf={() => setUploadOpen(true)}
-          onOpenCreateClaim={() => setCreateClaimOpen(true)}
+          isReadOnly={isReadOnly}
+          onOpenUploadPdf={() => {
+            if (!isReadOnly) {
+              setUploadOpen(true);
+            }
+          }}
+          onOpenCreateClaim={() => {
+            if (!isReadOnly) {
+              setCreateClaimOpen(true);
+            }
+          }}
           onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
           onLogout={handleUnauthorized}
         />
@@ -408,7 +475,22 @@ function WorkspaceShell() {
               />
             </div>
 
-            <PromptInput value={draft} onChange={setDraft} onSubmit={handleSend} />
+            <PromptInput
+              value={draft}
+              onChange={setDraft}
+              onSubmit={handleSend}
+              disabled={isReadOnly}
+              placeholder={
+                isReadOnly
+                  ? "This claim is finalized. Start a new claim to continue."
+                  : "Send a message..."
+              }
+            />
+            {isReadOnly ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                This claim is finalized. Start a new claim to continue.
+              </div>
+            ) : null}
 
             <details className="text-xs text-slate-500 dark:text-slate-400">
               <summary className="cursor-pointer">Last request ID</summary>
@@ -425,6 +507,12 @@ function WorkspaceShell() {
             onRemoveMcpCode={handleRemoveMcpCode}
             onAddDiagnosisCode={handleAddDiagnosisCode}
             onRemoveDiagnosisCode={handleRemoveDiagnosisCode}
+            onFinalizeClaim={handleFinalizeClaim}
+            isFinalizing={isFinalizing}
+            onGeneratePdf={handleGeneratePdf}
+            isGeneratingPdf={isGeneratingPdf}
+            pdfPreviewUrl={pdfPreviewUrl}
+            onClosePdfPreview={() => setPdfPreviewUrl(null)}
           />
         </div>
       </div>
