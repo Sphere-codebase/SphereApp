@@ -1,5 +1,5 @@
 import { Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
@@ -11,6 +11,7 @@ import {
   removeDiagnosisCode,
   removeMcpCode,
 } from "@/api/claims";
+import { getPatient } from "@/api/patients";
 import { Conversation } from "@/components/ai/conversation";
 import type { MessageProps } from "@/components/ai/message";
 import { PromptInput } from "@/components/ai/prompt-input";
@@ -28,6 +29,7 @@ import { ApiError } from "@/lib/api/errors";
 import { ChatProvider, useChat } from "@/lib/chat/ChatContext";
 import { cn } from "@/lib/utils";
 import type { ClaimDTO, DiagnosisCodeDTO, MCPCodeDTO } from "@/types/claim";
+import type { PatientDetailDTO } from "@/types/patients";
 
 type ThemeMode = "light" | "dark";
 
@@ -89,8 +91,10 @@ function WorkspaceShell() {
   const { sessionId: routeSessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
   const openCreateClaim = searchParams.get("openCreateClaim") === "1";
+  const patientIdParam = searchParams.get("patientId");
   const autoOpenRef = useRef(false);
   const parsedRouteSessionId = routeSessionId ? Number(routeSessionId) : null;
+  const parsedPatientId = patientIdParam ? Number(patientIdParam) : null;
   const [draft, setDraft] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -102,8 +106,16 @@ function WorkspaceShell() {
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [draftPreview, setDraftPreview] = useState<Partial<ClaimDraftPreview>>({});
+  const [selectedPatient, setSelectedPatient] = useState<PatientDetailDTO | null>(null);
+  const [patientError, setPatientError] = useState<string | null>(null);
+  const [isLoadingPatient, setIsLoadingPatient] = useState(false);
   const [isConfirmingProposal, setIsConfirmingProposal] = useState(false);
   const [proposalError, setProposalError] = useState<string | null>(null);
+
+  const handleUnauthorized = useCallback(() => {
+    logout();
+    navigate("/login");
+  }, [logout, navigate]);
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
@@ -170,6 +182,40 @@ function WorkspaceShell() {
     setCreateClaimOpen(true);
   }, [activeSessionId, isReadOnly, openCreateClaim, parsedRouteSessionId]);
 
+  useEffect(() => {
+    if (!parsedPatientId || !Number.isFinite(parsedPatientId)) {
+      setSelectedPatient(null);
+      setPatientError(null);
+      setIsLoadingPatient(false);
+      return;
+    }
+    setIsLoadingPatient(true);
+    setPatientError(null);
+    getPatient(parsedPatientId)
+      .then((patient) => {
+        setSelectedPatient(patient);
+        setDraftPreview((prev) => ({
+          ...prev,
+          patient: {
+            first_name: patient.first_name ?? "",
+            last_name: patient.last_name ?? "",
+            date_of_birth: patient.date_of_birth ?? "",
+          },
+        }));
+      })
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        setSelectedPatient(null);
+        setPatientError("Unable to load selected patient.");
+      })
+      .finally(() => {
+        setIsLoadingPatient(false);
+      });
+  }, [parsedPatientId, handleUnauthorized]);
+
   const handleSend = () => {
     if (isReadOnly) {
       return;
@@ -181,11 +227,6 @@ function WorkspaceShell() {
     setDraft("");
     clearError();
     void sendMessage(trimmed);
-  };
-
-  const handleUnauthorized = () => {
-    logout();
-    navigate("/login");
   };
 
   const loadClaim = async (claimId: number) => {
@@ -488,6 +529,9 @@ function WorkspaceShell() {
           onUnauthorized={handleUnauthorized}
           onClaimCreated={handleClaimCreated}
           sessionId={activeSessionId}
+          selectedPatient={selectedPatient}
+          patientError={patientError}
+          isLoadingPatient={isLoadingPatient}
         />
 
         <div className="grid gap-6 lg:grid-cols-[260px_1fr_260px]">

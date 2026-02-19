@@ -118,7 +118,7 @@ export default function DoctorDashboardPage() {
           <Button type="button" variant="ghost" onClick={() => navigate("/app/workspace")}>
             Workspace
           </Button>
-          <Button type="button" variant="ghost" disabled>
+          <Button type="button" variant="ghost" onClick={() => navigate("/app/patients")}>
             Patients
           </Button>
           <Button type="button" variant="ghost" disabled>

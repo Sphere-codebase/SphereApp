@@ -61,11 +61,12 @@ const mcpCodesSchema = z.array(mcpCodeSchema);
 const diagnosisCodesSchema = z.array(diagnosisCodeSchema);
 
 export type ClaimDraftInput = {
-  patient: {
+  patient?: {
     first_name: string;
     last_name: string;
     date_of_birth?: string | null;
   };
+  patient_id?: number | null;
   insurance_company_id: number;
   service_date: string;
   session_id?: number | null;

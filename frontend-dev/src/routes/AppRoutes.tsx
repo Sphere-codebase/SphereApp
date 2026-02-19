@@ -6,6 +6,8 @@ import BootstrapPage from "@/pages/BootstrapPage";
 import ChatPage from "@/pages/ChatPage";
 import DoctorDashboardPage from "@/pages/DoctorDashboardPage";
 import LoginPage from "@/pages/LoginPage";
+import PatientProfilePage from "@/pages/PatientProfilePage";
+import PatientsListPage from "@/pages/PatientsListPage";
 import ProtectedRoute from "@/routes/ProtectedRoute";
 import RoleRoute from "@/routes/RoleRoute";
 
@@ -27,6 +29,22 @@ export default function AppRoutes() {
         element={
           <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
             <ChatPage />
+          </RoleRoute>
+        }
+      />
+      <Route
+        path="/app/patients"
+        element={
+          <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
+            <PatientsListPage />
+          </RoleRoute>
+        }
+      />
+      <Route
+        path="/app/patients/:patientId"
+        element={
+          <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
+            <PatientProfilePage />
           </RoleRoute>
         }
       />
