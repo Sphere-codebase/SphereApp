@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core import policy
 from app.core.security import get_current_user
+from app.core.tenancy import apply_rls_context, reset_current_is_platform_admin, set_current_is_platform_admin
 from app.db.models import User
 from app.db.session import get_db
 from app.services.audit import AuditContext, AuditLogger
@@ -24,10 +25,18 @@ def get_audit_logger(request: Request, db: DbSessionDep) -> AuditLogger:
 AuditLoggerDep = Annotated[AuditLogger, Depends(get_audit_logger)]
 
 
-def require_platform_staff_admin(current_user: CurrentUserDep) -> User:
+def require_platform_staff_admin(
+    current_user: CurrentUserDep,
+    db: DbSessionDep,
+):
     if not policy.can(current_user, policy.Action.READ, policy.Resource.ADMIN_DIRECTORY):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
-    return current_user
+    token = set_current_is_platform_admin(True)
+    apply_rls_context(db, current_user.clinic_id, True)
+    try:
+        yield current_user
+    finally:
+        reset_current_is_platform_admin(token)
 
 
 def require_roles(*roles: str):

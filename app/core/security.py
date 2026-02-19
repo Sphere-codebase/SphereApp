@@ -15,9 +15,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.tenancy import reset_current_clinic_id, set_current_clinic_id
+from app.core.tenancy import (
+    apply_rls_context,
+    reset_current_clinic_id,
+    reset_current_is_platform_admin,
+    set_current_clinic_id,
+    set_current_is_platform_admin,
+)
 from app.db.models import Clinic, User
 from app.db.session import get_db
+from app.services.audit import AuditContext, AuditLogger
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -54,6 +61,12 @@ CredentialsDep = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_s
 DbSessionDep = Annotated[Session, Depends(get_db)]
 
 
+class ClinicBlockedError(Exception):
+    def __init__(self, clinic_id: int) -> None:
+        self.clinic_id = clinic_id
+        super().__init__("Clinic is blocked")
+
+
 async def get_current_user(
     credentials: CredentialsDep, db: DbSessionDep, request: Request
 ) -> AsyncGenerator[User, None]:
@@ -86,7 +99,21 @@ async def get_current_user(
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
     if is_blocked and user.role != "platform_staff_admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Clinic is blocked")
+        try:
+            audit = AuditLogger(db=db, context=AuditContext.from_request(request))
+            audit.log_event(
+                action="security.clinic_blocked_access_denied",
+                entity="clinic",
+                entity_id=user.clinic_id,
+                actor=user,
+                clinic_id=user.clinic_id,
+                diff={"actor_id": user.id, "path": str(request.url.path)},
+                scope="platform",
+                actor_role=user.role,
+            )
+        except Exception:
+            pass
+        raise ClinicBlockedError(user.clinic_id)
 
     request.state.current_user_id = user.id
     request.state.current_user_role = user.role
@@ -95,7 +122,10 @@ async def get_current_user(
     # Keep ContextVar set/reset in the same async context to avoid token errors
     # when FastAPI runs sync endpoints in threadpool workers.
     token = set_current_clinic_id(user.clinic_id)
+    admin_token = set_current_is_platform_admin(False)
+    apply_rls_context(db, user.clinic_id, False)
     try:
         yield user
     finally:
+        reset_current_is_platform_admin(admin_token)
         reset_current_clinic_id(token)

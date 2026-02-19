@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, me, isAuthLoading } = useAuth();
+  const { login, me, isAuthLoading, clinicBlocked, blockedMessage } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -43,6 +43,11 @@ export default function LoginPage() {
           <p className="mt-2 max-w-xl text-sm text-slate-600">
             Placeholder login screen. Wire up JWT auth once the API client is connected.
           </p>
+          {clinicBlocked ? (
+            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {blockedMessage ?? "Your clinic is blocked. Contact support for assistance."}
+            </div>
+          ) : null}
           <form className="mt-6 flex flex-col gap-4" onSubmit={handleSubmit}>
             <label className="text-sm font-medium text-slate-700">
               Email

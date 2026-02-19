@@ -9,6 +9,11 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.tenancy import (
+    reset_current_is_platform_admin,
+    set_current_is_platform_admin,
+)
+
 
 def _create_database(admin_url: str, db_name: str) -> None:
     engine = sa.create_engine(admin_url, isolation_level="AUTOCOMMIT")
@@ -54,9 +59,11 @@ def db_session() -> Session:
     engine = sa.create_engine(test_url_str)
     SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, class_=Session)
     session = SessionLocal()
+    admin_token = set_current_is_platform_admin(True)
     try:
         yield session
     finally:
+        reset_current_is_platform_admin(admin_token)
         session.close()
         engine.dispose()
         _drop_database(admin_url, db_name)

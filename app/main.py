@@ -40,6 +40,7 @@ from app.api.routes import (
 from app.core.config import settings
 from app.core.logging import (
     configure_logging,
+    clinic_blocked_handler,
     db_timeout_handler,
     http_exception_handler,
     llm_unavailable_handler,
@@ -47,6 +48,7 @@ from app.core.logging import (
     unhandled_exception_handler,
     validation_exception_handler,
 )
+from app.core.security import ClinicBlockedError
 from app.llm.client import LLMUnavailable
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.request_logging import RequestLoggingMiddleware
@@ -85,6 +87,7 @@ app.add_middleware(RequestIdMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 
 app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
+app.add_exception_handler(ClinicBlockedError, clinic_blocked_handler)  # type: ignore[arg-type]
 app.add_exception_handler(
     RequestValidationError,
     validation_exception_handler,  # type: ignore[arg-type]

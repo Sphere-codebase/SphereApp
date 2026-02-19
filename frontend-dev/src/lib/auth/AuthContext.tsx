@@ -26,6 +26,8 @@ export interface AuthContextValue {
   me: MeDTO | null;
   token: string | null;
   isAuthLoading: boolean;
+  clinicBlocked: boolean;
+  blockedMessage: string | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   hasRole: (roles: UserRole | UserRole[]) => boolean;
@@ -46,8 +48,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<MeDTO | null>(null);
   const [token, setToken] = useState<string | null>(getInitialToken);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [clinicBlocked, setClinicBlocked] = useState(false);
+  const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
 
   const logout = useCallback(() => {
+    setLogoutFlag();
+    setToken(null);
+    setMe(null);
+  }, []);
+
+  const handleClinicBlocked = useCallback(() => {
+    setClinicBlocked(true);
+    setBlockedMessage("Your clinic is blocked. Contact support for assistance.");
     setLogoutFlag();
     setToken(null);
     setMe(null);
@@ -68,20 +80,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         logout();
         return;
       }
+      setClinicBlocked(false);
+      setBlockedMessage(null);
       setMe(meResponse);
     } catch (error) {
-      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-        logout();
-      } else {
-        throw error;
+      if (error instanceof ApiError) {
+        if (error.payload?.error.code === "CLINIC_BLOCKED") {
+          handleClinicBlocked();
+          return;
+        }
+        if (error.status === 401 || error.status === 403) {
+          logout();
+          return;
+        }
       }
+      throw error;
     } finally {
       setIsAuthLoading(false);
     }
-  }, [token, logout]);
+  }, [token, logout, handleClinicBlocked]);
 
   const login = useCallback(async (email: string, password: string) => {
     setIsAuthLoading(true);
+    setClinicBlocked(false);
+    setBlockedMessage(null);
     try {
       const response = await loginApi(email, password);
       const stored: StoredToken = {
@@ -123,6 +145,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearLogoutFlag();
         setStoredToken(stored);
         setToken(stored.accessToken);
+        setClinicBlocked(false);
+        setBlockedMessage(null);
         await refreshMe();
       } finally {
         setIsAuthLoading(false);
@@ -151,13 +175,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       me,
       token,
       isAuthLoading,
+      clinicBlocked,
+      blockedMessage,
       login,
       logout,
       hasRole,
       bootstrapCreateUser,
       refreshMe,
     }),
-    [me, token, isAuthLoading, login, logout, hasRole, bootstrapCreateUser, refreshMe]
+    [
+      me,
+      token,
+      isAuthLoading,
+      clinicBlocked,
+      blockedMessage,
+      login,
+      logout,
+      hasRole,
+      bootstrapCreateUser,
+      refreshMe,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -18,6 +18,7 @@ from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from tenacity import RetryError
 
 from app.core.config import Settings, settings
+from app.core.security import ClinicBlockedError
 from app.llm.client import LLMUnavailable
 
 request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
@@ -175,6 +176,17 @@ def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
             code=f"HTTP_{exc.status_code}",
             message="HTTP error",
             details=details,
+        ),
+    )
+
+
+def clinic_blocked_handler(_: Request, exc: ClinicBlockedError) -> JSONResponse:
+    return JSONResponse(
+        status_code=403,
+        content=error_payload(
+            code="CLINIC_BLOCKED",
+            message="Clinic is blocked",
+            details={"clinic_id": exc.clinic_id},
         ),
     )
 
