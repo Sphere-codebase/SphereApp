@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,12 +28,19 @@ CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
 @router.get("", response_model=list[ChatSessionResponse])
-def list_sessions(db: DbSessionDep, current_user: CurrentUserDep) -> list[ChatSessionResponse]:
+def list_sessions(
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> list[ChatSessionResponse]:
     sessions = (
         db.execute(
             select(ChatSession)
             .where(*policy.chat_scope_filters(current_user, ChatSession))
             .order_by(ChatSession.created_at.desc())
+            .limit(limit)
+            .offset(offset)
         )
         .scalars()
         .all()

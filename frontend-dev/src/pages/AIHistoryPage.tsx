@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { listAIHistory } from "@/api/aiHistory";
@@ -6,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
+import { queryKeys } from "@/lib/query/keys";
 import type { AIHistoryItemDTO } from "@/types/aiHistory";
 
 const PAGE_LIMIT = 25;
@@ -91,11 +94,7 @@ function decisionFromAction(action: string): string {
 export default function AIHistoryPage() {
   const { me, logout, hasRole } = useAuth();
   const navigate = useNavigate();
-  const [items, setItems] = useState<AIHistoryItemDTO[]>([]);
-  const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
 
   const [fromDate, setFromDate] = useState("");
@@ -103,52 +102,48 @@ export default function AIHistoryPage() {
   const [doctorId, setDoctorId] = useState("");
   const [claimId, setClaimId] = useState("");
   const [action, setAction] = useState("");
+  const debouncedDoctorId = useDebouncedValue(doctorId, 300);
+  const debouncedClaimId = useDebouncedValue(claimId, 300);
 
   const handleUnauthorized = useCallback(() => {
     logout();
     navigate("/login");
   }, [logout, navigate]);
 
-  const filters = useMemo(
-    () => ({
+  const filters = useMemo(() => {
+    const doctorValue = debouncedDoctorId ? Number(debouncedDoctorId) : undefined;
+    const claimValue = debouncedClaimId ? Number(debouncedClaimId) : undefined;
+    return {
       from: fromDate || undefined,
       to: toDate || undefined,
-      doctor_id: doctorId ? Number(doctorId) : undefined,
-      claim_id: claimId ? Number(claimId) : undefined,
+      doctor_id: Number.isFinite(doctorValue) ? doctorValue : undefined,
+      claim_id: Number.isFinite(claimValue) ? claimValue : undefined,
       action: action || undefined,
-    }),
-    [fromDate, toDate, doctorId, claimId, action]
-  );
-
-  const loadHistory = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await listAIHistory({
-        ...filters,
-        limit: PAGE_LIMIT,
-        offset,
-      });
-      setItems(response.items);
-      setTotal(response.total);
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleUnauthorized();
-        return;
-      }
-      setError("Unable to load AI history.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [filters, offset, handleUnauthorized]);
+    };
+  }, [fromDate, toDate, debouncedDoctorId, debouncedClaimId, action]);
 
   useEffect(() => {
     setOffset(0);
   }, [filters]);
 
-  useEffect(() => {
-    void loadHistory();
-  }, [loadHistory]);
+  const {
+    data,
+    isLoading,
+    isFetching,
+    error,
+  } = useQuery<{ items: AIHistoryItemDTO[]; total: number }, ApiError>({
+    queryKey: queryKeys.auditLogs("clinic", { ...filters, limit: PAGE_LIMIT, offset }),
+    queryFn: () => listAIHistory({ ...filters, limit: PAGE_LIMIT, offset }),
+    staleTime: 30_000,
+    onError: (err) => {
+      if (err.status === 401 || err.status === 403) {
+        handleUnauthorized();
+      }
+    },
+  });
+
+  const items = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   const toggleExpanded = (id: number) => {
     setExpandedIds((prev) => {
@@ -249,7 +244,7 @@ export default function AIHistoryPage() {
 
         {error ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
-            {error}
+            Unable to load AI history.
           </div>
         ) : null}
 
@@ -258,6 +253,9 @@ export default function AIHistoryPage() {
             <CardTitle className="text-lg">Audit Log</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
+            {isFetching && !isLoading ? (
+              <div className="text-xs text-slate-500">Refreshing...</div>
+            ) : null}
             {isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 4 }).map((_, index) => (
@@ -361,7 +359,7 @@ export default function AIHistoryPage() {
               size="sm"
               variant="outline"
               onClick={() => setOffset((prev) => Math.max(0, prev - PAGE_LIMIT))}
-              disabled={offset === 0 || isLoading}
+              disabled={offset === 0 || isLoading || isFetching}
             >
               Previous
             </Button>
@@ -373,7 +371,7 @@ export default function AIHistoryPage() {
               size="sm"
               variant="outline"
               onClick={() => setOffset((prev) => prev + PAGE_LIMIT)}
-              disabled={offset + PAGE_LIMIT >= total || isLoading}
+              disabled={offset + PAGE_LIMIT >= total || isLoading || isFetching}
             >
               Next
             </Button>

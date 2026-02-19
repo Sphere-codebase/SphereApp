@@ -13,6 +13,7 @@ import {
   upsertClinicOverride,
   upsertDoctorOverride,
 } from "@/api/insuranceRules";
+import JsonViewer from "@/components/JsonViewer";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError } from "@/lib/api/errors";
@@ -502,9 +503,10 @@ export default function InsuranceRulesPage() {
                 <div className="text-xs text-slate-500">
                   Extracted: {formatDateTime(baseRules.extracted_at)}
                 </div>
-                <pre className="max-h-72 overflow-auto rounded-2xl bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-950 dark:text-slate-200">
-                  {JSON.stringify(baseRules.rules_json, null, 2)}
-                </pre>
+                <JsonViewer
+                  data={baseRules.rules_json}
+                  emptyLabel="No extracted rules for this policy link."
+                />
               </div>
             ) : (
               <div className="text-sm text-slate-500">No extracted rules for this policy link.</div>
@@ -598,9 +600,7 @@ export default function InsuranceRulesPage() {
             <CardTitle className="text-lg">Effective Rules Preview</CardTitle>
           </CardHeader>
           <CardContent>
-            <pre className="max-h-72 overflow-auto rounded-2xl bg-slate-50 p-3 text-xs text-slate-700 dark:bg-slate-950 dark:text-slate-200">
-              {JSON.stringify(effectiveRules, null, 2)}
-            </pre>
+            <JsonViewer data={effectiveRules} emptyLabel="No effective rules preview." />
           </CardContent>
         </Card>
       </div>

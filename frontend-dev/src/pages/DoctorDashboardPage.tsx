@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { getDoctorDashboard } from "@/api/dashboard";
@@ -8,6 +9,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { queryKeys } from "@/lib/query/keys";
 import type { DoctorDashboardDTO } from "@/types/dashboard";
 
 function formatDateTime(value?: string | null): string {
@@ -42,40 +44,36 @@ export default function DoctorDashboardPage() {
   const navigate = useNavigate();
   const { me, logout } = useAuth();
   const isPlatformAdmin = me?.role === "platform_staff_admin";
-  const [dashboard, setDashboard] = useState<DoctorDashboardDTO | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
 
   const handleUnauthorized = useCallback(() => {
     logout();
     navigate("/login");
   }, [logout, navigate]);
 
-  const loadDashboard = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await getDoctorDashboard();
-      setDashboard(data);
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+  const {
+    data: dashboard,
+    isLoading,
+    error,
+    refetch,
+  } = useQuery<DoctorDashboardDTO, ApiError>({
+    queryKey: queryKeys.dashboard,
+    queryFn: getDoctorDashboard,
+    staleTime: 60_000,
+    onError: (err) => {
+      if (err.status === 401 || err.status === 403) {
         handleUnauthorized();
-        return;
       }
-      setError("Unable to load dashboard.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [handleUnauthorized]);
-
-  useEffect(() => {
-    void loadDashboard();
-  }, [loadDashboard]);
+    },
+  });
 
   const handleStartNewClaim = async () => {
     setIsCreating(true);
-    setError(null);
+    setStartError(null);
+    if (error) {
+      refetch();
+    }
     try {
       const session = await createSession("New claim");
       navigate(`/app/workspace/${session.id}?openCreateClaim=1`);
@@ -84,7 +82,7 @@ export default function DoctorDashboardPage() {
         handleUnauthorized();
         return;
       }
-      setError("Unable to start a new claim.");
+      setStartError("Unable to start a new claim.");
     } finally {
       setIsCreating(false);
     }
@@ -158,11 +156,17 @@ export default function DoctorDashboardPage() {
         {error ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span>{error}</span>
-              <Button type="button" size="sm" variant="outline" onClick={loadDashboard}>
+              <span>Unable to load dashboard.</span>
+              <Button type="button" size="sm" variant="outline" onClick={() => refetch()}>
                 Retry
               </Button>
             </div>
+          </div>
+        ) : null}
+
+        {startError ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+            {startError}
           </div>
         ) : null}
 

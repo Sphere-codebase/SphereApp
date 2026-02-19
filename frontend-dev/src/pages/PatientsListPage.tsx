@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { listPatients } from "@/api/patients";
@@ -7,6 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createSession } from "@/lib/api/chat";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
+import { queryKeys } from "@/lib/query/keys";
 import type { PatientListItemDTO } from "@/types/patients";
 
 const PAGE_LIMIT = 25;
@@ -31,54 +34,49 @@ export default function PatientsListPage() {
   const { me, logout } = useAuth();
   const navigate = useNavigate();
   const [searchInput, setSearchInput] = useState("");
-  const [query, setQuery] = useState("");
   const [offset, setOffset] = useState(0);
-  const [patients, setPatients] = useState<PatientListItemDTO[]>([]);
-  const [total, setTotal] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const debouncedQuery = useDebouncedValue(searchInput.trim(), 300);
   const [creatingPatientId, setCreatingPatientId] = useState<number | null>(null);
   const [isCreatingGlobal, setIsCreatingGlobal] = useState(false);
-
-  const totalPages = useMemo(() => Math.ceil(total / PAGE_LIMIT), [total]);
-  const currentPage = useMemo(() => Math.floor(offset / PAGE_LIMIT) + 1, [offset]);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const handleUnauthorized = useCallback(() => {
     logout();
     navigate("/login");
   }, [logout, navigate]);
 
-  const loadPatients = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await listPatients({ query, limit: PAGE_LIMIT, offset });
-      setPatients(response.items);
-      setTotal(response.total);
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleUnauthorized();
-        return;
-      }
-      setError("Unable to load patients.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [query, offset, handleUnauthorized]);
-
   useEffect(() => {
-    void loadPatients();
-  }, [loadPatients]);
+    setOffset(0);
+  }, [debouncedQuery]);
 
   const handleSearchSubmit = (event: FormEvent) => {
     event.preventDefault();
-    setOffset(0);
-    setQuery(searchInput.trim());
   };
+
+  const {
+    data,
+    isLoading,
+    isFetching,
+    error,
+  } = useQuery({
+    queryKey: queryKeys.patients({ query: debouncedQuery, offset, limit: PAGE_LIMIT }),
+    queryFn: () => listPatients({ query: debouncedQuery, limit: PAGE_LIMIT, offset }),
+    staleTime: 60_000,
+    onError: (err) => {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        handleUnauthorized();
+      }
+    },
+  });
+
+  const patients = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = useMemo(() => Math.ceil(total / PAGE_LIMIT), [total]);
+  const currentPage = useMemo(() => Math.floor(offset / PAGE_LIMIT) + 1, [offset]);
 
   const handleStartClaim = async (patient: PatientListItemDTO) => {
     setCreatingPatientId(patient.id);
-    setError(null);
+    setActionError(null);
     try {
       const name = formatName(patient);
       const session = await createSession(`Claim for ${name}`);
@@ -88,7 +86,7 @@ export default function PatientsListPage() {
         handleUnauthorized();
         return;
       }
-      setError("Unable to start a claim for this patient.");
+      setActionError("Unable to start a claim for this patient.");
     } finally {
       setCreatingPatientId(null);
     }
@@ -96,7 +94,7 @@ export default function PatientsListPage() {
 
   const handleStartNewClaim = async () => {
     setIsCreatingGlobal(true);
-    setError(null);
+    setActionError(null);
     try {
       const session = await createSession("New claim");
       navigate(`/app/workspace/${session.id}?openCreateClaim=1`);
@@ -105,7 +103,7 @@ export default function PatientsListPage() {
         handleUnauthorized();
         return;
       }
-      setError("Unable to start a new claim.");
+      setActionError("Unable to start a new claim.");
     } finally {
       setIsCreatingGlobal(false);
     }
@@ -148,11 +146,19 @@ export default function PatientsListPage() {
           <Button type="submit" variant="secondary">
             Search
           </Button>
+          {isFetching && !isLoading ? (
+            <span className="text-xs text-slate-500">Searching...</span>
+          ) : null}
         </form>
 
         {error ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
-            {error}
+            Unable to load patients.
+          </div>
+        ) : null}
+        {actionError ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+            {actionError}
           </div>
         ) : null}
 
@@ -225,7 +231,7 @@ export default function PatientsListPage() {
               size="sm"
               variant="outline"
               onClick={() => setOffset((prev) => Math.max(0, prev - PAGE_LIMIT))}
-              disabled={offset === 0 || isLoading}
+              disabled={offset === 0 || isLoading || isFetching}
             >
               Previous
             </Button>
@@ -237,7 +243,7 @@ export default function PatientsListPage() {
               size="sm"
               variant="outline"
               onClick={() => setOffset((prev) => prev + PAGE_LIMIT)}
-              disabled={offset + PAGE_LIMIT >= total || isLoading}
+              disabled={offset + PAGE_LIMIT >= total || isLoading || isFetching}
             >
               Next
             </Button>

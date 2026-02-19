@@ -142,7 +142,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setError(null);
     setLlmUnavailable(false);
     try {
-      const data = await listSessions();
+      const data = await listSessions({ limit: 50, offset: 0 });
       syncRequestId();
       setSessions(data);
       if (data.length === 0) {

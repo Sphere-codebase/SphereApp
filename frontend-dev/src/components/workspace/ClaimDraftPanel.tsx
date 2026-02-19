@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { ClaimDraftPreview } from "@/components/workspace/types";
 import CodeSearchDiagnosis from "@/components/workspace/CodeSearchDiagnosis";
@@ -102,6 +102,15 @@ export default function ClaimDraftPanel({
     "procedures"
   );
   const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
+  const [isPdfLoading, setIsPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState(false);
+
+  useEffect(() => {
+    if (pdfPreviewUrl) {
+      setIsPdfLoading(true);
+      setPdfError(false);
+    }
+  }, [pdfPreviewUrl]);
 
   const hasPreview = hasPreviewValues(draftPreview);
   const hasClaim = Boolean(currentClaim);
@@ -564,7 +573,30 @@ export default function ClaimDraftPanel({
           </DialogHeader>
           {pdfPreviewUrl ? (
             <div className="h-[60vh] overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800">
-              <iframe title="Claim PDF" src={pdfPreviewUrl} className="h-full w-full" />
+              {isPdfLoading ? (
+                <div className="flex h-full items-center justify-center text-xs text-slate-500">
+                  Loading PDF...
+                </div>
+              ) : null}
+              {pdfError ? (
+                <div className="flex h-full items-center justify-center text-xs text-rose-600">
+                  Failed to load PDF preview.
+                </div>
+              ) : null}
+              <iframe
+                title="Claim PDF"
+                src={pdfPreviewUrl}
+                loading="lazy"
+                className={cn(
+                  "h-full w-full transition-opacity",
+                  isPdfLoading || pdfError ? "opacity-0" : "opacity-100"
+                )}
+                onLoad={() => setIsPdfLoading(false)}
+                onError={() => {
+                  setIsPdfLoading(false);
+                  setPdfError(true);
+                }}
+              />
             </div>
           ) : null}
           <DialogFooter>

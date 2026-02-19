@@ -67,8 +67,19 @@ function parseWithSchema<T>(schema: z.ZodType<T>, data: unknown, label: string):
   return parsed.data;
 }
 
-export async function listSessions(): Promise<ChatSession[]> {
-  const data = await requestJson<unknown>("/api/chat/sessions");
+export async function listSessions(
+  options: { limit?: number; offset?: number } = {}
+): Promise<ChatSession[]> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+  if (options.offset !== undefined) {
+    params.set("offset", String(options.offset));
+  }
+  const query = params.toString();
+  const url = query ? `/api/chat/sessions?${query}` : "/api/chat/sessions";
+  const data = await requestJson<unknown>(url);
   return parseWithSchema(chatSessionsSchema, data, "list sessions");
 }
 

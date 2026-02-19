@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { getPatient, getPatientClaims } from "@/api/patients";
@@ -7,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createSession } from "@/lib/api/chat";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { queryKeys } from "@/lib/query/keys";
 import type { PatientClaimListItemDTO, PatientDetailDTO } from "@/types/patients";
 
 const CLAIMS_LIMIT = 10;
@@ -47,13 +49,8 @@ export default function PatientProfilePage() {
   const { patientId } = useParams<{ patientId: string }>();
   const parsedPatientId = patientId ? Number(patientId) : null;
 
-  const [patient, setPatient] = useState<PatientDetailDTO | null>(null);
-  const [claims, setClaims] = useState<PatientClaimListItemDTO[]>([]);
-  const [claimsTotal, setClaimsTotal] = useState(0);
   const [claimsOffset, setClaimsOffset] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingClaims, setIsLoadingClaims] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [isStartingClaim, setIsStartingClaim] = useState(false);
 
   const handleUnauthorized = useCallback(() => {
@@ -61,68 +58,54 @@ export default function PatientProfilePage() {
     navigate("/login");
   }, [logout, navigate]);
 
-  const loadPatient = useCallback(async () => {
-    if (!parsedPatientId || !Number.isFinite(parsedPatientId)) {
-      setError("Invalid patient.");
-      setIsLoading(false);
-      return;
-    }
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await getPatient(parsedPatientId);
-      setPatient(response);
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleUnauthorized();
-        return;
-      }
-      setError("Unable to load patient profile.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [parsedPatientId, handleUnauthorized]);
-
-  const loadClaims = useCallback(async () => {
-    if (!parsedPatientId || !Number.isFinite(parsedPatientId)) {
-      setIsLoadingClaims(false);
-      return;
-    }
-    setIsLoadingClaims(true);
-    setError(null);
-    try {
-      const response = await getPatientClaims(parsedPatientId, {
-        limit: CLAIMS_LIMIT,
-        offset: claimsOffset,
-      });
-      setClaims(response.items);
-      setClaimsTotal(response.total);
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleUnauthorized();
-        return;
-      }
-      setError("Unable to load patient claims.");
-    } finally {
-      setIsLoadingClaims(false);
-    }
-  }, [parsedPatientId, claimsOffset, handleUnauthorized]);
-
   useEffect(() => {
     setClaimsOffset(0);
-    void loadPatient();
-  }, [loadPatient]);
+  }, [parsedPatientId]);
 
-  useEffect(() => {
-    void loadClaims();
-  }, [loadClaims]);
+  const {
+    data: patient,
+    isLoading,
+    error: patientError,
+  } = useQuery<PatientDetailDTO, ApiError>({
+    queryKey: parsedPatientId ? queryKeys.patient(parsedPatientId) : ["patient", "none"],
+    queryFn: () => getPatient(parsedPatientId as number),
+    enabled: Boolean(parsedPatientId && Number.isFinite(parsedPatientId)),
+    staleTime: 60_000,
+    onError: (err) => {
+      if (err.status === 401 || err.status === 403) {
+        handleUnauthorized();
+      }
+    },
+  });
+
+  const {
+    data: claimsData,
+    isLoading: isLoadingClaims,
+    error: claimsError,
+  } = useQuery<{ items: PatientClaimListItemDTO[]; total: number }, ApiError>({
+    queryKey: parsedPatientId
+      ? queryKeys.patientClaims(parsedPatientId, { limit: CLAIMS_LIMIT, offset: claimsOffset })
+      : ["patientClaims", "none"],
+    queryFn: () =>
+      getPatientClaims(parsedPatientId as number, {
+        limit: CLAIMS_LIMIT,
+        offset: claimsOffset,
+      }),
+    enabled: Boolean(parsedPatientId && Number.isFinite(parsedPatientId)),
+    staleTime: 30_000,
+    onError: (err) => {
+      if (err.status === 401 || err.status === 403) {
+        handleUnauthorized();
+      }
+    },
+  });
 
   const handleStartClaim = async () => {
     if (!patient) {
       return;
     }
     setIsStartingClaim(true);
-    setError(null);
+    setActionError(null);
     try {
       const name = formatName(patient);
       const session = await createSession(`Claim for ${name}`);
@@ -132,16 +115,15 @@ export default function PatientProfilePage() {
         handleUnauthorized();
         return;
       }
-      setError("Unable to start a claim for this patient.");
+      setActionError("Unable to start a claim for this patient.");
     } finally {
       setIsStartingClaim(false);
     }
   };
 
-  const claimsPage = useMemo(
-    () => Math.floor(claimsOffset / CLAIMS_LIMIT) + 1,
-    [claimsOffset]
-  );
+  const claims = claimsData?.items ?? [];
+  const claimsTotal = claimsData?.total ?? 0;
+  const claimsPage = useMemo(() => Math.floor(claimsOffset / CLAIMS_LIMIT) + 1, [claimsOffset]);
   const claimsTotalPages = useMemo(
     () => Math.ceil(claimsTotal / CLAIMS_LIMIT),
     [claimsTotal]
@@ -170,9 +152,14 @@ export default function PatientProfilePage() {
           </div>
         </header>
 
-        {error ? (
+        {patientError || claimsError ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
-            {error}
+            Unable to load patient profile.
+          </div>
+        ) : null}
+        {actionError ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+            {actionError}
           </div>
         ) : null}
 

@@ -700,7 +700,7 @@ function WorkspaceShell() {
             )}
           </aside>
 
-          <section className="flex min-h-[480px] flex-1 flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <section className="flex min-h-[480px] min-h-0 flex-1 flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             {llmUnavailable ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
                 LLM unavailable, retry later.
@@ -755,7 +755,7 @@ function WorkspaceShell() {
               </Card>
             ) : null}
 
-            <div className="flex-1 overflow-auto">
+            <div className="min-h-0 flex-1">
               <Conversation
                 messages={conversationMessages}
                 emptyState={

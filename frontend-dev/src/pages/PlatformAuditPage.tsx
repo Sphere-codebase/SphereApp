@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { exportPlatformAudit, listPlatformAudit, listPlatformClinics } from "@/api/platformAdmin";
@@ -14,6 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
+import { queryKeys } from "@/lib/query/keys";
 import type { PlatformAuditItemDTO, PlatformClinicDTO } from "@/types/platformAdmin";
 
 const PAGE_LIMIT = 25;
@@ -30,13 +33,8 @@ function formatDateTime(value?: string | null): string {
 export default function PlatformAuditPage() {
   const { logout } = useAuth();
   const navigate = useNavigate();
-  const [items, setItems] = useState<PlatformAuditItemDTO[]>([]);
-  const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const [clinics, setClinics] = useState<PlatformClinicDTO[]>([]);
   const [exportOpen, setExportOpen] = useState(false);
   const [includeDiff, setIncludeDiff] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -48,23 +46,24 @@ export default function PlatformAuditPage() {
   const [entity, setEntity] = useState("");
   const [actorId, setActorId] = useState("");
   const [action, setAction] = useState("");
+  const debouncedAction = useDebouncedValue(action, 300);
 
   const handleUnauthorized = useCallback(() => {
     logout();
     navigate("/login");
   }, [logout, navigate]);
 
-  useEffect(() => {
-    listPlatformClinics({ limit: 100, offset: 0 })
-      .then((response) => setClinics(response.items))
-      .catch((err) => {
-        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-          handleUnauthorized();
-          return;
-        }
-        setClinics([]);
-      });
-  }, [handleUnauthorized]);
+  const { data: clinicsData } = useQuery<{ items: PlatformClinicDTO[] }, ApiError>({
+    queryKey: queryKeys.platformClinics("audit-filter"),
+    queryFn: () => listPlatformClinics({ limit: 100, offset: 0 }),
+    staleTime: 300_000,
+    onError: (err) => {
+      if (err.status === 401 || err.status === 403) {
+        handleUnauthorized();
+      }
+    },
+  });
+  const clinics = clinicsData?.items ?? [];
 
   const filters = useMemo(
     () => ({
@@ -73,40 +72,33 @@ export default function PlatformAuditPage() {
       clinic_id: clinicId ? Number(clinicId) : undefined,
       entity: entity || undefined,
       actor_id: actorId ? Number(actorId) : undefined,
-      action: action || undefined,
+      action: debouncedAction || undefined,
     }),
-    [fromDate, toDate, clinicId, entity, actorId, action]
+    [fromDate, toDate, clinicId, entity, actorId, debouncedAction]
   );
-
-  const loadAudit = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await listPlatformAudit({
-        ...filters,
-        limit: PAGE_LIMIT,
-        offset,
-      });
-      setItems(response.items);
-      setTotal(response.total);
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleUnauthorized();
-        return;
-      }
-      setError("Unable to load platform audit logs.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [filters, offset, handleUnauthorized]);
 
   useEffect(() => {
     setOffset(0);
   }, [filters]);
 
-  useEffect(() => {
-    void loadAudit();
-  }, [loadAudit]);
+  const {
+    data,
+    isLoading,
+    isFetching,
+    error,
+  } = useQuery<{ items: PlatformAuditItemDTO[]; total: number }, ApiError>({
+    queryKey: queryKeys.auditLogs("platform", { ...filters, limit: PAGE_LIMIT, offset }),
+    queryFn: () => listPlatformAudit({ ...filters, limit: PAGE_LIMIT, offset }),
+    staleTime: 15_000,
+    onError: (err) => {
+      if (err.status === 401 || err.status === 403) {
+        handleUnauthorized();
+      }
+    },
+  });
+
+  const items = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   const toggleExpanded = (id: number) => {
     setExpandedIds((prev) => {
@@ -262,7 +254,7 @@ export default function PlatformAuditPage() {
 
         {error ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
-            {error}
+            Unable to load platform audit logs.
           </div>
         ) : null}
 
@@ -271,6 +263,9 @@ export default function PlatformAuditPage() {
             <CardTitle className="text-lg">Audit Logs</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
+            {isFetching && !isLoading ? (
+              <div className="text-xs text-slate-500">Refreshing...</div>
+            ) : null}
             {isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 4 }).map((_, index) => (
@@ -437,7 +432,7 @@ export default function PlatformAuditPage() {
               size="sm"
               variant="outline"
               onClick={() => setOffset((prev) => Math.max(0, prev - PAGE_LIMIT))}
-              disabled={offset === 0 || isLoading}
+              disabled={offset === 0 || isLoading || isFetching}
             >
               Previous
             </Button>
@@ -449,7 +444,7 @@ export default function PlatformAuditPage() {
               size="sm"
               variant="outline"
               onClick={() => setOffset((prev) => prev + PAGE_LIMIT)}
-              disabled={offset + PAGE_LIMIT >= total || isLoading}
+              disabled={offset + PAGE_LIMIT >= total || isLoading || isFetching}
             >
               Next
             </Button>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { exportClinicAuditLogs, listClinicAuditLogs, listClinicDoctors } from "@/api/clinicAdmin";
@@ -14,6 +15,8 @@ import {
 } from "@/components/ui/dialog";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useDebouncedValue } from "@/lib/hooks/useDebouncedValue";
+import { queryKeys } from "@/lib/query/keys";
 import type { AuditLogItemDTO, DoctorUserDTO } from "@/types/clinicAdmin";
 
 const PAGE_LIMIT = 25;
@@ -38,13 +41,8 @@ function formatDateTime(value?: string | null): string {
 export default function ClinicAuditLogsPage() {
   const { me, logout } = useAuth();
   const navigate = useNavigate();
-  const [items, setItems] = useState<AuditLogItemDTO[]>([]);
-  const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
-  const [doctorOptions, setDoctorOptions] = useState<DoctorUserDTO[]>([]);
   const [exportOpen, setExportOpen] = useState(false);
   const [includeDiff, setIncludeDiff] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -55,23 +53,24 @@ export default function ClinicAuditLogsPage() {
   const [actorId, setActorId] = useState("");
   const [entity, setEntity] = useState("");
   const [action, setAction] = useState("");
+  const debouncedAction = useDebouncedValue(action, 300);
 
   const handleUnauthorized = useCallback(() => {
     logout();
     navigate("/login");
   }, [logout, navigate]);
 
-  useEffect(() => {
-    listClinicDoctors()
-      .then((response) => setDoctorOptions(response.items))
-      .catch((err) => {
-        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-          handleUnauthorized();
-          return;
-        }
-        setDoctorOptions([]);
-      });
-  }, [handleUnauthorized]);
+  const { data: doctorsData } = useQuery<{ items: DoctorUserDTO[] }, ApiError>({
+    queryKey: queryKeys.clinicDoctors,
+    queryFn: listClinicDoctors,
+    staleTime: 300_000,
+    onError: (err) => {
+      if (err.status === 401 || err.status === 403) {
+        handleUnauthorized();
+      }
+    },
+  });
+  const doctorOptions = doctorsData?.items ?? [];
 
   const filters = useMemo(
     () => ({
@@ -79,40 +78,33 @@ export default function ClinicAuditLogsPage() {
       to: toDate || undefined,
       actor_id: actorId ? Number(actorId) : undefined,
       entity: entity || undefined,
-      action: action || undefined,
+      action: debouncedAction || undefined,
     }),
-    [fromDate, toDate, actorId, entity, action]
+    [fromDate, toDate, actorId, entity, debouncedAction]
   );
-
-  const loadLogs = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await listClinicAuditLogs({
-        ...filters,
-        limit: PAGE_LIMIT,
-        offset,
-      });
-      setItems(response.items);
-      setTotal(response.total);
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleUnauthorized();
-        return;
-      }
-      setError("Unable to load audit logs.");
-    } finally {
-      setIsLoading(false);
-    }
-  }, [filters, offset, handleUnauthorized]);
 
   useEffect(() => {
     setOffset(0);
   }, [filters]);
 
-  useEffect(() => {
-    void loadLogs();
-  }, [loadLogs]);
+  const {
+    data,
+    isLoading,
+    isFetching,
+    error,
+  } = useQuery<{ items: AuditLogItemDTO[]; total: number }, ApiError>({
+    queryKey: queryKeys.auditLogs("clinic", { ...filters, limit: PAGE_LIMIT, offset }),
+    queryFn: () => listClinicAuditLogs({ ...filters, limit: PAGE_LIMIT, offset }),
+    staleTime: 15_000,
+    onError: (err) => {
+      if (err.status === 401 || err.status === 403) {
+        handleUnauthorized();
+      }
+    },
+  });
+
+  const items = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   const toggleExpanded = (id: number) => {
     setExpandedIds((prev) => {
@@ -260,7 +252,7 @@ export default function ClinicAuditLogsPage() {
 
         {error ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
-            {error}
+            Unable to load audit logs.
           </div>
         ) : null}
 
@@ -269,6 +261,9 @@ export default function ClinicAuditLogsPage() {
             <CardTitle className="text-lg">Audit Logs</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
+            {isFetching && !isLoading ? (
+              <div className="text-xs text-slate-500">Refreshing...</div>
+            ) : null}
             {isLoading ? (
               <div className="space-y-3">
                 {Array.from({ length: 4 }).map((_, index) => (
@@ -419,7 +414,7 @@ export default function ClinicAuditLogsPage() {
               size="sm"
               variant="outline"
               onClick={() => setOffset((prev) => Math.max(0, prev - PAGE_LIMIT))}
-              disabled={offset === 0 || isLoading}
+              disabled={offset === 0 || isLoading || isFetching}
             >
               Previous
             </Button>
@@ -431,7 +426,7 @@ export default function ClinicAuditLogsPage() {
               size="sm"
               variant="outline"
               onClick={() => setOffset((prev) => prev + PAGE_LIMIT)}
-              disabled={offset + PAGE_LIMIT >= total || isLoading}
+              disabled={offset + PAGE_LIMIT >= total || isLoading || isFetching}
             >
               Next
             </Button>

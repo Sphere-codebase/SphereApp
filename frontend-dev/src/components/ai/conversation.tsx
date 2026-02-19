@@ -1,3 +1,6 @@
+import { useRef } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+
 import { Message, MessageProps } from "@/components/ai/message";
 
 export interface ConversationProps {
@@ -14,16 +17,41 @@ export function Conversation({ messages, emptyState }: ConversationProps) {
     );
   }
 
+  const parentRef = useRef<HTMLDivElement | null>(null);
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 120,
+    overscan: 8,
+  });
+
   return (
-    <div className="flex flex-col gap-4">
-      {messages.map((message, index) => (
-        <div
-          key={`${message.role}-${index}`}
-          className={message.role === "user" ? "items-end" : "items-start"}
-        >
-          <Message {...message} />
-        </div>
-      ))}
+    <div ref={parentRef} className="h-full overflow-auto">
+      <div
+        className="relative w-full"
+        style={{ height: `${virtualizer.getTotalSize()}px` }}
+      >
+        {virtualizer.getVirtualItems().map((virtualRow) => {
+          const message = messages[virtualRow.index];
+          return (
+            <div
+              key={`${message.role}-${virtualRow.index}`}
+              className={`flex py-2 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${virtualRow.start}px)`,
+              }}
+              ref={virtualizer.measureElement}
+              data-index={virtualRow.index}
+            >
+              <Message {...message} />
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
