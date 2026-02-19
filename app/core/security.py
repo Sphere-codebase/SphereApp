@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.exceptions import ClinicBlockedError
 from app.core.tenancy import (
     apply_rls_context,
     reset_current_clinic_id,
@@ -59,12 +60,6 @@ def decode_access_token(token: str) -> dict[str, Any]:
 
 CredentialsDep = Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)]
 DbSessionDep = Annotated[Session, Depends(get_db)]
-
-
-class ClinicBlockedError(Exception):
-    def __init__(self, clinic_id: int) -> None:
-        self.clinic_id = clinic_id
-        super().__init__("Clinic is blocked")
 
 
 async def get_current_user(

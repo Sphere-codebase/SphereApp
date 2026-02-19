@@ -29,7 +29,6 @@ from app.db.models import (
     User,
 )
 from app.llm.tools import schemas
-from app.services.audit import AuditContext, AuditLogger
 from app.services.policy.rules_refresh import parse_policy_link_and_store
 from app.utils.time import utcnow
 
@@ -195,7 +194,9 @@ def _policy_user(ctx: ToolContext) -> User | SimpleNamespace:
     return user
 
 
-def _audit_logger(ctx: ToolContext) -> AuditLogger:
+def _audit_logger(ctx: ToolContext):
+    from app.services.audit import AuditContext, AuditLogger
+
     return AuditLogger(
         db=ctx.db,
         context=AuditContext(

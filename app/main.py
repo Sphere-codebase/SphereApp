@@ -49,7 +49,7 @@ from app.core.logging import (
     unhandled_exception_handler,
     validation_exception_handler,
 )
-from app.core.security import ClinicBlockedError
+from app.core.exceptions import ClinicBlockedError
 from app.llm.client import LLMUnavailable
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.request_logging import RequestLoggingMiddleware

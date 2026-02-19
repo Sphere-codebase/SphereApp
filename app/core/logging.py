@@ -18,7 +18,7 @@ from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from tenacity import RetryError
 
 from app.core.config import Settings, settings
-from app.core.security import ClinicBlockedError
+from app.core.exceptions import ClinicBlockedError
 from app.llm.client import LLMUnavailable
 
 request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
