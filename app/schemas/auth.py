@@ -39,5 +39,8 @@ class UserResponse(BaseModel):
 
     id: int
     email: EmailStr
+    full_name: str | None = None
+    role: str
+    clinic_id: int
+    clinic_name: str | None = None
     is_active: bool
-    roles: list[str] = []

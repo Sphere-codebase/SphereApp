@@ -42,7 +42,7 @@ function formatDateOnly(value?: string | null): string {
 
 export default function PolicyRulesPage() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { me, logout } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialMcpCode = searchParams.get("mcp_code") ?? "";
   const initialPolicyLinkIdParam = searchParams.get("policy_link_id");
@@ -295,7 +295,7 @@ export default function PolicyRulesPage() {
               Policy Rules
             </h1>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {user?.email ?? "Admin"}
+              {me?.email ?? "Admin"}
             </p>
           </div>
           <div className="flex items-center gap-2">

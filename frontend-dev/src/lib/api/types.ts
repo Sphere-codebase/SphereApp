@@ -32,8 +32,11 @@ export interface AdminCreateUserResponse {
 export interface UserResponse {
   id: ID;
   email: string;
+  full_name?: string | null;
+  role: string;
+  clinic_id: ID;
+  clinic_name?: string | null;
   is_active: boolean;
-  roles: string[];
 }
 
 export interface ChatRequest {

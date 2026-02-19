@@ -173,8 +173,8 @@ function formatDateOnly(value?: string | null): string {
 
 export default function AdminPage() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
-  const isAdmin = Boolean(user?.roles?.includes("admin"));
+  const { me, logout } = useAuth();
+  const isAdmin = me?.role === "platform_staff_admin";
   const [activeTab, setActiveTab] = useState<AdminTab>("reference");
   const [referenceTab, setReferenceTab] = useState<ReferenceTab>("mcp-codes");
   const [error, setError] = useState<unknown>(null);
@@ -499,7 +499,7 @@ export default function AdminPage() {
             email: target.email,
             full_name: target.full_name ?? "",
             password: "",
-            is_admin: target.roles.includes("admin"),
+            is_admin: target.roles.includes("platform_staff_admin"),
             is_active: target.is_active,
           }
         : emptyUserForm
@@ -709,7 +709,7 @@ export default function AdminPage() {
         const payload: AdminUserUpdateInput = {
           email,
           full_name: fullName ? fullName : null,
-          roles: userForm.is_admin ? ["admin"] : [],
+          roles: userForm.is_admin ? ["platform_staff_admin"] : [],
           is_active: userForm.is_active,
         };
         await updateAdminUser(editingUser.id, payload);
@@ -718,7 +718,7 @@ export default function AdminPage() {
           email,
           full_name: fullName ? fullName : null,
           password: userForm.password.trim(),
-          roles: userForm.is_admin ? ["admin"] : [],
+          roles: userForm.is_admin ? ["platform_staff_admin"] : [],
           is_active: userForm.is_active,
         };
         await createAdminUser(payload);
@@ -814,7 +814,7 @@ export default function AdminPage() {
               Control Center
             </h1>
             <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {user?.email ?? "Admin"}
+              {me?.email ?? "Admin"}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -1432,7 +1432,8 @@ export default function AdminPage() {
                   {
                     key: "role",
                     header: "Admin",
-                    cell: (row) => (row.roles.includes("admin") ? "Yes" : "No"),
+                    cell: (row) =>
+                      row.roles.includes("platform_staff_admin") ? "Yes" : "No",
                   },
                   {
                     key: "active",
@@ -1737,7 +1738,7 @@ export default function AdminPage() {
                 setUserForm((prev) => ({ ...prev, is_admin: event.target.checked }))
               }
             />
-            Admin
+            Platform admin
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input

@@ -39,8 +39,11 @@ const renderWithProviders = (initialEntries: string[]) => {
 const adminUser = {
   id: 101,
   email: "admin@example.com",
+  full_name: "Admin User",
+  role: "platform_staff_admin",
+  clinic_id: 1,
+  clinic_name: "Test Clinic",
   is_active: true,
-  roles: ["admin", "doctor"],
 };
 
 describe("admin ui", () => {
@@ -326,29 +329,47 @@ describe("admin ui", () => {
     const memberUser = {
       id: 202,
       email: "doctor@example.com",
+      full_name: "Doctor User",
+      role: "doctor",
+      clinic_id: 1,
+      clinic_name: "Test Clinic",
       is_active: true,
-      roles: ["doctor"],
     };
 
-    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof input === "string"
           ? input
           : input instanceof URL
             ? input.toString()
             : input.url;
+      const method = init?.method ?? "GET";
       if (url.endsWith("/auth/me")) {
         return Promise.resolve(buildJsonResponse({ status: 200, body: memberUser }));
+      }
+      if (url.endsWith("/api/chat/sessions") && method === "GET") {
+        return Promise.resolve(
+          buildJsonResponse({
+            status: 200,
+            body: [
+              {
+                id: 501,
+                doctor_id: 202,
+                created_at: "2026-02-01T00:00:00",
+                title: null,
+              },
+            ],
+          })
+        );
+      }
+      if (url.includes("/api/chat/sessions/501/messages")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
       }
       return Promise.reject(new Error(`Unexpected request: ${url}`));
     });
 
     renderWithProviders(["/app/admin"]);
 
-    expect(
-      await screen.findByText(/access denied/i)
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /refresh rules/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /view rules/i })).toBeNull();
+    expect(await screen.findByText(/Chat sessions/i)).toBeInTheDocument();
   });
 });

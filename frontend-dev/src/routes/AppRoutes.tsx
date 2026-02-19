@@ -5,14 +5,15 @@ import AdminPolicyRulesPage from "@/pages/AdminPolicyRulesPage";
 import BootstrapPage from "@/pages/BootstrapPage";
 import ChatPage from "@/pages/ChatPage";
 import LoginPage from "@/pages/LoginPage";
-import AdminRoute from "@/routes/AdminRoute";
 import ProtectedRoute from "@/routes/ProtectedRoute";
+import RoleRoute from "@/routes/RoleRoute";
 
 export default function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/bootstrap" element={<BootstrapPage />} />
+      <Route path="/app/dashboard" element={<Navigate to="/app/chat" replace />} />
       <Route
         path="/app/chat"
         element={
@@ -24,17 +25,17 @@ export default function AppRoutes() {
       <Route
         path="/app/admin"
         element={
-          <AdminRoute>
+          <RoleRoute allowedRoles={["platform_staff_admin"]}>
             <AdminPage />
-          </AdminRoute>
+          </RoleRoute>
         }
       />
       <Route
         path="/app/admin/policy-rules"
         element={
-          <AdminRoute>
+          <RoleRoute allowedRoles={["platform_staff_admin"]}>
             <AdminPolicyRulesPage />
-          </AdminRoute>
+          </RoleRoute>
         }
       />
       <Route path="*" element={<Navigate to="/login" replace />} />

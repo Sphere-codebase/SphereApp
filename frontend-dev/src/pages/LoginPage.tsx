@@ -7,16 +7,16 @@ import { useAuth } from "@/lib/auth/AuthContext";
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, user, isLoading } = useAuth();
+  const { login, me, isAuthLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
-    if (user) {
+    if (me) {
       navigate("/app/chat", { replace: true });
     }
-  }, [user, navigate]);
+  }, [me, navigate]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -67,7 +67,7 @@ export default function LoginPage() {
             </label>
             {error ? <ErrorNotice error={error} /> : null}
             <div className="flex gap-3">
-              <Button type="submit" disabled={isLoading}>
+              <Button type="submit" disabled={isAuthLoading}>
                 Sign in
               </Button>
             </div>

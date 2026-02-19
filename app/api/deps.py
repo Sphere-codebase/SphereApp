@@ -28,3 +28,12 @@ def require_platform_staff_admin(current_user: CurrentUserDep) -> User:
     if not policy.can(current_user, policy.Action.READ, policy.Resource.ADMIN_DIRECTORY):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
     return current_user
+
+
+def require_roles(*roles: str):
+    def _dependency(current_user: CurrentUserDep) -> User:
+        if current_user.role not in roles:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        return current_user
+
+    return _dependency

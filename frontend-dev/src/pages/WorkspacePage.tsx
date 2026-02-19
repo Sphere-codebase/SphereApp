@@ -24,7 +24,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { ApiError } from "@/lib/api/errors";
-import { canAccessAdmin } from "@/lib/auth/permissions";
 import { ChatProvider, useChat } from "@/lib/chat/ChatContext";
 import { cn } from "@/lib/utils";
 import type { ClaimDTO, DiagnosisCodeDTO, MCPCodeDTO } from "@/types/claim";
@@ -83,7 +82,7 @@ function WorkspaceShell() {
     clearError,
     addLocalMessage,
   } = useChat();
-  const { logout, user } = useAuth();
+  const { logout, me, hasRole } = useAuth();
   const navigate = useNavigate();
   const [draft, setDraft] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
@@ -336,10 +335,10 @@ function WorkspaceShell() {
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-6 py-8">
         <WorkspaceTopBar
           title={activeSession?.title ?? "Chat sessions"}
-          subtitle="SphereApp Chat"
+          subtitle={me?.clinic_name ?? "SphereApp Chat"}
           theme={theme}
           isSending={isSending}
-          showAdmin={canAccessAdmin(user)}
+          showAdmin={hasRole("platform_staff_admin")}
           isReadOnly={isReadOnly}
           onOpenUploadPdf={() => {
             if (!isReadOnly) {

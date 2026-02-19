@@ -8,15 +8,10 @@ import {
   type ReactNode,
 } from "react";
 
+import { login as loginApi, getMe } from "@/api/auth";
 import { requestJson } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
-import type {
-  AdminCreateUserRequest,
-  AdminCreateUserResponse,
-  LoginRequest,
-  TokenResponse,
-  UserResponse,
-} from "@/lib/api/types";
+import type { AdminCreateUserRequest, AdminCreateUserResponse } from "@/lib/api/types";
 import {
   clearLogoutFlag,
   getStoredToken,
@@ -25,13 +20,15 @@ import {
   setStoredToken,
   type StoredToken,
 } from "@/lib/auth/token";
+import type { MeDTO, UserRole } from "@/types/auth";
 
 export interface AuthContextValue {
-  user: UserResponse | null;
+  me: MeDTO | null;
   token: string | null;
-  isLoading: boolean;
+  isAuthLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  hasRole: (roles: UserRole | UserRole[]) => boolean;
   bootstrapCreateUser: (payload: AdminCreateUserRequest) => Promise<void>;
   refreshMe: () => Promise<void>;
 }
@@ -46,57 +43,57 @@ function getInitialToken(): string | null {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<UserResponse | null>(null);
+  const [me, setMe] = useState<MeDTO | null>(null);
   const [token, setToken] = useState<string | null>(getInitialToken);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   const logout = useCallback(() => {
     setLogoutFlag();
     setToken(null);
-    setUser(null);
+    setMe(null);
   }, []);
 
   const refreshMe = useCallback(async () => {
     const storedToken = isLogoutFlagSet() ? null : getStoredToken()?.accessToken ?? null;
     const currentToken = token ?? storedToken ?? null;
     if (!currentToken) {
-      setUser(null);
+      setMe(null);
+      setIsAuthLoading(false);
       return;
     }
-    setIsLoading(true);
+    setIsAuthLoading(true);
     try {
-      const me = await requestJson<UserResponse>("/auth/me");
-      setUser(me);
+      const meResponse = await getMe();
+      if (!meResponse.is_active) {
+        logout();
+        return;
+      }
+      setMe(meResponse);
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
+      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
         logout();
       } else {
         throw error;
       }
     } finally {
-      setIsLoading(false);
+      setIsAuthLoading(false);
     }
   }, [token, logout]);
 
   const login = useCallback(async (email: string, password: string) => {
-    const payload: LoginRequest = { email, password };
-    setIsLoading(true);
+    setIsAuthLoading(true);
     try {
-      const response = await requestJson<TokenResponse>("/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const response = await loginApi(email, password);
       const stored: StoredToken = {
         accessToken: response.access_token,
-        tokenType: response.token_type,
+        tokenType: response.token_type ?? "bearer",
       };
       clearLogoutFlag();
       setStoredToken(stored);
       setToken(stored.accessToken);
       await refreshMe();
     } finally {
-      setIsLoading(false);
+      setIsAuthLoading(false);
     }
   }, [refreshMe]);
 
@@ -106,7 +103,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!adminToken) {
         throw new Error("Bootstrap disabled: missing VITE_ADMIN_API_KEY");
       }
-      setIsLoading(true);
+      setIsAuthLoading(true);
       try {
         const response = await requestJson<AdminCreateUserResponse>(
           "/auth/admin/users",
@@ -128,29 +125,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setToken(stored.accessToken);
         await refreshMe();
       } finally {
-        setIsLoading(false);
+        setIsAuthLoading(false);
       }
     },
     [refreshMe]
   );
 
   useEffect(() => {
-    if (token) {
-      void refreshMe().catch(() => undefined);
-    }
+    void refreshMe().catch(() => undefined);
   }, [token, refreshMe]);
+
+  const hasRole = useCallback(
+    (roles: UserRole | UserRole[]) => {
+      if (!me) {
+        return false;
+      }
+      const allowed = Array.isArray(roles) ? roles : [roles];
+      return allowed.includes(me.role);
+    },
+    [me]
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      user,
+      me,
       token,
-      isLoading,
+      isAuthLoading,
       login,
       logout,
+      hasRole,
       bootstrapCreateUser,
       refreshMe,
     }),
-    [user, token, isLoading, login, logout, bootstrapCreateUser, refreshMe]
+    [me, token, isAuthLoading, login, logout, hasRole, bootstrapCreateUser, refreshMe]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

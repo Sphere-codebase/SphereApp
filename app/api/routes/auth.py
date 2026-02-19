@@ -52,6 +52,8 @@ def login(payload: LoginRequest, db: DbSessionDep, audit: AuditLoggerDep) -> Tok
     user = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User inactive")
 
     token = create_access_token(str(user.id))
     audit.log_event(
@@ -148,6 +150,9 @@ def me(current_user: CurrentUserDep) -> UserResponse:
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
+        full_name=current_user.full_name,
+        role=current_user.role,
+        clinic_id=current_user.clinic_id,
+        clinic_name=current_user.clinic.name if current_user.clinic else None,
         is_active=bool(current_user.is_active),
-        roles=[current_user.role],
     )

@@ -148,6 +148,7 @@ def list_messages(
             select(ChatMessage)
             .where(
                 ChatMessage.session_id == session.id,
+                ChatMessage.clinic_id == current_user.clinic_id,
                 ChatMessage.role.in_(["user", "assistant"]),
             )
             .order_by(ChatMessage.created_at.asc())

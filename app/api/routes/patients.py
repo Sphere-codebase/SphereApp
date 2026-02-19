@@ -44,9 +44,13 @@ def list_patients(
     query: Annotated[str | None, Query()] = None,
 ) -> list[PatientResponse]:
     role = policy.role_for(current_user)
-    clinic_id = None if role == policy.Role.PLATFORM_STAFF_ADMIN else current_user.clinic_id
     doctor_id = current_user.id if role == policy.Role.DOCTOR else None
-    patients = list_patients_query(db, clinic_id=clinic_id, doctor_id=doctor_id, query=query)
+    patients = list_patients_query(
+        db,
+        clinic_id=current_user.clinic_id,
+        doctor_id=doctor_id,
+        query=query,
+    )
     return [PatientResponse.model_validate(patient) for patient in patients]
 
 

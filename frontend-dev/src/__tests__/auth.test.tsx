@@ -70,8 +70,11 @@ describe("auth flow", () => {
             body: {
               id: 7,
               email: "doctor@example.com",
+              full_name: "Doc One",
+              role: "doctor",
+              clinic_id: 1,
+              clinic_name: "Test Clinic",
               is_active: true,
-              roles: ["doctor"],
             },
           })
         );

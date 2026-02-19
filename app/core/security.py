@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, cast
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
@@ -55,7 +55,7 @@ DbSessionDep = Annotated[Session, Depends(get_db)]
 
 
 async def get_current_user(
-    credentials: CredentialsDep, db: DbSessionDep
+    credentials: CredentialsDep, db: DbSessionDep, request: Request
 ) -> AsyncGenerator[User, None]:
     if credentials is None or not credentials.credentials:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing token")
@@ -79,6 +79,10 @@ async def get_current_user(
     user = await run_in_threadpool(_load_user)
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    request.state.current_user_id = user.id
+    request.state.current_user_role = user.role
+    request.state.current_user_clinic_id = user.clinic_id
 
     # Keep ContextVar set/reset in the same async context to avoid token errors
     # when FastAPI runs sync endpoints in threadpool workers.

@@ -1,8 +1,19 @@
 import { Navigate } from "react-router-dom";
 
 import { useAuth } from "@/lib/auth/AuthContext";
+import type { UserRole } from "@/types/auth";
 
-export default function ProtectedRoute({ children }: { children: JSX.Element }) {
+type RoleRouteProps = {
+  allowedRoles: UserRole[];
+  children: JSX.Element;
+  redirectTo?: string;
+};
+
+export default function RoleRoute({
+  allowedRoles,
+  children,
+  redirectTo = "/app/dashboard",
+}: RoleRouteProps) {
   const { token, me, isAuthLoading } = useAuth();
 
   if (!token) {
@@ -19,6 +30,10 @@ export default function ProtectedRoute({ children }: { children: JSX.Element }) 
 
   if (!me) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (!allowedRoles.includes(me.role)) {
+    return <Navigate to={redirectTo} replace />;
   }
 
   return children;

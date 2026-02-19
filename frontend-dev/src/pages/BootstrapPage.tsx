@@ -8,14 +8,14 @@ import { useAuth } from "@/lib/auth/AuthContext";
 
 export default function BootstrapPage() {
   const navigate = useNavigate();
-  const { bootstrapCreateUser, isLoading } = useAuth();
+  const { bootstrapCreateUser, isAuthLoading } = useAuth();
   const adminToken = import.meta.env.VITE_ADMIN_API_KEY;
   const [error, setError] = useState<unknown>(null);
   const [form, setForm] = useState<AdminCreateUserRequest>({
     email: "",
     password: "",
     full_name: "",
-    roles: ["admin"],
+    roles: ["platform_staff_admin"],
   });
 
   const handleChange = (field: "email" | "password" | "full_name", value: string) => {
@@ -82,19 +82,19 @@ export default function BootstrapPage() {
               <label className="flex items-center gap-2 text-sm text-slate-300">
                 <input
                   type="checkbox"
-                  checked={Boolean(form.roles?.includes("admin"))}
+                  checked={Boolean(form.roles?.includes("platform_staff_admin"))}
                   onChange={(event) =>
                     setForm((prev) => ({
                       ...prev,
-                      roles: event.target.checked ? ["admin"] : [],
+                      roles: event.target.checked ? ["platform_staff_admin"] : [],
                     }))
                   }
                 />
-                Grant admin access
+                Grant platform admin access
               </label>
               {error ? <ErrorNotice error={error} /> : null}
               <div>
-                <Button type="submit" variant="secondary" disabled={isLoading}>
+                <Button type="submit" variant="secondary" disabled={isAuthLoading}>
                   Run Bootstrap
                 </Button>
               </div>

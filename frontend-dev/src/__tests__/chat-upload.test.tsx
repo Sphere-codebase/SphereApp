@@ -61,8 +61,11 @@ describe("chat pdf upload", () => {
             body: {
               id: 1,
               email: "doctor@example.com",
+              full_name: "Doctor Example",
+              role: "doctor",
+              clinic_id: 1,
+              clinic_name: "Test Clinic",
               is_active: true,
-              roles: ["doctor"],
             },
           })
         );

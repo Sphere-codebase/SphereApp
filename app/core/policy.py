@@ -45,6 +45,10 @@ def is_platform_staff_admin(user: User) -> bool:
     return role_for(user) == Role.PLATFORM_STAFF_ADMIN
 
 
+def is_platform_admin(user: User) -> bool:
+    return role_for(user) == Role.PLATFORM_STAFF_ADMIN
+
+
 def can(user: User, action: Action, resource: Resource, record: Any | None = None) -> bool:
     role = role_for(user)
 
@@ -72,7 +76,7 @@ def _same_clinic(user: User, record: Any | None) -> bool:
 
 def _can_claim(user: User, role: Role, action: Action, record: Any | None) -> bool:
     if role == Role.PLATFORM_STAFF_ADMIN:
-        return True
+        role = Role.CLINIC_ADMIN
 
     if action in {Action.LIST, Action.READ}:
         if record is None:
@@ -105,7 +109,7 @@ def _can_claim(user: User, role: Role, action: Action, record: Any | None) -> bo
 
 def _can_patient(user: User, role: Role, action: Action, record: Any | None) -> bool:
     if role == Role.PLATFORM_STAFF_ADMIN:
-        return True
+        role = Role.CLINIC_ADMIN
 
     if action in {Action.LIST, Action.READ}:
         if record is None:
@@ -133,7 +137,7 @@ def _can_patient(user: User, role: Role, action: Action, record: Any | None) -> 
 
 def _can_chat(user: User, role: Role, action: Action, record: Any | None) -> bool:
     if role == Role.PLATFORM_STAFF_ADMIN:
-        return True
+        role = Role.CLINIC_ADMIN
 
     if action in {Action.LIST, Action.READ, Action.CREATE, Action.UPDATE, Action.DELETE}:
         if record is None:
@@ -147,7 +151,7 @@ def _can_chat(user: User, role: Role, action: Action, record: Any | None) -> boo
 
 def _can_audit(user: User, role: Role, action: Action, record: Any | None) -> bool:
     if role == Role.PLATFORM_STAFF_ADMIN:
-        return True
+        role = Role.CLINIC_ADMIN
     if action in {Action.LIST, Action.READ}:
         if record is None:
             return True
@@ -157,9 +161,7 @@ def _can_audit(user: User, role: Role, action: Action, record: Any | None) -> bo
 
 def claim_scope_filters(user: User, model) -> list[ColumnElement[bool]]:
     role = role_for(user)
-    filters: list[ColumnElement[bool]] = []
-    if role != Role.PLATFORM_STAFF_ADMIN:
-        filters.append(model.clinic_id == user.clinic_id)
+    filters: list[ColumnElement[bool]] = [model.clinic_id == user.clinic_id]
     if role == Role.DOCTOR:
         filters.append(model.doctor_id == user.id)
     return filters
@@ -167,27 +169,19 @@ def claim_scope_filters(user: User, model) -> list[ColumnElement[bool]]:
 
 def patient_scope_filters(user: User, model) -> list[ColumnElement[bool]]:
     role = role_for(user)
-    filters: list[ColumnElement[bool]] = []
-    if role != Role.PLATFORM_STAFF_ADMIN:
-        filters.append(model.clinic_id == user.clinic_id)
+    filters: list[ColumnElement[bool]] = [model.clinic_id == user.clinic_id]
     if role == Role.DOCTOR:
         filters.append(model.doctor_id == user.id)
     return filters
 
 
 def chat_scope_filters(user: User, model) -> list[ColumnElement[bool]]:
-    role = role_for(user)
-    filters: list[ColumnElement[bool]] = []
-    if role != Role.PLATFORM_STAFF_ADMIN:
-        filters.append(model.clinic_id == user.clinic_id)
-    if role in {Role.DOCTOR, Role.CHIEF_DOCTOR, Role.CLINIC_ADMIN}:
-        filters.append(model.doctor_id == user.id)
+    filters: list[ColumnElement[bool]] = [
+        model.clinic_id == user.clinic_id,
+        model.doctor_id == user.id,
+    ]
     return filters
 
 
 def audit_scope_filters(user: User, model) -> list[ColumnElement[bool]]:
-    role = role_for(user)
-    filters: list[ColumnElement[bool]] = []
-    if role != Role.PLATFORM_STAFF_ADMIN:
-        filters.append(model.clinic_id == user.clinic_id)
-    return filters
+    return [model.clinic_id == user.clinic_id]
