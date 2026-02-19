@@ -6,12 +6,14 @@ from datetime import date, datetime, time, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuditLoggerDep, CurrentUserDep, require_roles
 from app.db.models import AuditLog, Claim, InsuranceCompany, User
 from app.db.session import get_db
+from app.utils.audit_export import diff_to_json, iter_csv
 from app.schemas.clinic_admin import (
     AuditLogItemDTO,
     AuditLogListResponse,
@@ -42,8 +44,8 @@ def _date_range(date_from: date | None, date_to: date | None) -> tuple[date, dat
 def clinic_dashboard(
     db: DbSessionDep,
     current_user: CurrentUserDep,
-    date_from: Annotated[date | None, Query()] = None,
-    date_to: Annotated[date | None, Query()] = None,
+    date_from: Annotated[date | None, Query(alias="from")] = None,
+    date_to: Annotated[date | None, Query(alias="to")] = None,
 ) -> ClinicDashboardResponse:
     require_roles("chief_doctor", "clinic_admin")(current_user)
     start_date, end_date = _date_range(date_from, date_to)
@@ -351,3 +353,97 @@ def list_clinic_audit_logs(
     ]
 
     return AuditLogListResponse(items=items, limit=limit, offset=offset, total=total)
+
+
+@router.get("/audit-logs/export")
+def export_clinic_audit_logs(
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+    actor_id: Annotated[int | None, Query()] = None,
+    action: Annotated[str | None, Query()] = None,
+    entity: Annotated[str | None, Query()] = None,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+    include_diff: Annotated[int, Query(ge=0, le=1)] = 0,
+) -> StreamingResponse:
+    require_roles("chief_doctor", "clinic_admin")(current_user)
+
+    filters = [AuditLog.clinic_id == current_user.clinic_id]
+    if actor_id is not None:
+        filters.append(AuditLog.actor_id == actor_id)
+    if entity:
+        filters.append(AuditLog.entity == entity)
+    if action:
+        filters.append(AuditLog.action.ilike(f"%{action}%"))
+    if date_from:
+        filters.append(AuditLog.created_at >= datetime.combine(date_from, time.min))
+    if date_to:
+        filters.append(AuditLog.created_at <= datetime.combine(date_to, time.max))
+
+    rows = (
+        db.execute(
+            select(AuditLog, User.full_name, User.email, User.role)
+            .join(User, User.id == AuditLog.actor_id, isouter=True)
+            .where(*filters)
+            .order_by(AuditLog.created_at.desc())
+        )
+        .all()
+    )
+
+    include_diff_json = bool(include_diff)
+    headers = [
+        "created_at",
+        "actor_id",
+        "actor_role",
+        "action",
+        "entity",
+        "entity_id",
+        "request_id",
+    ]
+    if include_diff_json:
+        headers.append("diff_json")
+
+    def row_iter():
+        for log, full_name, email, role in rows:
+            actor_role = log.actor_role or role
+            row = [
+                log.created_at.isoformat() if log.created_at else "",
+                log.actor_id,
+                actor_role,
+                log.action,
+                log.entity,
+                log.entity_id,
+                log.request_id,
+            ]
+            if include_diff_json:
+                row.append(diff_to_json(log.diff_json))
+            yield row
+
+    audit.log_event(
+        action="audit.exported",
+        entity="audit_logs",
+        entity_id=None,
+        actor=current_user,
+        clinic_id=current_user.clinic_id,
+        target_clinic_id=current_user.clinic_id,
+        diff={
+            "from": date_from.isoformat() if date_from else None,
+            "to": date_to.isoformat() if date_to else None,
+            "filters": {
+                "actor_id": actor_id,
+                "action": action,
+                "entity": entity,
+            },
+            "include_diff": include_diff_json,
+        },
+        scope="clinic",
+        actor_role=current_user.role,
+    )
+
+    filename = f"clinic_audit_logs_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    return StreamingResponse(
+        iter_csv(headers, row_iter()),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )

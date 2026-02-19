@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { listClinicAuditLogs, listClinicDoctors } from "@/api/clinicAdmin";
+import { exportClinicAuditLogs, listClinicAuditLogs, listClinicDoctors } from "@/api/clinicAdmin";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { AuditLogItemDTO, DoctorUserDTO } from "@/types/clinicAdmin";
@@ -37,6 +45,10 @@ export default function ClinicAuditLogsPage() {
   const [error, setError] = useState<string | null>(null);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [doctorOptions, setDoctorOptions] = useState<DoctorUserDTO[]>([]);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [includeDiff, setIncludeDiff] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -117,6 +129,38 @@ export default function ClinicAuditLogsPage() {
   const totalPages = useMemo(() => Math.ceil(total / PAGE_LIMIT), [total]);
   const currentPage = useMemo(() => Math.floor(offset / PAGE_LIMIT) + 1, [offset]);
 
+  const handleExport = async () => {
+    setExporting(true);
+    setExportError(null);
+    try {
+      const result = await exportClinicAuditLogs({
+        from: fromDate || undefined,
+        to: toDate || undefined,
+        actor_id: actorId ? Number(actorId) : undefined,
+        entity: entity || undefined,
+        action: action || undefined,
+        include_diff: includeDiff,
+      });
+      const url = URL.createObjectURL(result.blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = result.filename ?? "clinic_audit_logs.csv";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setExportOpen(false);
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        handleUnauthorized();
+        return;
+      }
+      setExportError("Unable to export audit logs.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-6 py-8">
@@ -143,6 +187,9 @@ export default function ClinicAuditLogsPage() {
                 Manage Doctors
               </Button>
             ) : null}
+            <Button type="button" onClick={() => setExportOpen(true)}>
+              Export CSV
+            </Button>
           </div>
         </header>
 
@@ -279,7 +326,25 @@ export default function ClinicAuditLogsPage() {
                       </Button>
                     </div>
                     {expanded ? (
-                      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                      <div className="mt-3 space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="text-[10px] uppercase text-slate-400">Request ID</div>
+                            <div className="text-xs text-slate-600 dark:text-slate-300">
+                              {item.request_id ?? "—"}
+                            </div>
+                          </div>
+                          {item.request_id ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void navigator.clipboard?.writeText(item.request_id ?? "")}
+                            >
+                              Copy
+                            </Button>
+                          ) : null}
+                        </div>
                         <pre className="max-h-60 overflow-auto whitespace-pre-wrap">
                           {JSON.stringify(item.diff_json ?? {}, null, 2)}
                         </pre>
@@ -291,6 +356,58 @@ export default function ClinicAuditLogsPage() {
             )}
           </CardContent>
         </Card>
+
+        <Dialog open={exportOpen} onOpenChange={setExportOpen}>
+          <DialogContent className="max-w-lg dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+            <DialogHeader>
+              <DialogTitle>Export Clinic Audit Logs</DialogTitle>
+              <DialogDescription className="dark:text-slate-300">
+                Export a CSV using the current filters.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-3 text-sm text-slate-600 dark:text-slate-300">
+              <label className="flex flex-col gap-1">
+                From
+                <input
+                  type="date"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  value={fromDate}
+                  onChange={(event) => setFromDate(event.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1">
+                To
+                <input
+                  type="date"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  value={toDate}
+                  onChange={(event) => setToDate(event.target.value)}
+                />
+              </label>
+              <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={includeDiff}
+                  onChange={(event) => setIncludeDiff(event.target.checked)}
+                />
+                Include diff_json (masked)
+              </label>
+              {exportError ? (
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+                  {exportError}
+                </div>
+              ) : null}
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setExportOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={handleExport} disabled={exporting}>
+                {exporting ? "Generating..." : "Download CSV"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
           <div>

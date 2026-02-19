@@ -82,6 +82,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
 app.add_middleware(RequestIdMiddleware)
 app.add_middleware(RequestLoggingMiddleware)

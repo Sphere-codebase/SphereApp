@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
+
+from app.core.logging import request_id_ctx
 
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -23,12 +26,20 @@ class RequestLoggingMiddleware:
         async def send_wrapper(message: Message) -> None:
             if message["type"] == "http.response.start":
                 latency_ms = (time.monotonic() - start) * 1000
-                self.logger.info(
-                    "request completed status=%s path=%s latency_ms=%.2f",
-                    message.get("status"),
-                    scope.get("path"),
-                    latency_ms,
-                )
+                state = scope.get("state") or {}
+                record = {
+                    "event": "http_request",
+                    "request_id": state.get("request_id") or request_id_ctx.get(),
+                    "method": scope.get("method"),
+                    "path": scope.get("path"),
+                    "status_code": message.get("status"),
+                    "duration_ms": round(latency_ms, 2),
+                    "user_id": state.get("current_user_id"),
+                    "clinic_id": state.get("current_user_clinic_id"),
+                    "role": state.get("current_user_role"),
+                    "error_code": state.get("error_code"),
+                }
+                self.logger.info(json.dumps(record, default=str))
             await send(message)
 
         await self.app(scope, receive, send_wrapper)

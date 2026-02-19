@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time, timedelta
-from typing import Any, Annotated
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -28,6 +29,7 @@ from app.schemas.platform_admin import (
     PlatformUsageTimeseries,
     PlatformUsageTopClinic,
 )
+from app.utils.audit_export import diff_to_json, iter_csv, mask_pii
 from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/platform", tags=["platform_admin"])
@@ -35,37 +37,6 @@ DbSessionDep = Annotated[Session, Depends(get_db)]
 AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
 
 
-PII_KEYS = {
-    "email",
-    "full_name",
-    "first_name",
-    "last_name",
-    "phone",
-    "primary_phone",
-    "secondary_phone",
-    "date_of_birth",
-    "dob",
-    "address",
-    "line1",
-    "line2",
-    "zip",
-    "chart_number",
-}
-
-
-def _mask_pii(value: Any) -> Any:
-    if isinstance(value, dict):
-        masked: dict[str, Any] = {}
-        for key, val in value.items():
-            key_lower = key.lower()
-            if key_lower in PII_KEYS:
-                masked[key] = "***REDACTED***"
-            else:
-                masked[key] = _mask_pii(val)
-        return masked
-    if isinstance(value, list):
-        return [_mask_pii(item) for item in value]
-    return value
 
 
 @router.get("/clinics", response_model=ClinicListResponse)
@@ -251,8 +222,8 @@ def list_platform_audit(
     db: DbSessionDep,
     current_user: AdminUserDep,
     clinic_id: Annotated[int | None, Query()] = None,
-    date_from: Annotated[date | None, Query()] = None,
-    date_to: Annotated[date | None, Query()] = None,
+    date_from: Annotated[date | None, Query(alias="from")] = None,
+    date_to: Annotated[date | None, Query(alias="to")] = None,
     entity: Annotated[str | None, Query()] = None,
     actor_id: Annotated[int | None, Query()] = None,
     action: Annotated[str | None, Query()] = None,
@@ -302,12 +273,113 @@ def list_platform_audit(
                 action=log.action,
                 entity=log.entity,
                 entity_id=log.entity_id,
-                diff_json=_mask_pii(log.diff_json) if log.diff_json else None,
-                request_id=log.request_id,
-            )
+        diff_json=mask_pii(log.diff_json) if log.diff_json else None,
+        request_id=log.request_id,
+    )
         )
 
     return PlatformAuditResponse(items=items, limit=limit, offset=offset, total=total)
+
+
+@router.get("/audit/export")
+def export_platform_audit_logs(
+    db: DbSessionDep,
+    current_user: AdminUserDep,
+    audit: AuditLoggerDep,
+    actor_id: Annotated[int | None, Query()] = None,
+    action: Annotated[str | None, Query()] = None,
+    entity: Annotated[str | None, Query()] = None,
+    clinic_id: Annotated[int | None, Query()] = None,
+    date_from: Annotated[date | None, Query()] = None,
+    date_to: Annotated[date | None, Query()] = None,
+    include_diff: Annotated[int, Query(ge=0, le=1)] = 0,
+) -> StreamingResponse:
+    filters = []
+    if clinic_id is not None:
+        filters.append(AuditLog.clinic_id == clinic_id)
+    if actor_id is not None:
+        filters.append(AuditLog.actor_id == actor_id)
+    if entity:
+        filters.append(AuditLog.entity == entity)
+    if action:
+        filters.append(AuditLog.action.ilike(f"%{action}%"))
+    if date_from:
+        filters.append(AuditLog.created_at >= datetime.combine(date_from, time.min))
+    if date_to:
+        filters.append(AuditLog.created_at <= datetime.combine(date_to, time.max))
+
+    rows = (
+        db.execute(
+            select(AuditLog, Clinic.name, User.full_name, User.email, User.role)
+            .join(Clinic, Clinic.id == AuditLog.clinic_id)
+            .join(User, User.id == AuditLog.actor_id, isouter=True)
+            .where(*filters)
+            .order_by(AuditLog.created_at.desc())
+        )
+        .all()
+    )
+
+    include_diff_json = bool(include_diff)
+    headers = [
+        "created_at",
+        "clinic_id",
+        "clinic_name",
+        "actor_id",
+        "actor_role",
+        "action",
+        "entity",
+        "entity_id",
+        "request_id",
+    ]
+    if include_diff_json:
+        headers.append("diff_json")
+
+    def row_iter():
+        for log, clinic_name, full_name, email, role in rows:
+            actor_role = log.actor_role or role
+            row = [
+                log.created_at.isoformat() if log.created_at else "",
+                log.clinic_id,
+                clinic_name,
+                log.actor_id,
+                actor_role,
+                log.action,
+                log.entity,
+                log.entity_id,
+                log.request_id,
+            ]
+            if include_diff_json:
+                row.append(diff_to_json(log.diff_json))
+            yield row
+
+    audit.log_event(
+        action="audit.exported",
+        entity="audit_logs",
+        entity_id=None,
+        actor=current_user,
+        clinic_id=current_user.clinic_id,
+        target_clinic_id=current_user.clinic_id,
+        diff={
+            "from": date_from.isoformat() if date_from else None,
+            "to": date_to.isoformat() if date_to else None,
+            "filters": {
+                "actor_id": actor_id,
+                "action": action,
+                "entity": entity,
+                "clinic_id": clinic_id,
+            },
+            "include_diff": include_diff_json,
+        },
+        scope="platform",
+        actor_role=current_user.role,
+    )
+
+    filename = f"platform_audit_logs_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.csv"
+    return StreamingResponse(
+        iter_csv(headers, row_iter()),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 def _usage_range(date_from: date | None, date_to: date | None) -> tuple[date, date]:

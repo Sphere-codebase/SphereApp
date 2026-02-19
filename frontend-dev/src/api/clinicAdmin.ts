@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requestJson } from "@/lib/api/client";
+import { requestBlob, requestJson } from "@/lib/api/client";
 import type {
   ClinicAuditLogResponseDTO,
   ClinicDashboardDTO,
@@ -141,4 +141,36 @@ export async function listClinicAuditLogs(params: {
     `/api/clinic/audit-logs${suffix ? `?${suffix}` : ""}`
   );
   return parseWithSchema(auditLogResponseSchema, data, "clinic audit logs");
+}
+
+export async function exportClinicAuditLogs(params: {
+  from?: string;
+  to?: string;
+  actor_id?: number;
+  entity?: string;
+  action?: string;
+  include_diff?: boolean;
+}): Promise<{ blob: Blob; filename: string | null }> {
+  const search = new URLSearchParams();
+  if (params.from) {
+    search.set("from", params.from);
+  }
+  if (params.to) {
+    search.set("to", params.to);
+  }
+  if (typeof params.actor_id === "number") {
+    search.set("actor_id", String(params.actor_id));
+  }
+  if (params.entity) {
+    search.set("entity", params.entity);
+  }
+  if (params.action) {
+    search.set("action", params.action);
+  }
+  search.set("include_diff", params.include_diff ? "1" : "0");
+  const suffix = search.toString();
+  const result = await requestBlob(
+    `/api/clinic/audit-logs/export${suffix ? `?${suffix}` : ""}`
+  );
+  return { blob: result.blob, filename: result.filename };
 }

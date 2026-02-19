@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import uuid
 
 from starlette.datastructures import Headers, MutableHeaders
@@ -16,7 +15,6 @@ class RequestIdMiddleware:
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
-        self.logger = logging.getLogger(__name__)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -34,11 +32,6 @@ class RequestIdMiddleware:
             if message["type"] == "http.response.start":
                 mutable_headers = MutableHeaders(scope=message)
                 mutable_headers["X-Request-ID"] = request_id
-                self.logger.info(
-                    "request completed status=%s path=%s",
-                    message.get("status"),
-                    scope.get("path"),
-                )
             await send(message)
 
         try:

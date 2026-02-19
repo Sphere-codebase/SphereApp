@@ -3,7 +3,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash
-from app.core.tenancy import reset_current_clinic_id, reset_current_is_platform_admin, set_current_clinic_id, set_current_is_platform_admin
+from app.core.tenancy import (
+    apply_rls_context,
+    reset_current_clinic_id,
+    reset_current_is_platform_admin,
+    set_current_clinic_id,
+    set_current_is_platform_admin,
+)
 from app.db.id_utils import next_id
 from app.db.models import Clinic, InsuranceCompany, Role, User, UserRole, Patient
 from app.db.session import get_db
@@ -234,6 +240,7 @@ def test_rls_blocks_cross_clinic_reads(db_session: Session) -> None:
     token_admin = set_current_is_platform_admin(False)
     token_clinic = set_current_clinic_id(clinic_b.id)
     try:
+        apply_rls_context(db_session, clinic_b.id, False)
         rows = db_session.execute(
             sa.select(Patient).where(Patient.id == patient.id)
         ).scalars().all()

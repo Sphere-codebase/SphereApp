@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requestJson } from "@/lib/api/client";
+import { requestBlob, requestJson } from "@/lib/api/client";
 import type {
   PlatformAuditResponseDTO,
   PlatformClinicsResponseDTO,
@@ -181,6 +181,42 @@ export async function listPlatformAudit(params: {
     `/api/platform/audit${suffix ? `?${suffix}` : ""}`
   );
   return parseWithSchema(platformAuditResponseSchema, data, "platform audit");
+}
+
+export async function exportPlatformAudit(params: {
+  clinic_id?: number;
+  from?: string;
+  to?: string;
+  entity?: string;
+  actor_id?: number;
+  action?: string;
+  include_diff?: boolean;
+}): Promise<{ blob: Blob; filename: string | null }> {
+  const search = new URLSearchParams();
+  if (typeof params.clinic_id === "number") {
+    search.set("clinic_id", String(params.clinic_id));
+  }
+  if (params.from) {
+    search.set("from", params.from);
+  }
+  if (params.to) {
+    search.set("to", params.to);
+  }
+  if (params.entity) {
+    search.set("entity", params.entity);
+  }
+  if (typeof params.actor_id === "number") {
+    search.set("actor_id", String(params.actor_id));
+  }
+  if (params.action) {
+    search.set("action", params.action);
+  }
+  search.set("include_diff", params.include_diff ? "1" : "0");
+  const suffix = search.toString();
+  const result = await requestBlob(
+    `/api/platform/audit/export${suffix ? `?${suffix}` : ""}`
+  );
+  return { blob: result.blob, filename: result.filename };
 }
 
 export async function getPlatformUsage(params?: {
