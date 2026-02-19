@@ -41,6 +41,7 @@ class UserResponse(BaseModel):
     email: EmailStr
     full_name: str | None = None
     role: str
+    roles: list[str] = Field(default_factory=list)
     clinic_id: int
     clinic_name: str | None = None
     is_active: bool

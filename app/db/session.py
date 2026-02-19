@@ -29,6 +29,7 @@ def _apply_rls_session_settings(
     clinic_id = get_current_clinic_id()
     is_platform_admin = get_current_is_platform_admin()
     clinic_value = "" if clinic_id is None else str(clinic_id)
+    connection.execute(text("SELECT set_config('row_security', 'on', true)"))
     connection.execute(
         text("SELECT set_config('app.current_clinic_id', :clinic_id, true)"),
         {"clinic_id": clinic_value},

@@ -26,7 +26,8 @@ class RequestIdMiddleware:
 
         scope.setdefault("state", {})
         scope["state"]["request_id"] = request_id
-        token = request_id_ctx.set(request_id)
+        previous_request_id = request_id_ctx.get()
+        request_id_ctx.set(request_id)
 
         async def send_wrapper(message: Message) -> None:
             if message["type"] == "http.response.start":
@@ -37,4 +38,4 @@ class RequestIdMiddleware:
         try:
             await self.app(scope, receive, send_wrapper)
         finally:
-            request_id_ctx.reset(token)
+            request_id_ctx.set(previous_request_id)

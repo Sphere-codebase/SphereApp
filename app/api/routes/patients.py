@@ -41,14 +41,14 @@ def _get_patient_or_404(db: Session, patient_id: int, current_user: User) -> Pat
     return patient
 
 
-@router.get("", response_model=PatientListResponse)
+@router.get("", response_model=list[PatientListItem])
 def list_patients(
     db: DbSessionDep,
     current_user: CurrentUserDep,
     query: Annotated[str | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> PatientListResponse:
+) -> list[PatientListItem]:
     search = query.strip() if query else None
     role = policy.role_for(current_user)
     doctor_id = current_user.id if role == policy.Role.DOCTOR else None
@@ -73,7 +73,7 @@ def list_patients(
         )
         for patient, doctor_name in rows
     ]
-    return PatientListResponse(items=items, limit=limit, offset=offset, total=total)
+    return items
 
 
 @router.post("", response_model=NewPatientCreateResponse, status_code=status.HTTP_201_CREATED)

@@ -296,7 +296,7 @@ def update_clinic_doctor(
     )
 
 
-@router.get("/audit-logs", response_model=AuditLogListResponse)
+@router.get("/audit-logs", response_model=list[AuditLogItemDTO])
 def list_clinic_audit_logs(
     db: DbSessionDep,
     current_user: CurrentUserDep,
@@ -307,8 +307,8 @@ def list_clinic_audit_logs(
     date_to: Annotated[date | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 25,
     offset: Annotated[int, Query(ge=0)] = 0,
-) -> AuditLogListResponse:
-    require_roles("chief_doctor", "clinic_admin")(current_user)
+) -> list[AuditLogItemDTO]:
+    require_roles("doctor", "chief_doctor", "clinic_admin")(current_user)
 
     filters = [AuditLog.clinic_id == current_user.clinic_id]
     if actor_id is not None:
@@ -339,6 +339,7 @@ def list_clinic_audit_logs(
     items = [
         AuditLogItemDTO(
             id=log.id,
+            clinic_id=log.clinic_id,
             created_at=log.created_at,
             actor_id=log.actor_id,
             actor_name=full_name or email,
@@ -352,7 +353,7 @@ def list_clinic_audit_logs(
         for log, full_name, email, role in rows
     ]
 
-    return AuditLogListResponse(items=items, limit=limit, offset=offset, total=total)
+    return items
 
 
 @router.get("/audit-logs/export")

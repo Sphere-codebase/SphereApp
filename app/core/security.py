@@ -116,11 +116,12 @@ async def get_current_user(
 
     # Keep ContextVar set/reset in the same async context to avoid token errors
     # when FastAPI runs sync endpoints in threadpool workers.
-    token = set_current_clinic_id(user.clinic_id)
-    admin_token = set_current_is_platform_admin(False)
-    apply_rls_context(db, user.clinic_id, False)
+    is_platform_admin = user.role == "platform_staff_admin"
+    previous_clinic_id = set_current_clinic_id(user.clinic_id)
+    previous_is_admin = set_current_is_platform_admin(is_platform_admin)
+    apply_rls_context(db, user.clinic_id, is_platform_admin)
     try:
         yield user
     finally:
-        reset_current_is_platform_admin(admin_token)
-        reset_current_clinic_id(token)
+        reset_current_is_platform_admin(previous_is_admin)
+        reset_current_clinic_id(previous_clinic_id)

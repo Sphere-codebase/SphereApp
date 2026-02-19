@@ -76,7 +76,8 @@ def _same_clinic(user: User, record: Any | None) -> bool:
 
 def _can_claim(user: User, role: Role, action: Action, record: Any | None) -> bool:
     if role == Role.PLATFORM_STAFF_ADMIN:
-        role = Role.CLINIC_ADMIN
+        if action in {Action.LIST, Action.READ, Action.CREATE, Action.UPDATE, Action.DELETE}:
+            return True
 
     if action in {Action.LIST, Action.READ}:
         if record is None:
@@ -109,7 +110,8 @@ def _can_claim(user: User, role: Role, action: Action, record: Any | None) -> bo
 
 def _can_patient(user: User, role: Role, action: Action, record: Any | None) -> bool:
     if role == Role.PLATFORM_STAFF_ADMIN:
-        role = Role.CLINIC_ADMIN
+        if action in {Action.LIST, Action.READ, Action.CREATE, Action.UPDATE, Action.DELETE}:
+            return True
 
     if action in {Action.LIST, Action.READ}:
         if record is None:
@@ -161,6 +163,8 @@ def _can_audit(user: User, role: Role, action: Action, record: Any | None) -> bo
 
 def claim_scope_filters(user: User, model) -> list[ColumnElement[bool]]:
     role = role_for(user)
+    if role == Role.PLATFORM_STAFF_ADMIN:
+        return []
     filters: list[ColumnElement[bool]] = [model.clinic_id == user.clinic_id]
     if role == Role.DOCTOR:
         filters.append(model.doctor_id == user.id)
@@ -169,6 +173,8 @@ def claim_scope_filters(user: User, model) -> list[ColumnElement[bool]]:
 
 def patient_scope_filters(user: User, model) -> list[ColumnElement[bool]]:
     role = role_for(user)
+    if role == Role.PLATFORM_STAFF_ADMIN:
+        return []
     filters: list[ColumnElement[bool]] = [model.clinic_id == user.clinic_id]
     if role == Role.DOCTOR:
         filters.append(model.doctor_id == user.id)

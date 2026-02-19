@@ -28,6 +28,7 @@ class DoctorUpdateRequest(BaseModel):
 
 class AuditLogItemDTO(BaseModel):
     id: int
+    clinic_id: int
     created_at: datetime | None
     actor_id: int | None
     actor_name: str | None

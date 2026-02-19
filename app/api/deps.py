@@ -32,12 +32,12 @@ def require_platform_staff_admin(
 ):
     if not policy.can(current_user, policy.Action.READ, policy.Resource.ADMIN_DIRECTORY):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
-    token = set_current_is_platform_admin(True)
+    previous_is_admin = set_current_is_platform_admin(True)
     apply_rls_context(db, current_user.clinic_id, True)
     try:
         yield current_user
     finally:
-        reset_current_is_platform_admin(token)
+        reset_current_is_platform_admin(previous_is_admin)
 
 
 def require_roles(*roles: str):

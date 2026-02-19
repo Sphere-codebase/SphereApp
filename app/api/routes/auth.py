@@ -147,11 +147,15 @@ def dev_token(payload: DevTokenRequest, db: DbSessionDep, audit: AuditLoggerDep)
 
 @router.get("/me", response_model=UserResponse)
 def me(current_user: CurrentUserDep) -> UserResponse:
+    roles = [role.code for role in current_user.roles] if current_user.roles else []
+    if not roles and current_user.role:
+        roles = [current_user.role]
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
         full_name=current_user.full_name,
         role=current_user.role,
+        roles=roles,
         clinic_id=current_user.clinic_id,
         clinic_name=current_user.clinic.name if current_user.clinic else None,
         is_active=bool(current_user.is_active),
