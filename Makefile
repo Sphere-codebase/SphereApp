@@ -26,6 +26,7 @@ EMAIL ?= user@example.com
 PASSWORD ?= secret
 FULL_NAME ?=
 ROLE ?= user
+TOKEN ?=
 
 .DEFAULT_GOAL := help
 
@@ -53,6 +54,8 @@ help:
 	@echo "  make clean        - remove caches"
 	@echo "  make create-user  - create standard user (requires ADMIN_API_KEY)"
 	@echo "  make create-admin - create admin user (requires ADMIN_API_KEY)"
+	@echo "  make perf-probe   - concurrent probe for /ready,/auth/me,/api/chat/sessions"
+	@echo "  make perf-report  - summarize logs/performance.log connect/request timings"
 	@echo ""
 	@echo "Docker (CI-like smoke):"
 	@echo "  make docker-build - build docker image ($(IMAGE_TAG):ci)"
@@ -240,6 +243,12 @@ create-admin:
 	  -H "X-Admin-Token: $(ADMIN_API_KEY)" \
 	  -d '{"email":"$(EMAIL)","password":"$(PASSWORD)","full_name":"$(FULL_NAME)","roles":["admin"]}' \
 	  | python -m json.tool
+
+perf-probe:
+	$(PY) tools/perf_probe.py --base-url "$(API_URL)" --token "$(TOKEN)"
+
+perf-report:
+	$(PY) tools/perf_report.py --log logs/performance.log
 
 # =========================
 # Audit (static analysis)

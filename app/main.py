@@ -20,28 +20,29 @@ from app.api.routes import (
     admin_mcp_codes_router,
     admin_patients_router,
     admin_router,
-    auth_router,
-    ai_history_router,
     agent_router,
-    chat_router,
+    ai_history_router,
+    auth_router,
     chat_actions_router,
-    clinic_admin_router,
+    chat_router,
     chat_sessions_router,
-    codes_router,
     claims_router,
+    clinic_admin_router,
+    codes_router,
     dashboard_router,
     files_router,
     health_router,
     insurance_companies_router,
     insurance_rules_router,
-    platform_admin_router,
     patients_router,
+    platform_admin_router,
     policy_links_router,
 )
 from app.core.config import settings
+from app.core.exceptions import ClinicBlockedError
 from app.core.logging import (
-    configure_logging,
     clinic_blocked_handler,
+    configure_logging,
     db_timeout_handler,
     http_exception_handler,
     llm_unavailable_handler,
@@ -49,13 +50,20 @@ from app.core.logging import (
     unhandled_exception_handler,
     validation_exception_handler,
 )
-from app.core.exceptions import ClinicBlockedError
+from app.core.performance_logging import (
+    configure_performance_logging,
+    performance_logging_middleware,
+    setup_sqlalchemy_query_logging,
+)
+from app.db.session import engine
 from app.llm.client import LLMUnavailable
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.request_logging import RequestLoggingMiddleware
 from app.parsers.policy.policy_parse import router as policy_parse_router
 
 configure_logging(settings.log_level)
+configure_performance_logging()
+setup_sqlalchemy_query_logging(engine)
 
 
 @asynccontextmanager
@@ -76,6 +84,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="claims-assistant", lifespan=lifespan)
+app.middleware("http")(performance_logging_middleware)
 
 app.add_middleware(
     CORSMiddleware,

@@ -16,6 +16,7 @@ is_platform_admin_ctx: contextvars.ContextVar[bool] = contextvars.ContextVar(
 )
 
 _RLS_ROLE_READY: set[str] = set()
+_RLS_STATE_INFO_KEY = "_rls_state_by_tx"
 
 
 def _is_test_env() -> bool:
@@ -44,7 +45,9 @@ def _ensure_rls_role(db: Session) -> None:
         )
     )
     db.execute(text("GRANT USAGE ON SCHEMA public TO app_rls"))
-    db.execute(text("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_rls"))
+    db.execute(
+        text("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_rls")
+    )
     db.execute(text("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_rls"))
     db.execute(
         text(
@@ -53,6 +56,76 @@ def _ensure_rls_role(db: Session) -> None:
         )
     )
     _RLS_ROLE_READY.add(db_name)
+
+
+def _transaction_key(db: Session, transaction: object | None = None) -> int | None:
+    tx = transaction or db.get_transaction()
+    if tx is None:
+        return None
+    return id(tx)
+
+
+def rls_state_matches(
+    db: Session,
+    clinic_value: str,
+    is_platform_admin: bool,
+    *,
+    transaction: object | None = None,
+) -> bool:
+    tx_key = _transaction_key(db, transaction)
+    if tx_key is None:
+        return False
+    state = db.info.get(_RLS_STATE_INFO_KEY)
+    if not isinstance(state, dict):
+        return False
+    expected = (clinic_value, bool(is_platform_admin))
+    return state.get(tx_key) == expected
+
+
+def mark_rls_state(
+    db: Session,
+    clinic_value: str,
+    is_platform_admin: bool,
+    *,
+    transaction: object | None = None,
+) -> None:
+    tx_key = _transaction_key(db, transaction)
+    if tx_key is None:
+        return
+    state = db.info.setdefault(_RLS_STATE_INFO_KEY, {})
+    if not isinstance(state, dict):
+        state = {}
+        db.info[_RLS_STATE_INFO_KEY] = state
+    state[tx_key] = (clinic_value, bool(is_platform_admin))
+
+
+def clear_rls_state(db: Session, transaction: object) -> None:
+    tx_key = _transaction_key(db, transaction)
+    if tx_key is None:
+        return
+    state = db.info.get(_RLS_STATE_INFO_KEY)
+    if not isinstance(state, dict):
+        return
+    state.pop(tx_key, None)
+    if not state:
+        db.info.pop(_RLS_STATE_INFO_KEY, None)
+
+
+def _apply_rls_settings(db: Session, clinic_value: str, is_platform_admin: bool) -> None:
+    db.execute(
+        text(
+            """
+            SELECT
+                set_config('row_security', 'on', true),
+                set_config('app.current_clinic_id', :clinic_id, true),
+                set_config('app.is_platform_admin', :is_admin, true)
+            """
+        ),
+        {
+            "clinic_id": clinic_value,
+            "is_admin": "true" if is_platform_admin else "false",
+        },
+    )
 
 
 def set_current_clinic_id(clinic_id: int | None) -> int | None:
@@ -89,15 +162,15 @@ def apply_rls_context(db: Session, clinic_id: int | None, is_platform_admin: boo
     clinic_value = "" if clinic_id is None else str(clinic_id)
     if not db.in_transaction():
         db.begin()
-    db.execute(text("SET LOCAL row_security = on"))
-    _ensure_rls_role(db)
-    if _is_test_env() or settings.env == "test":
+    is_test_env = _is_test_env() or settings.env == "test"
+    if not is_test_env and rls_state_matches(
+        db,
+        clinic_value,
+        is_platform_admin,
+    ):
+        return
+    _apply_rls_settings(db, clinic_value, is_platform_admin)
+    if is_test_env:
+        _ensure_rls_role(db)
         db.execute(text("SET ROLE app_rls"))
-    db.execute(
-        text("SET LOCAL app.current_clinic_id = :clinic_id"),
-        {"clinic_id": clinic_value},
-    )
-    db.execute(
-        text("SET LOCAL app.is_platform_admin = :is_admin"),
-        {"is_admin": "true" if is_platform_admin else "false"},
-    )
+    mark_rls_state(db, clinic_value, is_platform_admin)

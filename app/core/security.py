@@ -12,7 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, noload
 
 from app.core.config import settings
 from app.core.exceptions import ClinicBlockedError
@@ -23,7 +23,7 @@ from app.core.tenancy import (
     set_current_clinic_id,
     set_current_is_platform_admin,
 )
-from app.db.models import Clinic, User
+from app.db.models import User
 from app.db.session import get_db
 from app.services.audit import AuditContext, AuditLogger
 
@@ -82,13 +82,22 @@ async def get_current_user(
 
     # Resolve the user in a worker thread to avoid blocking the event loop.
     def _load_user() -> tuple[User | None, bool]:
-        user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+        user = (
+            db.execute(
+                select(User)
+                .options(
+                    joinedload(User.clinic),
+                    noload(User.roles),
+                )
+                .where(User.id == user_id)
+            )
+            .scalars()
+            .one_or_none()
+        )
         if user is None:
             return None, False
-        is_blocked = db.execute(
-            select(Clinic.is_blocked).where(Clinic.id == user.clinic_id)
-        ).scalar_one_or_none()
-        return user, bool(is_blocked) if is_blocked is not None else False
+        is_blocked = bool(getattr(user.clinic, "is_blocked", False)) if user.clinic else False
+        return user, is_blocked
 
     user, is_blocked = await run_in_threadpool(_load_user)
     if user is None or not user.is_active:
@@ -119,7 +128,13 @@ async def get_current_user(
     is_platform_admin = user.role == "platform_staff_admin"
     previous_clinic_id = set_current_clinic_id(user.clinic_id)
     previous_is_admin = set_current_is_platform_admin(is_platform_admin)
-    apply_rls_context(db, user.clinic_id, is_platform_admin)
+    if settings.env == "test":
+        # Tests rely on explicit role switching for strict RLS simulation.
+        apply_rls_context(db, user.clinic_id, is_platform_admin)
+    elif db.in_transaction():
+        # End the auth lookup transaction so downstream queries begin a fresh
+        # transaction and pick up tenant context once via Session after_begin.
+        await run_in_threadpool(db.commit)
     try:
         yield user
     finally:

@@ -10,7 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuditLoggerDep, require_platform_staff_admin
+from app.core.config import settings
 from app.core.logging import error_payload
+from app.core.response_cache import admin_ref_response_cache
 from app.db.models import McpCode, User
 from app.db.session import get_db
 from app.schemas.admin_catalogs import (
@@ -26,8 +28,25 @@ AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
 
 @router.get("", response_model=list[McpCodeResponse])
 def list_mcp_codes(db: DbSessionDep, current_user: AdminUserDep) -> list[McpCodeResponse]:
-    codes = db.execute(select(McpCode).order_by(McpCode.code.asc())).scalars().all()
-    return [McpCodeResponse.model_validate(code) for code in codes]
+    cache_key = (
+        "admin_ref",
+        "mcp_codes",
+        current_user.id,
+        current_user.clinic_id,
+        current_user.role,
+        current_user.role == "platform_staff_admin",
+    )
+
+    def _load_payload() -> list[dict[str, object]]:
+        codes = db.execute(select(McpCode).order_by(McpCode.code.asc())).scalars().all()
+        return [McpCodeResponse.model_validate(code).model_dump(mode="json") for code in codes]
+
+    payload = admin_ref_response_cache.get_or_set(
+        cache_key,
+        settings.admin_ref_cache_ttl_seconds,
+        _load_payload,
+    )
+    return [McpCodeResponse.model_validate(item) for item in payload]
 
 
 @router.post("", response_model=McpCodeResponse, status_code=status.HTTP_201_CREATED)
@@ -57,6 +76,7 @@ def create_mcp_code(
     db.add(code)
     db.commit()
     db.refresh(code)
+    admin_ref_response_cache.invalidate_prefix(("admin_ref", "mcp_codes"))
     audit.log_event(
         action="CREATE",
         entity="mcp_code",
@@ -98,6 +118,7 @@ def update_mcp_code(
     db.add(mcp_code)
     db.commit()
     db.refresh(mcp_code)
+    admin_ref_response_cache.invalidate_prefix(("admin_ref", "mcp_codes"))
     audit.log_event(
         action="UPDATE",
         entity="mcp_code",
@@ -122,6 +143,7 @@ def delete_mcp_code(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="MCP code not found")
     db.delete(mcp_code)
     db.commit()
+    admin_ref_response_cache.invalidate_prefix(("admin_ref", "mcp_codes"))
     audit.log_event(
         action="DELETE",
         entity="mcp_code",

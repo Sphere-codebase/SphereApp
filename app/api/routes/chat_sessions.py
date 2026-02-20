@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import AuditLoggerDep
 from app.core import policy
+from app.core.config import settings
+from app.core.response_cache import chat_sessions_response_cache
 from app.core.security import get_current_user
 from app.db.id_utils import next_id
 from app.db.models import AuditLog, ChatMessage, ChatSession, Claim, User
@@ -34,18 +36,39 @@ def list_sessions(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[ChatSessionResponse]:
-    sessions = (
-        db.execute(
-            select(ChatSession)
-            .where(*policy.chat_scope_filters(current_user, ChatSession))
-            .order_by(ChatSession.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-        .scalars()
-        .all()
+    cache_key = (
+        "chat_sessions",
+        current_user.id,
+        current_user.clinic_id,
+        current_user.role,
+        "list",
+        limit,
+        offset,
     )
-    return [ChatSessionResponse.model_validate(session) for session in sessions]
+
+    def _load_payload() -> list[dict[str, object]]:
+        sessions = (
+            db.execute(
+                select(ChatSession)
+                .where(*policy.chat_scope_filters(current_user, ChatSession))
+                .order_by(ChatSession.created_at.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            ChatSessionResponse.model_validate(session).model_dump(mode="json")
+            for session in sessions
+        ]
+
+    payload = chat_sessions_response_cache.get_or_set(
+        cache_key,
+        settings.chat_sessions_cache_ttl_seconds,
+        _load_payload,
+    )
+    return [ChatSessionResponse.model_validate(item) for item in payload]
 
 
 @router.get("/{session_id}", response_model=ChatSessionResponse)
@@ -95,6 +118,9 @@ def create_session(
     db.add(session)
     db.commit()
     db.refresh(session)
+    chat_sessions_response_cache.invalidate_prefix(
+        ("chat_sessions", current_user.id, current_user.clinic_id, current_user.role)
+    )
     created_fields: list[str] = []
     if payload.title:
         created_fields.append("title")
@@ -151,6 +177,9 @@ def update_session(
         db.add(session)
         db.commit()
         db.refresh(session)
+        chat_sessions_response_cache.invalidate_prefix(
+            ("chat_sessions", current_user.id, current_user.clinic_id, current_user.role)
+        )
         audit.log_event(
             action="UPDATE",
             entity="chat_session",
@@ -193,6 +222,9 @@ def delete_session(
     db.execute(ChatMessage.__table__.delete().where(ChatMessage.session_id == session.id))
     db.delete(session)
     db.commit()
+    chat_sessions_response_cache.invalidate_prefix(
+        ("chat_sessions", current_user.id, current_user.clinic_id, current_user.role)
+    )
     audit.log_event(
         action="DELETE",
         entity="chat_session",
@@ -211,26 +243,46 @@ def list_messages(
     db: DbSessionDep,
     current_user: CurrentUserDep,
 ) -> list[ChatMessageResponse]:
-    session = db.execute(
-        select(ChatSession).where(
-            ChatSession.id == session_id,
-            *policy.chat_scope_filters(current_user, ChatSession),
-        )
-    ).scalar_one_or_none()
-    if session is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-
-    messages = (
-        db.execute(
-            select(ChatMessage)
-            .where(
-                ChatMessage.session_id == session.id,
-                ChatMessage.clinic_id == current_user.clinic_id,
-                ChatMessage.role.in_(["user", "assistant"]),
-            )
-            .order_by(ChatMessage.created_at.asc())
-        )
-        .scalars()
-        .all()
+    cache_key = (
+        "chat_sessions",
+        current_user.id,
+        current_user.clinic_id,
+        current_user.role,
+        "messages",
+        session_id,
     )
-    return [ChatMessageResponse.model_validate(message) for message in messages]
+
+    def _load_payload() -> list[dict[str, object]]:
+        session = db.execute(
+            select(ChatSession).where(
+                ChatSession.id == session_id,
+                *policy.chat_scope_filters(current_user, ChatSession),
+            )
+        ).scalar_one_or_none()
+        if session is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+        messages = (
+            db.execute(
+                select(ChatMessage)
+                .where(
+                    ChatMessage.session_id == session.id,
+                    ChatMessage.clinic_id == current_user.clinic_id,
+                    ChatMessage.role.in_(["user", "assistant"]),
+                )
+                .order_by(ChatMessage.created_at.asc())
+            )
+            .scalars()
+            .all()
+        )
+        return [
+            ChatMessageResponse.model_validate(message).model_dump(mode="json")
+            for message in messages
+        ]
+
+    payload = chat_sessions_response_cache.get_or_set(
+        cache_key,
+        settings.chat_sessions_cache_ttl_seconds,
+        _load_payload,
+    )
+    return [ChatMessageResponse.model_validate(item) for item in payload]

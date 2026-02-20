@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Header, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core import policy
 from app.core.config import settings
 from app.core.security import get_current_user
-from app.core.tenancy import apply_rls_context, reset_current_is_platform_admin, set_current_is_platform_admin
+from app.core.tenancy import (
+    reset_current_is_platform_admin,
+    set_current_is_platform_admin,
+)
 from app.db.models import User
 from app.db.session import get_db
 from app.services.audit import AuditContext, AuditLogger
@@ -33,7 +36,6 @@ def require_platform_staff_admin(
     if not policy.can(current_user, policy.Action.READ, policy.Resource.ADMIN_DIRECTORY):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
     previous_is_admin = set_current_is_platform_admin(True)
-    apply_rls_context(db, current_user.clinic_id, True)
     try:
         yield current_user
     finally:

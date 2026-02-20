@@ -50,6 +50,11 @@ class Settings(BaseSettings):
         "postgresql+psycopg://postgres:postgres@localhost:5432/claims_assistant",
         alias="DATABASE_URL",
     )
+    db_pool_size: int = Field(10, alias="DB_POOL_SIZE")
+    db_max_overflow: int = Field(20, alias="DB_MAX_OVERFLOW")
+    db_pool_timeout: int = Field(30, alias="DB_POOL_TIMEOUT")
+    db_pool_recycle: int = Field(1800, alias="DB_POOL_RECYCLE")
+    db_pool_pre_ping: bool = Field(True, alias="DB_POOL_PRE_PING")
 
     jwt_secret: str = Field("change-me", alias="JWT_SECRET")
     jwt_algorithm: str = Field("HS256", alias="JWT_ALGORITHM")
@@ -62,6 +67,12 @@ class Settings(BaseSettings):
     max_user_message_chars: int = Field(4000, alias="MAX_USER_MESSAGE_CHARS")
     max_context_chars: int = Field(8000, alias="MAX_CONTEXT_CHARS")
     ready_check_llm: bool = Field(False, alias="READY_CHECK_LLM")
+    ready_db_cache_ttl_seconds: float = Field(2.0, alias="READY_DB_CACHE_TTL_SECONDS")
+    auth_me_cache_ttl_seconds: float = Field(60.0, alias="AUTH_ME_CACHE_TTL_SECONDS")
+    admin_ref_cache_ttl_seconds: float = Field(300.0, alias="ADMIN_REF_CACHE_TTL_SECONDS")
+    chat_sessions_cache_ttl_seconds: float = Field(
+        5.0, alias="CHAT_SESSIONS_CACHE_TTL_SECONDS"
+    )
 
     pdf_parser_url: str = Field("http://localhost:8001", alias="PDF_PARSER_URL")
     pdf_parser_api_key: str = Field("default_secret", alias="PDF_PARSER_API_KEY")
