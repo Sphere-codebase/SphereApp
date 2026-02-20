@@ -95,7 +95,7 @@ migrate-local:
 # App run
 # -----------------------
 run:
-	$(VENV)/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+	$(VENV)/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app
 
 run-prod:
 	$(VENV)/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
