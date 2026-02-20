@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import os
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -17,11 +18,15 @@ is_platform_admin_ctx: contextvars.ContextVar[bool] = contextvars.ContextVar(
 _RLS_ROLE_READY: set[str] = set()
 
 
+def _is_test_env() -> bool:
+    return os.getenv("ENV") == "test"
+
+
 def _ensure_rls_role(db: Session) -> None:
     global _RLS_ROLE_READY
     from app.core.config import settings
 
-    if settings.env != "test":
+    if not _is_test_env() and settings.env != "test":
         return
     db_name = db.execute(text("SELECT current_database()")).scalar_one()
     if db_name in _RLS_ROLE_READY:
@@ -84,7 +89,7 @@ def apply_rls_context(db: Session, clinic_id: int | None, is_platform_admin: boo
     clinic_value = "" if clinic_id is None else str(clinic_id)
     db.execute(text("SELECT set_config('row_security', 'on', true)"))
     _ensure_rls_role(db)
-    if settings.env == "test":
+    if _is_test_env() or settings.env == "test":
         db.execute(text("SET ROLE app_rls"))
     db.execute(
         text("SELECT set_config('app.current_clinic_id', :clinic_id, true)"),

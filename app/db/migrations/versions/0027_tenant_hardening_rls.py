@@ -58,6 +58,7 @@ def upgrade() -> None:
     for table_name in TABLES:
         policy_name = f"rls_{table_name}_clinic"
         op.execute(f"ALTER TABLE {table_name} ENABLE ROW LEVEL SECURITY;")
+        op.execute(f"ALTER TABLE {table_name} FORCE ROW LEVEL SECURITY;")
         op.execute(POLICY_TEMPLATE.format(table_name=table_name, policy_name=policy_name))
 
 
