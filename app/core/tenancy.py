@@ -87,15 +87,17 @@ def apply_rls_context(db: Session, clinic_id: int | None, is_platform_admin: boo
     from app.core.config import settings
 
     clinic_value = "" if clinic_id is None else str(clinic_id)
-    db.execute(text("SELECT set_config('row_security', 'on', true)"))
+    if not db.in_transaction():
+        db.begin()
+    db.execute(text("SET LOCAL row_security = on"))
     _ensure_rls_role(db)
     if _is_test_env() or settings.env == "test":
         db.execute(text("SET ROLE app_rls"))
     db.execute(
-        text("SELECT set_config('app.current_clinic_id', :clinic_id, true)"),
+        text("SET LOCAL app.current_clinic_id = :clinic_id"),
         {"clinic_id": clinic_value},
     )
     db.execute(
-        text("SELECT set_config('app.is_platform_admin', :is_admin, true)"),
+        text("SET LOCAL app.is_platform_admin = :is_admin"),
         {"is_admin": "true" if is_platform_admin else "false"},
     )

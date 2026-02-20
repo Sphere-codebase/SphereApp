@@ -40,19 +40,6 @@ def _apply_rls_session_settings(
     )
 
 
-@event.listens_for(Engine, "checkin")
-def _reset_rls_settings(dbapi_connection, _connection_record) -> None:
-    """Reset tenant context on pooled connections to avoid cross-test leakage."""
-    cursor = dbapi_connection.cursor()
-    try:
-        cursor.execute("RESET ROLE")
-        cursor.execute("RESET app.current_clinic_id")
-        cursor.execute("RESET app.is_platform_admin")
-        cursor.execute("SET row_security = on")
-    finally:
-        cursor.close()
-
-
 def get_db() -> Iterator[Session]:
     db = SessionLocal()
     try:
