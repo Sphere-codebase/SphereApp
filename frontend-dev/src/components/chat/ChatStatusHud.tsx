@@ -20,10 +20,14 @@ const POLL_INTERVAL_MS = 10000;
 const REQUEST_TIMEOUT_MS = 60000;
 
 function normalizeCheck(value: unknown): StatusLevel {
-  return value === "ok" ? "ok" : "err";
+  if (value === "ok") {
+    return "ok";
+  }
+  if (value === "warn") {
+    return "idle";
+  }
+  return "err";
 }
-
-
 async function parseJsonStrict(response: Response): Promise<Record<string, unknown>> {
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
@@ -66,13 +70,12 @@ function lampColor(status: StatusLevel): string {
   return "bg-rose-500 shadow-rose-400/60";
 }
 
-
 export default function ChatStatusHud({ busy }: ChatStatusHudProps) {
-    const [apiStatus, setApiStatus] = useState<StatusLevel>("err");
-    const [readyChecks, setReadyChecks] = useState<ReadyChecks>({
-      db: "err",
-      llm: "err",
-    });
+  const [apiStatus, setApiStatus] = useState<StatusLevel>("err");
+  const [readyChecks, setReadyChecks] = useState<ReadyChecks>({
+    db: "err",
+    llm: "err",
+  });
 
   const [showLegend, setShowLegend] = useState(false);
   const previousBusy = useRef(busy);
@@ -87,44 +90,44 @@ export default function ChatStatusHud({ busy }: ChatStatusHudProps) {
     }
   }, []);
 
-const lastReadyRef = useRef<{ db: StatusLevel; llm: StatusLevel }>({
-  db: "err",
-  llm: "idle", // Изначально idle, так как ждет DB
-});
+  const lastReadyRef = useRef<{ db: StatusLevel; llm: StatusLevel }>({
+    db: "err",
+    llm: "err",
+  });
 
-const checkReady = useCallback(async () => {
-  try {
-    const response = await fetchWithTimeout(apiUrl("/ready"), REQUEST_TIMEOUT_MS);
-    const data = await parseJsonStrict(response);
-    const checks = data.checks as Record<string, unknown>;
+  const checkReady = useCallback(async () => {
+    try {
+      const response = await fetchWithTimeout(apiUrl("/ready"), REQUEST_TIMEOUT_MS);
+      const data = await parseJsonStrict(response);
+      const checks = data.checks as Record<string, unknown>;
 
-    if (!checks || checks.db === undefined || checks.llm === undefined) {
-      throw new Error("Invalid checks payload");
+      if (!checks || checks.db === undefined || checks.llm === undefined) {
+        throw new Error("Invalid checks payload");
+      }
+
+      let dbStatus = normalizeCheck(checks.db);
+      let llmStatus = normalizeCheck(checks.llm);
+
+      // if (dbStatus === "err") {
+      //   llmStatus = "err";
+      // } else if (dbStatus === "ok" && llmStatus !== "err") {
+      //   llmStatus = dbStatus;
+      // }
+
+      const next = {
+        db: dbStatus,
+        llm: llmStatus,
+      };
+
+      lastReadyRef.current = next;
+      return next;
+    } catch (error) {
+      console.error("Check ready error:", error);
+      const fallback = { db: "err", llm: "err" } as const;
+      lastReadyRef.current = fallback;
+      return fallback;
     }
-
-    let dbStatus = normalizeCheck(checks.db);
-    let llmStatus = normalizeCheck(checks.llm);
-
-//     if (dbStatus === "err") {
-//       llmStatus = "err";
-//     } else if (dbStatus === "ok" && llmStatus !== "err") {
-//       llmStatus = dbStatus;
-//     }
-
-    const next = {
-      db: dbStatus,
-      llm: llmStatus,
-    };
-
-    lastReadyRef.current = next;
-    return next;
-  } catch (error) {
-    console.error("Check ready error:", error);
-    return lastReadyRef.current;
-  }
-}, []);
-
-
+  }, []);
 
   const poll = useCallback(async () => {
     const [api, ready] = await Promise.all([checkHealth(), checkReady()]);

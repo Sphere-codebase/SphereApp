@@ -63,6 +63,9 @@ type ClaimDraftPanelProps = {
   draftPreview: Partial<ClaimDraftPreview>;
   isLoading: boolean;
   claimError: string | null;
+  showAdmin: boolean;
+  onOpenUploadPdf: () => void;
+  onOpenCreateClaim: () => void;
   onAddMcpCode: (code: MCPCodeDTO) => void;
   onRemoveMcpCode: (code: MCPCodeDTO) => void;
   onAddDiagnosisCode: (code: DiagnosisCodeDTO) => void;
@@ -88,6 +91,9 @@ export default function ClaimDraftPanel({
   draftPreview,
   isLoading,
   claimError,
+  showAdmin,
+  onOpenUploadPdf,
+  onOpenCreateClaim,
   onAddMcpCode,
   onRemoveMcpCode,
   onAddDiagnosisCode,
@@ -135,9 +141,9 @@ export default function ClaimDraftPanel({
 
   if (!currentClaim && !hasPreview) {
     return (
-      <aside className="flex flex-col gap-3 rounded-3xl border border-dashed border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+      <aside className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
         <div className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Claim Draft
+          Tools
         </div>
         {isLoading ? <div className="text-xs text-slate-500">Loading claim...</div> : null}
         {claimError ? (
@@ -145,7 +151,14 @@ export default function ClaimDraftPanel({
             {claimError}
           </div>
         ) : null}
-        <div>No active claim. Use Tools → Create Claim.</div>
+        <div className="flex flex-col gap-2">
+          <Button type="button" variant="outline" onClick={onOpenUploadPdf}>
+            Upload PDF
+          </Button>
+          <Button type="button" variant="outline" onClick={onOpenCreateClaim}>
+            Create Claim
+          </Button>
+        </div>
       </aside>
     );
   }

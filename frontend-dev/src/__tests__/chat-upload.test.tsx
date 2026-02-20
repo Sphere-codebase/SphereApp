@@ -1,5 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -19,12 +20,20 @@ const buildJsonResponse = ({ status, body, requestId }: JsonResponseInit): Respo
 };
 
 const renderWithProviders = () => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
   return render(
-    <AuthProvider>
-      <MemoryRouter>
-        <ChatPage />
-      </MemoryRouter>
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <MemoryRouter>
+          <ChatPage />
+        </MemoryRouter>
+      </AuthProvider>
+    </QueryClientProvider>
   );
 };
 
@@ -117,7 +126,7 @@ describe("chat pdf upload", () => {
 
     renderWithProviders();
 
-    await userEvent.click(await screen.findByText("Tools", { selector: "summary" }));
+    await screen.findByText("Tools");
     await userEvent.click(await screen.findByRole("button", { name: "Upload PDF" }));
 
     const fileInput = await screen.findByLabelText("Upload PDF file");
@@ -129,6 +138,11 @@ describe("chat pdf upload", () => {
     expect(await screen.findByText("Response Preview")).toBeInTheDocument();
     expect(await screen.findByText(/Lloyd Goldfarb/i)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    const dialog = await screen.findByRole("dialog", { name: /upload pdf/i });
+    const closeButtons = within(dialog).getAllByRole("button", { name: "Close" });
+    const closeButton =
+      closeButtons.find((button) => !button.querySelector("span.sr-only")) ??
+      closeButtons[0];
+    await userEvent.click(closeButton);
   });
 });

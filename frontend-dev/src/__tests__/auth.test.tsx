@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -23,12 +24,20 @@ const buildJsonResponse = ({ status, body, requestId }: JsonResponseInit): Respo
 };
 
 const renderWithProviders = (initialEntries: string[]) => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
   return render(
-    <AuthProvider>
-      <MemoryRouter initialEntries={initialEntries}>
-        <AppRoutes />
-      </MemoryRouter>
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <MemoryRouter initialEntries={initialEntries}>
+          <AppRoutes />
+        </MemoryRouter>
+      </AuthProvider>
+    </QueryClientProvider>
   );
 };
 
@@ -78,17 +87,25 @@ describe("auth flow", () => {
           })
         );
       }
-      if (url.endsWith("/api/dashboard/doctor") && method === "GET") {
+      if (url.includes("/api/chat/sessions") && method === "GET") {
         return Promise.resolve(
           buildJsonResponse({
             status: 200,
-            body: {
-              doctor: { id: 7, full_name: "Doc One" },
-              active_sessions: [],
-              recent_claims: [],
-            },
+            body: [
+              {
+                id: 1,
+                doctor_id: 7,
+                created_at: "2026-02-19T10:00:00Z",
+                claim_id: null,
+                patient_id: null,
+                title: "Test Session",
+              },
+            ],
           })
         );
+      }
+      if (url.includes("/api/chat/sessions/1/messages") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
       }
       return Promise.reject(new Error("unexpected request"));
     });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import ErrorNotice from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 
 export default function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { login, me, isAuthLoading, clinicBlocked, blockedMessage } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -14,11 +15,39 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (me) {
+      const returnTo = searchParams.get("returnTo");
+      const normalized = returnTo?.startsWith("/app/") ? returnTo : null;
+      const role = me.role;
+      const allow = (roles: string[]) => roles.includes(role);
+      const isAllowedReturnTo = (path: string) => {
+        if (path.startsWith("/app/platform")) {
+          return role === "platform_staff_admin";
+        }
+        if (path.startsWith("/app/clinic")) {
+          return allow(["chief_doctor", "clinic_admin"]);
+        }
+        if (path.startsWith("/app/admin")) {
+          return allow(["platform_staff_admin", "clinic_admin", "chief_doctor"]);
+        }
+        if (
+          path.startsWith("/app/chat") ||
+          path.startsWith("/app/workspace") ||
+          path.startsWith("/app/patients") ||
+          path.startsWith("/app/ai-history") ||
+          path.startsWith("/app/insurance-rules")
+        ) {
+          return allow(["doctor", "chief_doctor", "clinic_admin", "platform_staff_admin"]);
+        }
+        if (path.startsWith("/app/dashboard")) {
+          return allow(["doctor", "chief_doctor", "clinic_admin"]);
+        }
+        return false;
+      };
       const nextRoute =
-        me.role === "platform_staff_admin" ? "/app/platform/clinics" : "/app/dashboard";
+        normalized && isAllowedReturnTo(normalized) ? normalized : "/app/chat";
       navigate(nextRoute, { replace: true });
     }
-  }, [me, navigate]);
+  }, [me, navigate, searchParams]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

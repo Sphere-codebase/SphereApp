@@ -1,6 +1,6 @@
 import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
   addDiagnosisCode,
@@ -643,19 +643,8 @@ function WorkspaceShell() {
           subtitle={me?.clinic_name ?? "SphereApp Chat"}
           theme={theme}
           isSending={isSending}
-          showAdmin={hasRole("platform_staff_admin")}
-          isReadOnly={isReadOnly}
+          showAdmin={hasRole(["platform_staff_admin", "clinic_admin", "chief_doctor"])}
           claimStatus={currentClaim?.claim_status ?? null}
-          onOpenUploadPdf={() => {
-            if (!isReadOnly) {
-              setUploadOpen(true);
-            }
-          }}
-          onOpenCreateClaim={() => {
-            if (!isReadOnly) {
-              setCreateClaimOpen(true);
-            }
-          }}
           onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
           onLogout={handleUnauthorized}
         />
@@ -682,6 +671,12 @@ function WorkspaceShell() {
 
         <div className="grid gap-6 lg:grid-cols-[260px_1fr_260px]">
           <aside className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <Link
+              to="/app/dashboard"
+              className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:pointer-events-none disabled:opacity-50 border border-slate-200 bg-white text-slate-900 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 h-11 px-5"
+            >
+              Dashboard
+            </Link>
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 Sessions
@@ -968,6 +963,17 @@ function WorkspaceShell() {
             draftPreview={draftPreview}
             isLoading={isLoadingClaim}
             claimError={claimError}
+            showAdmin={hasRole(["platform_staff_admin", "clinic_admin", "chief_doctor"])}
+            onOpenUploadPdf={() => {
+              if (!isReadOnly) {
+                setUploadOpen(true);
+              }
+            }}
+            onOpenCreateClaim={() => {
+              if (!isReadOnly) {
+                setCreateClaimOpen(true);
+              }
+            }}
             onAddMcpCode={handleAddMcpCode}
             onRemoveMcpCode={handleRemoveMcpCode}
             onAddDiagnosisCode={handleAddDiagnosisCode}

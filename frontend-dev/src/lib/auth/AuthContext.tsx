@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { login as loginApi, getMe } from "@/api/auth";
 import { requestJson } from "@/lib/api/client";
@@ -21,6 +22,10 @@ import {
   type StoredToken,
 } from "@/lib/auth/token";
 import type { MeDTO, UserRole } from "@/types/auth";
+
+const AUTH_ME_QUERY_KEY = ["auth", "me"] as const;
+const AUTH_ME_STALE_TIME = 2 * 60_000;
+const AUTH_ME_GC_TIME = 10 * 60_000;
 
 export interface AuthContextValue {
   me: MeDTO | null;
@@ -45,17 +50,23 @@ function getInitialToken(): string | null {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [me, setMe] = useState<MeDTO | null>(null);
   const [token, setToken] = useState<string | null>(getInitialToken);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [clinicBlocked, setClinicBlocked] = useState(false);
   const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
 
+  const clearCachedMe = useCallback(() => {
+    queryClient.removeQueries({ queryKey: AUTH_ME_QUERY_KEY });
+  }, [queryClient]);
+
   const logout = useCallback(() => {
     setLogoutFlag();
     setToken(null);
     setMe(null);
-  }, []);
+    clearCachedMe();
+  }, [clearCachedMe]);
 
   const handleClinicBlocked = useCallback(() => {
     setClinicBlocked(true);
@@ -63,7 +74,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setLogoutFlag();
     setToken(null);
     setMe(null);
-  }, []);
+    clearCachedMe();
+  }, [clearCachedMe]);
 
   const refreshMe = useCallback(async () => {
     const storedToken = isLogoutFlagSet() ? null : getStoredToken()?.accessToken ?? null;
@@ -71,11 +83,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!currentToken) {
       setMe(null);
       setIsAuthLoading(false);
+      clearCachedMe();
       return;
     }
+
+    const cachedMe = queryClient.getQueryData<MeDTO>(AUTH_ME_QUERY_KEY);
+    const queryState = queryClient.getQueryState<MeDTO>(AUTH_ME_QUERY_KEY);
+    const isFresh =
+      queryState?.dataUpdatedAt != null &&
+      Date.now() - queryState.dataUpdatedAt < AUTH_ME_STALE_TIME;
+
+    if (cachedMe) {
+      setMe(cachedMe);
+      setIsAuthLoading(false);
+      if (isFresh) {
+        return;
+      }
+      void queryClient
+        .fetchQuery({
+          queryKey: AUTH_ME_QUERY_KEY,
+          queryFn: getMe,
+          staleTime: AUTH_ME_STALE_TIME,
+          gcTime: AUTH_ME_GC_TIME,
+        })
+        .then((meResponse) => {
+          if (!meResponse.is_active) {
+            logout();
+            return;
+          }
+          setClinicBlocked(false);
+          setBlockedMessage(null);
+          setMe(meResponse);
+        })
+        .catch((error) => {
+          if (error instanceof ApiError) {
+            if (error.payload?.error.code === "CLINIC_BLOCKED") {
+              handleClinicBlocked();
+              return;
+            }
+            if (error.status === 401 || error.status === 403) {
+              logout();
+              return;
+            }
+          }
+        });
+      return;
+    }
+
     setIsAuthLoading(true);
     try {
-      const meResponse = await getMe();
+      const meResponse = await queryClient.fetchQuery({
+        queryKey: AUTH_ME_QUERY_KEY,
+        queryFn: getMe,
+        staleTime: AUTH_ME_STALE_TIME,
+        gcTime: AUTH_ME_GC_TIME,
+      });
       if (!meResponse.is_active) {
         logout();
         return;
@@ -98,7 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsAuthLoading(false);
     }
-  }, [token, logout, handleClinicBlocked]);
+  }, [token, queryClient, clearCachedMe, logout, handleClinicBlocked]);
 
   const login = useCallback(async (email: string, password: string) => {
     setIsAuthLoading(true);

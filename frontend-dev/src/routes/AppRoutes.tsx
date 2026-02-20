@@ -22,8 +22,24 @@ import RoleRoute from "@/routes/RoleRoute";
 export default function AppRoutes() {
   return (
     <Routes>
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <Navigate to="/app/chat" replace />
+          </ProtectedRoute>
+        }
+      />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/bootstrap" element={<BootstrapPage />} />
+      <Route
+        path="/app"
+        element={
+          <ProtectedRoute>
+            <Navigate to="/app/chat" replace />
+          </ProtectedRoute>
+        }
+      />
       <Route
         path="/app/dashboard"
         element={
@@ -35,7 +51,14 @@ export default function AppRoutes() {
       <Route
         path="/app/chat"
         element={
-          <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
+          <RoleRoute
+            allowedRoles={[
+              "doctor",
+              "chief_doctor",
+              "clinic_admin",
+              "platform_staff_admin",
+            ]}
+          >
             <ChatPage />
           </RoleRoute>
         }
@@ -59,7 +82,14 @@ export default function AppRoutes() {
       <Route
         path="/app/workspace"
         element={
-          <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
+          <RoleRoute
+            allowedRoles={[
+              "doctor",
+              "chief_doctor",
+              "clinic_admin",
+              "platform_staff_admin",
+            ]}
+          >
             <ChatPage />
           </RoleRoute>
         }
@@ -67,7 +97,14 @@ export default function AppRoutes() {
       <Route
         path="/app/workspace/:sessionId"
         element={
-          <RoleRoute allowedRoles={["doctor", "chief_doctor", "clinic_admin"]}>
+          <RoleRoute
+            allowedRoles={[
+              "doctor",
+              "chief_doctor",
+              "clinic_admin",
+              "platform_staff_admin",
+            ]}
+          >
             <ChatPage />
           </RoleRoute>
         }
@@ -139,7 +176,9 @@ export default function AppRoutes() {
       <Route
         path="/app/admin"
         element={
-          <RoleRoute allowedRoles={["platform_staff_admin"]}>
+          <RoleRoute
+            allowedRoles={["platform_staff_admin", "clinic_admin", "chief_doctor"]}
+          >
             <AdminPage />
           </RoleRoute>
         }
@@ -147,7 +186,9 @@ export default function AppRoutes() {
       <Route
         path="/app/admin/policy-rules"
         element={
-          <RoleRoute allowedRoles={["platform_staff_admin"]}>
+          <RoleRoute
+            allowedRoles={["platform_staff_admin", "clinic_admin", "chief_doctor"]}
+          >
             <AdminPolicyRulesPage />
           </RoleRoute>
         }

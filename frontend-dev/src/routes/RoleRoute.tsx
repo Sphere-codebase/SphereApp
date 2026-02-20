@@ -12,7 +12,7 @@ type RoleRouteProps = {
 export default function RoleRoute({
   allowedRoles,
   children,
-  redirectTo = "/app/dashboard",
+  redirectTo = "/app/chat",
 }: RoleRouteProps) {
   const { token, me, isAuthLoading, clinicBlocked, blockedMessage } = useAuth();
 
