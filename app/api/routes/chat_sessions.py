@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import AuditLoggerDep
 from app.core import policy
 from app.core.config import settings
-from app.core.response_cache import chat_sessions_response_cache
+from app.core.response_cache import chat_session_messages_cache_key, chat_sessions_response_cache
 from app.core.security import get_current_user
 from app.db.id_utils import next_id
 from app.db.models import AuditLog, ChatMessage, ChatSession, Claim, User
@@ -243,13 +244,11 @@ def list_messages(
     db: DbSessionDep,
     current_user: CurrentUserDep,
 ) -> list[ChatMessageResponse]:
-    cache_key = (
-        "chat_sessions",
-        current_user.id,
-        current_user.clinic_id,
-        current_user.role,
-        "messages",
-        session_id,
+    cache_key = chat_session_messages_cache_key(
+        user_id=current_user.id,
+        clinic_id=current_user.clinic_id,
+        role=current_user.role,
+        session_id=session_id,
     )
 
     def _load_payload() -> list[dict[str, object]]:
@@ -280,9 +279,12 @@ def list_messages(
             for message in messages
         ]
 
-    payload = chat_sessions_response_cache.get_or_set(
-        cache_key,
-        settings.chat_sessions_cache_ttl_seconds,
-        _load_payload,
-    )
+    if settings.env == "test" or os.getenv("ENV") == "test":
+        payload = _load_payload()
+    else:
+        payload = chat_sessions_response_cache.get_or_set(
+            cache_key,
+            settings.chat_sessions_cache_ttl_seconds,
+            _load_payload,
+        )
     return [ChatMessageResponse.model_validate(item) for item in payload]

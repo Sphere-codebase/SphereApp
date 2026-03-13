@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.logging import log_chat_event
+from app.core.response_cache import invalidate_chat_session_messages_cache
 from app.db.id_utils import next_id
 from app.db.models import ChatMessage, ChatSession, User
 from app.llm.client import ChatCompletionResult, LLMClient, ToolCall
@@ -256,6 +257,7 @@ class ChatOrchestrator:
         self.db.add(message)
         self.db.commit()
         self.db.refresh(message)
+        self._invalidate_messages_cache(session_id)
         return message
 
     def _store_tool_call(self, session_id: int, call: ToolCall) -> None:
@@ -273,6 +275,7 @@ class ChatOrchestrator:
         )
         self.db.add(message)
         self.db.commit()
+        self._invalidate_messages_cache(session_id)
 
     def _store_tool_result(self, session_id: int, tool_name: str, result: dict[str, Any]) -> None:
         if not tool_name or result is None:
@@ -289,6 +292,7 @@ class ChatOrchestrator:
         )
         self.db.add(message)
         self.db.commit()
+        self._invalidate_messages_cache(session_id)
 
     def _summarize_payload(self, payload: dict[str, Any]) -> str:
         try:
@@ -298,3 +302,11 @@ class ChatOrchestrator:
         if len(rendered) <= settings.max_context_chars:
             return rendered
         return f"{rendered[: settings.max_context_chars]}…"
+
+    def _invalidate_messages_cache(self, session_id: int) -> None:
+        invalidate_chat_session_messages_cache(
+            user_id=self.user.id,
+            clinic_id=self.user.clinic_id,
+            role=self.user.role,
+            session_id=session_id,
+        )

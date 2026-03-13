@@ -61,3 +61,37 @@ class TTLResponseCache:
 auth_me_response_cache = TTLResponseCache()
 admin_ref_response_cache = TTLResponseCache()
 chat_sessions_response_cache = TTLResponseCache()
+
+
+def chat_session_messages_cache_key(
+    *,
+    user_id: int,
+    clinic_id: int,
+    role: str,
+    session_id: int,
+) -> CacheKey:
+    return (
+        "chat_sessions",
+        user_id,
+        clinic_id,
+        role,
+        "messages",
+        session_id,
+    )
+
+
+def invalidate_chat_session_messages_cache(
+    *,
+    user_id: int,
+    clinic_id: int,
+    role: str,
+    session_id: int,
+) -> None:
+    chat_sessions_response_cache.invalidate_prefix(
+        chat_session_messages_cache_key(
+            user_id=user_id,
+            clinic_id=clinic_id,
+            role=role,
+            session_id=session_id,
+        )
+    )
