@@ -154,4 +154,40 @@ describe("auth flow", () => {
 
     expect(screen.getByText("Login")).toBeInTheDocument();
   });
+
+  test("bootstrap 404 does not leave protected route stuck on loading", async () => {
+    localStorage.setItem(
+      "sphereapp_token",
+      JSON.stringify({ accessToken: "stale-token", tokenType: "bearer" })
+    );
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(
+          buildJsonResponse({
+            status: 404,
+            body: {
+              error: {
+                code: "HTTP_404",
+                message: "Not found",
+              },
+            },
+          })
+        );
+      }
+      return Promise.reject(new Error("unexpected request"));
+    });
+
+    renderWithProviders(["/app/chat"]);
+
+    await waitFor(() => {
+      expect(screen.getByText("Login")).toBeInTheDocument();
+    });
+  });
 });

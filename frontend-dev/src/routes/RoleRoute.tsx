@@ -36,7 +36,7 @@ export default function RoleRoute({
     return <Navigate to="/login" replace />;
   }
 
-  if (isAuthLoading || (token && !me)) {
+  if (isAuthLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">
         Loading...
