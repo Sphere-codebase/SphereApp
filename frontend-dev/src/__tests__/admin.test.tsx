@@ -175,14 +175,15 @@ describe("admin ui", () => {
     renderWithProviders(["/app/admin"]);
 
     const companiesTab = await screen.findByRole("button", {
-      name: /companies & policies/i,
+      name: /companies/i,
     });
     await userEvent.click(companiesTab);
 
     const agencyLabels = await screen.findAllByText("Alpha Health");
     expect(agencyLabels.length).toBeGreaterThan(0);
     await waitFor(() => {
-      expect(screen.getByText("https://example.com/policy")).toBeInTheDocument();
+      expect(screen.getByText("Office visit")).toBeInTheDocument();
+      expect(screen.queryByText("https://example.com/policy")).not.toBeInTheDocument();
     });
   });
 
@@ -227,7 +228,7 @@ describe("admin ui", () => {
     renderWithProviders(["/app/admin"]);
 
     const companiesTab = await screen.findByRole("button", {
-      name: /companies & policies/i,
+      name: /companies/i,
     });
     await userEvent.click(companiesTab);
 
@@ -316,11 +317,12 @@ describe("admin ui", () => {
     renderWithProviders(["/app/admin"]);
 
     const companiesTab = await screen.findByRole("button", {
-      name: /companies & policies/i,
+      name: /companies/i,
     });
     await userEvent.click(companiesTab);
 
-    await screen.findByText("https://example.com/policy");
+    await screen.findByText("Office visit");
+    expect(screen.queryByText("https://example.com/policy")).not.toBeInTheDocument();
 
     expect(
       screen.getByRole("button", { name: /refresh rules/i })

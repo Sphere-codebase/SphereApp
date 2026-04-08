@@ -1095,20 +1095,6 @@ export default function AdminPage() {
                       cell: (row) => mcpCodeByCode.get(row.mcp_code)?.description ?? "—",
                     },
                     {
-                      key: "url",
-                      header: "Policy URL",
-                      cell: (row) => (
-                        <a
-                          href={row.policy_url}
-                          className="text-slate-600 underline dark:text-slate-300"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {row.policy_url}
-                        </a>
-                      ),
-                    },
-                    {
                       key: "created",
                       header: "Added",
                       cell: (row) => formatDateOnly(row.created_at),
@@ -1117,13 +1103,14 @@ export default function AdminPage() {
                       key: "actions",
                       header: "",
                       cell: (row) => (
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="ml-auto flex min-w-[168px] max-w-[184px] flex-col items-stretch gap-2">
                           {isAdmin ? (
-                            <>
+                            <div className="flex flex-col gap-2">
                               <Button
                                 type="button"
                                 size="sm"
                                 variant="outline"
+                                className="w-full justify-center"
                                 onClick={() => void handlePolicyRulesRefresh(row)}
                                 aria-label={`Refresh rules for policy ${row.id}`}
                                 disabled={
@@ -1138,32 +1125,39 @@ export default function AdminPage() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
+                                className="w-full justify-center"
                                 onClick={() => openPolicyRulesPage(row)}
                                 aria-label={`View rules for policy ${row.id}`}
                               >
                                 <FileText className="h-4 w-4" />
                                 View Rules
                               </Button>
-                            </>
+                            </div>
                           ) : null}
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => openPolicyDialog(row)}
-                            aria-label={`Edit policy ${row.id}`}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => void handlePolicyDelete(row.id)}
-                            aria-label={`Delete policy ${row.id}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <div className="inline-flex items-center gap-1 self-end rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-950">
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => openPolicyDialog(row)}
+                              aria-label={`Edit policy ${row.id}`}
+                              title="Edit"
+                              className="h-8 w-8 rounded-full"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => void handlePolicyDelete(row.id)}
+                              aria-label={`Delete policy ${row.id}`}
+                              title="Delete"
+                              className="h-8 w-8 rounded-full text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/60 dark:hover:text-red-300"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                       ),
                       cellClassName: "text-right",
