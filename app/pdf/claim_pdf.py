@@ -202,7 +202,7 @@ def generate_pdf_bytes(claim) -> bytes:
             return True
         if isinstance(value, str) and not value.strip():
             return True
-        if isinstance(value, (list, dict)) and not value:
+        if isinstance(value, list | dict) and not value:
             return True
         return False
 
@@ -223,7 +223,7 @@ def generate_pdf_bytes(claim) -> bytes:
                 title = format_key(key)
 
                 # CASE 1 — scalar value
-                if not isinstance(value, (dict, list)):
+                if not isinstance(value, dict | list):
                     elements.append(
                         Paragraph(
                             "&nbsp;" * indent * 4 + f"<b>{title}:</b> {value}",
@@ -250,7 +250,7 @@ def generate_pdf_bytes(claim) -> bytes:
                 if is_empty(item):
                     continue
 
-                if isinstance(item, (dict, list)):
+                if isinstance(item, dict | list):
                     sub_before = len(elements)
                     render(item, indent + 1)
                     sub_content = elements[sub_before:]
