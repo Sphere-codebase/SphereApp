@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type {
+  AdminUser,
   InsuranceCompany,
   McpCode,
   PolicyLink,
@@ -384,5 +385,112 @@ describe("admin ui", () => {
     renderWithProviders(["/app/admin"]);
 
     expect(await screen.findByText(/Dashboard/i)).toBeInTheDocument();
+  });
+
+  test("users tab shows current account marker and allows changing another user's role", async () => {
+    const users: AdminUser[] = [
+      {
+        id: 101,
+        email: "admin@example.com",
+        full_name: "Admin User",
+        is_active: true,
+        role: "platform_staff_admin",
+        roles: ["platform_staff_admin"],
+        created_at: "2026-02-01T00:00:00Z",
+      },
+      {
+        id: 303,
+        email: "doctor@example.com",
+        full_name: "Doctor User",
+        is_active: true,
+        role: "doctor",
+        roles: ["doctor"],
+        created_at: "2026-02-01T00:00:00Z",
+      },
+    ];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: adminUser }));
+      }
+      if (url.includes("/api/admin/mcp-codes") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      if (url.endsWith("/api/admin/users") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: users }));
+      }
+      if (url.endsWith("/api/admin/users/303") && method === "PATCH") {
+        const bodyText = typeof init?.body === "string" ? init.body : "{}";
+        const parsed = JSON.parse(bodyText) as { roles?: string[] };
+        users[1] = {
+          ...users[1],
+          role: (parsed.roles?.[0] as AdminUser["role"] | undefined) ?? users[1].role,
+          roles: parsed.roles ?? users[1].roles,
+        };
+        return Promise.resolve(buildJsonResponse({ status: 200, body: users[1] }));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    renderWithProviders(["/app/admin"]);
+
+    await userEvent.click(await screen.findByRole("button", { name: /users/i }));
+
+    expect(await screen.findByText("You")).toBeInTheDocument();
+    expect(screen.getAllByText("Platform Staff Admin").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Doctor").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText("Role for admin@example.com")).not.toBeInTheDocument();
+
+    const roleSelect = screen.getByLabelText("Role for doctor@example.com");
+    await userEvent.selectOptions(roleSelect, "clinic_admin");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Save role for doctor@example.com" })
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Clinic Admin").length).toBeGreaterThan(0);
+    });
+  });
+
+  test("non-platform admins do not see the users tab", async () => {
+    const clinicAdminUser = {
+      id: 404,
+      email: "clinic-admin@example.com",
+      full_name: "Clinic Admin",
+      role: "clinic_admin",
+      clinic_id: 1,
+      clinic_name: "Test Clinic",
+      is_active: true,
+    };
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: clinicAdminUser }));
+      }
+      if (url.includes("/api/admin/mcp-codes") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    renderWithProviders(["/app/admin"]);
+
+    expect(await screen.findByRole("heading", { name: "MCP Codes" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /users/i })).not.toBeInTheDocument();
   });
 });

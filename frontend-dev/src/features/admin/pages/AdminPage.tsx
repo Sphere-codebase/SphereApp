@@ -61,6 +61,7 @@ import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { cn } from "@/lib/utils";
 import Clinics from "@/components/admin/organisms/Clinics";
+import type { UserRole } from "@/types/auth";
 
 const tabs = [
   { name: "Dashboard", value: "dashboard" },
@@ -96,7 +97,7 @@ type UserFormState = {
   email: string;
   full_name: string;
   password: string;
-  is_admin: boolean;
+  role: UserRole;
   is_active: boolean;
 };
 
@@ -136,7 +137,7 @@ const emptyUserForm: UserFormState = {
   email: "",
   full_name: "",
   password: "",
-  is_admin: false,
+  role: "doctor",
   is_active: true,
 };
 
@@ -151,6 +152,21 @@ const emptyClaimFilters: ClaimsFilters = {
   service_from: "",
   service_to: "",
 };
+
+const userRoleOptions: Array<{ value: UserRole; label: string }> = [
+  { value: "doctor", label: "Doctor" },
+  { value: "chief_doctor", label: "Chief Doctor" },
+  { value: "clinic_admin", label: "Clinic Admin" },
+  { value: "platform_staff_admin", label: "Platform Staff Admin" },
+];
+
+function getAdminUserRole(user: AdminUser): UserRole {
+  return user.role ?? (user.roles[0] as UserRole | undefined) ?? "doctor";
+}
+
+function formatUserRole(role: UserRole): string {
+  return userRoleOptions.find((option) => option.value === role)?.label ?? role;
+}
 
 function formatDateOnly(value?: string | null): string {
   if (!value) {
@@ -218,6 +234,8 @@ export default function AdminPage() {
   const [resetForm, setResetForm] = useState<ResetPasswordState>(emptyResetForm);
   const [userFormError, setUserFormError] = useState<string | null>(null);
   const [resetFormError, setResetFormError] = useState<string | null>(null);
+  const [userRoleDrafts, setUserRoleDrafts] = useState<Record<number, UserRole>>({});
+  const [savingUserRoleId, setSavingUserRoleId] = useState<number | null>(null);
 
   const companyById = useMemo(
     () => new Map(companies.map((company) => [company.id, company])),
@@ -227,6 +245,11 @@ export default function AdminPage() {
   const mcpCodeByCode = useMemo(
     () => new Map(mcpCodes.map((code) => [code.code, code])),
     [mcpCodes]
+  );
+
+  const visibleTabs = useMemo(
+    () => (isAdmin ? tabs : tabs.filter((tab) => tab.value !== "users")),
+    [isAdmin]
   );
 
   const handleApiError = useCallback(
@@ -323,17 +346,25 @@ export default function AdminPage() {
   );
 
   const loadUsers = useCallback(async () => {
+    if (!isAdmin) {
+      setUsers([]);
+      setUserRoleDrafts({});
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
       const data = await listAdminUsers({});
       setUsers(data);
+      setUserRoleDrafts(
+        Object.fromEntries(data.map((user) => [user.id, getAdminUserRole(user)]))
+      );
     } catch (err) {
       handleApiError(err);
     } finally {
       setIsLoading(false);
     }
-  }, [handleApiError]);
+  }, [handleApiError, isAdmin]);
 
   const loadPatients = useCallback(async () => {
     setIsLoading(true);
@@ -407,10 +438,14 @@ export default function AdminPage() {
   }, [activeTab, loadPolicyLinks, selectedCompanyId]);
 
   useEffect(() => {
-    if (activeTab === "users") {
+    if (!isAdmin && activeTab === "users") {
+      setActiveTab("reference");
+      return;
+    }
+    if (activeTab === "users" && isAdmin) {
       void loadUsers();
     }
-  }, [activeTab, loadUsers]);
+  }, [activeTab, isAdmin, loadUsers]);
 
   useEffect(() => {
     if (activeTab === "dashboard") {
@@ -483,7 +518,7 @@ export default function AdminPage() {
             email: target.email,
             full_name: target.full_name ?? "",
             password: "",
-            is_admin: target.roles.includes("platform_staff_admin"),
+            role: getAdminUserRole(target),
             is_active: target.is_active,
           }
         : emptyUserForm
@@ -688,21 +723,30 @@ export default function AdminPage() {
       setUserFormError("Password is required for new users.");
       return;
     }
+    if (editingUser?.id === me?.id && userForm.role !== getAdminUserRole(editingUser)) {
+      setUserFormError("You cannot change your own role.");
+      return;
+    }
+    if (editingUser?.id === me?.id && !userForm.is_active) {
+      setUserFormError("You cannot deactivate your own account.");
+      return;
+    }
     try {
       if (editingUser) {
         const payload: AdminUserUpdateInput = {
           email,
           full_name: fullName ? fullName : null,
-          roles: userForm.is_admin ? ["platform_staff_admin"] : [],
+          roles: [userForm.role],
           is_active: userForm.is_active,
         };
-        await updateAdminUser(editingUser.id, payload);
+        const updated = await updateAdminUser(editingUser.id, payload);
+        setUserRoleDrafts((prev) => ({ ...prev, [updated.id]: getAdminUserRole(updated) }));
       } else {
         const payload: AdminUserCreateInput = {
           email,
           full_name: fullName ? fullName : null,
           password: userForm.password.trim(),
-          roles: userForm.is_admin ? ["platform_staff_admin"] : [],
+          roles: [userForm.role],
           is_active: userForm.is_active,
         };
         await createAdminUser(payload);
@@ -748,14 +792,45 @@ export default function AdminPage() {
   };
 
   const handleUserToggle = async (target: AdminUser) => {
+    if (target.id === me?.id) {
+      return;
+    }
     setError(null);
     try {
       const updated = await updateAdminUser(target.id, {
         is_active: !target.is_active,
       });
       setUsers((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setUserRoleDrafts((prev) => ({ ...prev, [updated.id]: getAdminUserRole(updated) }));
     } catch (err) {
       handleApiError(err);
+    }
+  };
+
+  const handleUserRoleDraftChange = (userId: number, role: UserRole) => {
+    setUserRoleDrafts((prev) => ({ ...prev, [userId]: role }));
+  };
+
+  const handleUserRoleSave = async (target: AdminUser) => {
+    if (!isAdmin || target.id === me?.id) {
+      return;
+    }
+    const nextRole = userRoleDrafts[target.id] ?? getAdminUserRole(target);
+    if (nextRole === getAdminUserRole(target)) {
+      return;
+    }
+    setSavingUserRoleId(target.id);
+    setError(null);
+    try {
+      const updated = await updateAdminUser(target.id, {
+        roles: [nextRole],
+      });
+      setUsers((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setUserRoleDrafts((prev) => ({ ...prev, [updated.id]: getAdminUserRole(updated) }));
+    } catch (err) {
+      handleApiError(err);
+    } finally {
+      setSavingUserRoleId(null);
     }
   };
 
@@ -797,7 +872,7 @@ export default function AdminPage() {
         />
 
         <div className="flex flex-wrap gap-2">
-          {tabs.map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
               key={tab.value}
               type="button"
@@ -1342,13 +1417,13 @@ export default function AdminPage() {
           </section>
         ) : null}
 
-        {activeTab === "users" ? (
+        {activeTab === "users" && isAdmin ? (
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold">Users</h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Manage admin and doctor accounts.
+                  Manage user accounts and roles.
                 </p>
               </div>
               <Button type="button" onClick={() => openUserDialog(null)}>
@@ -1366,7 +1441,19 @@ export default function AdminPage() {
                   {
                     key: "email",
                     header: "Email",
-                    cell: (row) => row.email,
+                    cell: (row) => {
+                      const isCurrentUser = row.id === me?.id;
+                      return (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{row.email}</span>
+                          {isCurrentUser ? (
+                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                              You
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    },
                   },
                   {
                     key: "name",
@@ -1375,9 +1462,61 @@ export default function AdminPage() {
                   },
                   {
                     key: "role",
-                    header: "Admin",
-                    cell: (row) =>
-                      row.roles.includes("platform_staff_admin") ? "Yes" : "No",
+                    header: "Role",
+                    cell: (row) => {
+                      const currentRole = getAdminUserRole(row);
+                      const draftRole = userRoleDrafts[row.id] ?? currentRole;
+                      const isCurrentUser = row.id === me?.id;
+                      const roleDirty = draftRole !== currentRole;
+                      const isSaving = savingUserRoleId === row.id;
+
+                      return (
+                        <div className="min-w-[220px] space-y-2">
+                          <div className="font-medium text-slate-700 dark:text-slate-100">
+                            {formatUserRole(currentRole)}
+                          </div>
+                          {!isCurrentUser ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label className="sr-only" htmlFor={`user-role-${row.id}`}>
+                                Role for {row.email}
+                              </label>
+                              <select
+                                id={`user-role-${row.id}`}
+                                className="min-w-[150px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                value={draftRole}
+                                onChange={(event) =>
+                                  handleUserRoleDraftChange(
+                                    row.id,
+                                    event.target.value as UserRole
+                                  )
+                                }
+                                aria-label={`Role for ${row.email}`}
+                              >
+                                {userRoleOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={!roleDirty || isSaving}
+                                onClick={() => void handleUserRoleSave(row)}
+                                aria-label={`Save role for ${row.email}`}
+                              >
+                                Save
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                              Current account role cannot be changed here.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    },
                   },
                   {
                     key: "active",
@@ -1402,6 +1541,14 @@ export default function AdminPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => void handleUserToggle(row)}
+                          disabled={row.id === me?.id}
+                          aria-label={
+                            row.id === me?.id
+                              ? "Current account cannot be disabled"
+                              : row.is_active
+                                ? `Disable ${row.email}`
+                                : `Enable ${row.email}`
+                          }
                         >
                           {row.is_active ? "Disable" : "Enable"}
                         </Button>
@@ -1674,20 +1821,36 @@ export default function AdminPage() {
           </label>
         ) : null}
         <div className="grid gap-3 md:grid-cols-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={userForm.is_admin}
+          <label className="flex flex-col gap-1 text-sm">
+            Role
+            <select
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              value={userForm.role}
+              disabled={editingUser?.id === me?.id}
               onChange={(event) =>
-                setUserForm((prev) => ({ ...prev, is_admin: event.target.checked }))
+                setUserForm((prev) => ({
+                  ...prev,
+                  role: event.target.value as UserRole,
+                }))
               }
-            />
-            Platform admin
+            >
+              {userRoleOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {editingUser?.id === me?.id ? (
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Your current account role cannot be changed.
+              </span>
+            ) : null}
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={userForm.is_active}
+              disabled={editingUser?.id === me?.id}
               onChange={(event) =>
                 setUserForm((prev) => ({ ...prev, is_active: event.target.checked }))
               }

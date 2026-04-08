@@ -39,7 +39,12 @@ export default function LoginPage() {
           return allow(["doctor", "chief_doctor", "clinic_admin", "platform_staff_admin"]);
         }
         if (path.startsWith("/app/dashboard")) {
-          return allow(["doctor", "chief_doctor", "clinic_admin"]);
+          return allow([
+            "doctor",
+            "chief_doctor",
+            "clinic_admin",
+            "platform_staff_admin",
+          ]);
         }
         return false;
       };

@@ -29,6 +29,7 @@ class AdminUserResponse(BaseModel):
     email: EmailStr
     full_name: str | None
     is_active: bool
+    role: str
     roles: list[str]
     created_at: datetime | None
 

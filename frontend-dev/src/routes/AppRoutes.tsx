@@ -8,7 +8,7 @@ import ChatPage from "@/pages/ChatPage";
 import ClinicAuditLogsPage from "@/pages/ClinicAuditLogsPage";
 import ClinicDashboardPage from "@/pages/ClinicDashboardPage";
 import ClinicDoctorsPage from "@/pages/ClinicDoctorsPage";
-import DoctorDashboardPage from "@/pages/DoctorDashboardPage";
+import DashboardPage from "@/pages/DashboardPage";
 import InsuranceRulesPage from "@/pages/InsuranceRulesPage";
 import LoginPage from "@/pages/LoginPage";
 import PatientProfilePage from "@/pages/PatientProfilePage";
@@ -41,7 +41,7 @@ export default function AppRoutes() {
         path="/app/dashboard"
         element={
           <ProtectedRoute>
-            <DoctorDashboardPage />
+            <DashboardPage />
           </ProtectedRoute>
         }
       />

@@ -38,8 +38,6 @@ def _seed_user(db_session: Session, email: str, is_admin: bool) -> User:
         db_session.add(UserRole(user_id=user.id, role_id=admin_role.id))
     db_session.commit()
     return user
-
-
 def test_non_admin_cannot_list_users(db_session: Session) -> None:
     user = _seed_user(db_session, "member@example.com", is_admin=False)
     token = create_access_token(str(user.id))
@@ -86,6 +84,7 @@ def test_admin_create_user_success(db_session: Session) -> None:
         payload = response.json()
         assert payload["email"] == "newuser@example.com"
         assert payload["is_active"] is True
+        assert payload["role"] == "doctor"
         assert "doctor" in payload["roles"]
 
         created = db_session.get(User, int(payload["id"]))
@@ -119,7 +118,32 @@ def test_admin_update_user_success(db_session: Session) -> None:
         payload = response.json()
         assert payload["full_name"] == "Updated Name"
         assert payload["is_active"] is False
+        assert payload["role"] == "platform_staff_admin"
         assert "platform_staff_admin" in payload["roles"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_list_users_includes_current_role(db_session: Session) -> None:
+    admin = _seed_user(db_session, "admin@example.com", is_admin=True)
+    target = _seed_user(db_session, "target@example.com", is_admin=False)
+    token = create_access_token(str(admin.id))
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.get(
+            "/api/admin/users",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        row_by_id = {item["id"]: item for item in payload}
+        assert row_by_id[admin.id]["role"] == "platform_staff_admin"
+        assert row_by_id[target.id]["role"] == "doctor"
     finally:
         app.dependency_overrides.clear()
 
@@ -147,8 +171,31 @@ def test_admin_update_email_conflict_returns_409(db_session: Session) -> None:
         app.dependency_overrides.clear()
 
 
-def test_admin_self_demote_blocked_when_last_admin(db_session: Session) -> None:
+def test_non_admin_cannot_update_user_role(db_session: Session) -> None:
     admin = _seed_user(db_session, "admin@example.com", is_admin=True)
+    member = _seed_user(db_session, "member@example.com", is_admin=False)
+    token = create_access_token(str(member.id))
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.patch(
+            f"/api/admin/users/{admin.id}",
+            json={"roles": ["doctor"]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "HTTP_403"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_self_role_edit_blocked(db_session: Session) -> None:
+    admin = _seed_user(db_session, "admin@example.com", is_admin=True)
+    _seed_user(db_session, "other-admin@example.com", is_admin=True)
     token = create_access_token(str(admin.id))
 
     def override_get_db():
@@ -163,7 +210,28 @@ def test_admin_self_demote_blocked_when_last_admin(db_session: Session) -> None:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 409
-        assert response.json()["error"]["code"] == "LAST_ADMIN"
+        assert response.json()["error"]["code"] == "SELF_ROLE_EDIT_FORBIDDEN"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_admin_self_deactivate_blocked(db_session: Session) -> None:
+    admin = _seed_user(db_session, "admin@example.com", is_admin=True)
+    token = create_access_token(str(admin.id))
+
+    def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = override_get_db
+    client = TestClient(app)
+    try:
+        response = client.patch(
+            f"/api/admin/users/{admin.id}",
+            json={"is_active": False},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "SELF_DEACTIVATE_FORBIDDEN"
     finally:
         app.dependency_overrides.clear()
 

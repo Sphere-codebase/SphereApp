@@ -76,10 +76,10 @@ export async function getClinicDashboard(params?: {
 }): Promise<ClinicDashboardDTO> {
   const search = new URLSearchParams();
   if (params?.from) {
-    search.set("date_from", params.from);
+    search.set("from", params.from);
   }
   if (params?.to) {
-    search.set("date_to", params.to);
+    search.set("to", params.to);
   }
   const suffix = search.toString();
   const data = await requestJson<unknown>(
