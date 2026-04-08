@@ -151,8 +151,11 @@ def me(current_user: CurrentUserDep, db: DbSessionDep) -> UserResponse:
     cache_key = (
         "auth_me",
         current_user.id,
+        current_user.email,
+        current_user.full_name,
         current_user.clinic_id,
         current_user.role,
+        bool(current_user.is_active),
         current_user.role == "platform_staff_admin",
     )
 
