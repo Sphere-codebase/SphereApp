@@ -8,7 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models import Claim, ClaimDiagnosisCode, ClaimMcpCode, DiagnosisCode, McpCode
-from app.pdf.claim_pdf import BillingData, ClaimData, PatientData, PhysicianSupplierData, ServiceLine
+from app.pdf.claim_pdf import (
+    BillingData,
+    ClaimData,
+    PatientData,
+    PhysicianSupplierData,
+    ServiceLine,
+)
 
 
 def _date_or_empty(value: date | None) -> str:

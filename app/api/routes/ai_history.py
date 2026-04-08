@@ -62,17 +62,14 @@ def list_ai_history(
 
     total = db.execute(select(func.count()).select_from(AuditLog).where(*filters)).scalar_one()
 
-    rows = (
-        db.execute(
-            select(AuditLog, User.full_name, User.email)
-            .join(User, User.id == AuditLog.actor_id, isouter=True)
-            .where(*filters)
-            .order_by(AuditLog.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-        .all()
-    )
+    rows = db.execute(
+        select(AuditLog, User.full_name, User.email)
+        .join(User, User.id == AuditLog.actor_id, isouter=True)
+        .where(*filters)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
 
     items = []
     for log, full_name, email in rows:

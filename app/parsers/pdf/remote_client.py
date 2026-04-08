@@ -149,7 +149,7 @@ class RemotePdfParserClient:
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                         detail=(
-                            "Remote PDF parser authentication failed " "(check service key/config)."
+                            "Remote PDF parser authentication failed (check service key/config)."
                         ),
                     )
 

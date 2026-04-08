@@ -33,9 +33,7 @@ class ClinicPolicyOverride(TimestampMixin, Base):
         BigInteger, ForeignKey("policy_links.id"), nullable=False
     )
     override_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=False), nullable=True
-    )
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
 
     policy_link = relationship("PolicyLink", backref="clinic_overrides")
 
@@ -63,8 +61,6 @@ class DoctorPolicyOverride(TimestampMixin, Base):
         BigInteger, ForeignKey("policy_links.id"), nullable=False
     )
     override_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    updated_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=False), nullable=True
-    )
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
 
     policy_link = relationship("PolicyLink", backref="doctor_overrides")

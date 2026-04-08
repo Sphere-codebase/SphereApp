@@ -37,8 +37,6 @@ DbSessionDep = Annotated[Session, Depends(get_db)]
 AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
 
 
-
-
 @router.get("/clinics", response_model=ClinicListResponse)
 def list_clinics(
     db: DbSessionDep,
@@ -73,24 +71,21 @@ def list_clinics(
         .subquery()
     )
 
-    rows = (
-        db.execute(
-            select(
-                Clinic,
-                doctor_subq.c.doctors_count,
-                patient_subq.c.patients_count,
-                claims_subq.c.claims_30d,
-            )
-            .outerjoin(doctor_subq, doctor_subq.c.clinic_id == Clinic.id)
-            .outerjoin(patient_subq, patient_subq.c.clinic_id == Clinic.id)
-            .outerjoin(claims_subq, claims_subq.c.clinic_id == Clinic.id)
-            .where(*base_filters)
-            .order_by(Clinic.created_at.desc())
-            .limit(limit)
-            .offset(offset)
+    rows = db.execute(
+        select(
+            Clinic,
+            doctor_subq.c.doctors_count,
+            patient_subq.c.patients_count,
+            claims_subq.c.claims_30d,
         )
-        .all()
-    )
+        .outerjoin(doctor_subq, doctor_subq.c.clinic_id == Clinic.id)
+        .outerjoin(patient_subq, patient_subq.c.clinic_id == Clinic.id)
+        .outerjoin(claims_subq, claims_subq.c.clinic_id == Clinic.id)
+        .where(*base_filters)
+        .order_by(Clinic.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
 
     items = []
     for clinic, doctors_count, patients_count, claims_30d in rows:
@@ -246,18 +241,15 @@ def list_platform_audit(
 
     total = db.execute(select(func.count()).select_from(AuditLog).where(*filters)).scalar_one()
 
-    rows = (
-        db.execute(
-            select(AuditLog, Clinic.name, User.full_name, User.email, User.role)
-            .join(Clinic, Clinic.id == AuditLog.clinic_id, isouter=True)
-            .join(User, User.id == AuditLog.actor_id, isouter=True)
-            .where(*filters)
-            .order_by(AuditLog.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-        .all()
-    )
+    rows = db.execute(
+        select(AuditLog, Clinic.name, User.full_name, User.email, User.role)
+        .join(Clinic, Clinic.id == AuditLog.clinic_id, isouter=True)
+        .join(User, User.id == AuditLog.actor_id, isouter=True)
+        .where(*filters)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
 
     items = []
     for log, clinic_name, full_name, email, role in rows:
@@ -273,9 +265,9 @@ def list_platform_audit(
                 action=log.action,
                 entity=log.entity,
                 entity_id=log.entity_id,
-        diff_json=mask_pii(log.diff_json) if log.diff_json else None,
-        request_id=log.request_id,
-    )
+                diff_json=mask_pii(log.diff_json) if log.diff_json else None,
+                request_id=log.request_id,
+            )
         )
 
     return PlatformAuditResponse(items=items, limit=limit, offset=offset, total=total)
@@ -308,16 +300,13 @@ def export_platform_audit_logs(
     if date_to:
         filters.append(AuditLog.created_at <= datetime.combine(date_to, time.max))
 
-    rows = (
-        db.execute(
-            select(AuditLog, Clinic.name, User.full_name, User.email, User.role)
-            .join(Clinic, Clinic.id == AuditLog.clinic_id)
-            .join(User, User.id == AuditLog.actor_id, isouter=True)
-            .where(*filters)
-            .order_by(AuditLog.created_at.desc())
-        )
-        .all()
-    )
+    rows = db.execute(
+        select(AuditLog, Clinic.name, User.full_name, User.email, User.role)
+        .join(Clinic, Clinic.id == AuditLog.clinic_id)
+        .join(User, User.id == AuditLog.actor_id, isouter=True)
+        .where(*filters)
+        .order_by(AuditLog.created_at.desc())
+    ).all()
 
     include_diff_json = bool(include_diff)
     headers = [
@@ -430,14 +419,18 @@ def platform_usage(
         audit_filters.append(AuditLog.clinic_id == clinic_id)
 
     pdf_generated = db.execute(
-        select(func.count()).select_from(AuditLog).where(
+        select(func.count())
+        .select_from(AuditLog)
+        .where(
             *audit_filters,
             AuditLog.action == "claim.pdf_generated",
         )
     ).scalar_one()
 
     ai_actions = db.execute(
-        select(func.count()).select_from(AuditLog).where(
+        select(func.count())
+        .select_from(AuditLog)
+        .where(
             *audit_filters,
             AuditLog.action.ilike("ai_%"),
         )
@@ -446,43 +439,34 @@ def platform_usage(
     active_filters = [Clinic.is_blocked.is_(False)]
     if clinic_id is not None:
         active_filters.append(Clinic.id == clinic_id)
-    active_clinics = db.execute(select(func.count()).select_from(Clinic).where(*active_filters)).scalar_one()
+    active_clinics = db.execute(
+        select(func.count()).select_from(Clinic).where(*active_filters)
+    ).scalar_one()
 
-    claims_series_rows = (
-        db.execute(
-            select(func.date(Claim.created_at), func.count())
-            .where(*claim_filters)
-            .group_by(func.date(Claim.created_at))
-            .order_by(func.date(Claim.created_at))
-        )
-        .all()
-    )
+    claims_series_rows = db.execute(
+        select(func.date(Claim.created_at), func.count())
+        .where(*claim_filters)
+        .group_by(func.date(Claim.created_at))
+        .order_by(func.date(Claim.created_at))
+    ).all()
     claims_series = [
         PlatformUsageTimeseries(date=row[0], count=row[1]) for row in claims_series_rows
     ]
 
-    pdf_series_rows = (
-        db.execute(
-            select(func.date(AuditLog.created_at), func.count())
-            .where(*audit_filters, AuditLog.action == "claim.pdf_generated")
-            .group_by(func.date(AuditLog.created_at))
-            .order_by(func.date(AuditLog.created_at))
-        )
-        .all()
-    )
-    pdf_series = [
-        PlatformUsageTimeseries(date=row[0], count=row[1]) for row in pdf_series_rows
-    ]
+    pdf_series_rows = db.execute(
+        select(func.date(AuditLog.created_at), func.count())
+        .where(*audit_filters, AuditLog.action == "claim.pdf_generated")
+        .group_by(func.date(AuditLog.created_at))
+        .order_by(func.date(AuditLog.created_at))
+    ).all()
+    pdf_series = [PlatformUsageTimeseries(date=row[0], count=row[1]) for row in pdf_series_rows]
 
-    ai_series_rows = (
-        db.execute(
-            select(func.date(AuditLog.created_at), func.count())
-            .where(*audit_filters, AuditLog.action.ilike("ai_%"))
-            .group_by(func.date(AuditLog.created_at))
-            .order_by(func.date(AuditLog.created_at))
-        )
-        .all()
-    )
+    ai_series_rows = db.execute(
+        select(func.date(AuditLog.created_at), func.count())
+        .where(*audit_filters, AuditLog.action.ilike("ai_%"))
+        .group_by(func.date(AuditLog.created_at))
+        .order_by(func.date(AuditLog.created_at))
+    ).all()
     ai_series = [PlatformUsageTimeseries(date=row[0], count=row[1]) for row in ai_series_rows]
 
     claims_subq = (
@@ -508,24 +492,21 @@ def platform_usage(
     if clinic_id is not None:
         top_filters.append(Clinic.id == clinic_id)
 
-    top_rows = (
-        db.execute(
-            select(
-                Clinic.id,
-                Clinic.name,
-                func.coalesce(claims_subq.c.claims, 0),
-                func.coalesce(pdf_subq.c.pdf, 0),
-                func.coalesce(ai_subq.c.ai, 0),
-            )
-            .outerjoin(claims_subq, claims_subq.c.clinic_id == Clinic.id)
-            .outerjoin(pdf_subq, pdf_subq.c.clinic_id == Clinic.id)
-            .outerjoin(ai_subq, ai_subq.c.clinic_id == Clinic.id)
-            .where(*top_filters)
-            .order_by(func.coalesce(claims_subq.c.claims, 0).desc())
-            .limit(10)
+    top_rows = db.execute(
+        select(
+            Clinic.id,
+            Clinic.name,
+            func.coalesce(claims_subq.c.claims, 0),
+            func.coalesce(pdf_subq.c.pdf, 0),
+            func.coalesce(ai_subq.c.ai, 0),
         )
-        .all()
-    )
+        .outerjoin(claims_subq, claims_subq.c.clinic_id == Clinic.id)
+        .outerjoin(pdf_subq, pdf_subq.c.clinic_id == Clinic.id)
+        .outerjoin(ai_subq, ai_subq.c.clinic_id == Clinic.id)
+        .where(*top_filters)
+        .order_by(func.coalesce(claims_subq.c.claims, 0).desc())
+        .limit(10)
+    ).all()
 
     top_clinics = [
         PlatformUsageTopClinic(

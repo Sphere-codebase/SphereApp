@@ -58,39 +58,44 @@ def clinic_dashboard(
         Claim.created_at <= end_dt,
     ]
 
-    total_claims = db.execute(select(func.count()).select_from(Claim).where(*claim_filters)).scalar_one()
+    total_claims = db.execute(
+        select(func.count()).select_from(Claim).where(*claim_filters)
+    ).scalar_one()
     draft_claims = db.execute(
-        select(func.count()).select_from(Claim).where(
+        select(func.count())
+        .select_from(Claim)
+        .where(
             *claim_filters,
             func.upper(Claim.claim_status) == "DRAFT",
         )
     ).scalar_one()
     finalized_claims = db.execute(
-        select(func.count()).select_from(Claim).where(
+        select(func.count())
+        .select_from(Claim)
+        .where(
             *claim_filters,
             func.upper(Claim.claim_status) == "FINAL",
         )
     ).scalar_one()
 
     active_doctors = db.execute(
-        select(func.count()).select_from(User).where(
+        select(func.count())
+        .select_from(User)
+        .where(
             User.clinic_id == current_user.clinic_id,
             User.is_active.is_(True),
             User.role.in_(["doctor", "chief_doctor", "clinic_admin"]),
         )
     ).scalar_one()
 
-    top_insurers_rows = (
-        db.execute(
-            select(Claim.insurance_company_id, InsuranceCompany.name, func.count())
-            .join(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
-            .where(*claim_filters)
-            .group_by(Claim.insurance_company_id, InsuranceCompany.name)
-            .order_by(func.count().desc())
-            .limit(5)
-        )
-        .all()
-    )
+    top_insurers_rows = db.execute(
+        select(Claim.insurance_company_id, InsuranceCompany.name, func.count())
+        .join(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
+        .where(*claim_filters)
+        .group_by(Claim.insurance_company_id, InsuranceCompany.name)
+        .order_by(func.count().desc())
+        .limit(5)
+    ).all()
     top_insurers = [
         ClinicDashboardInsurer(
             insurance_company_id=company_id,
@@ -100,15 +105,12 @@ def clinic_dashboard(
         for company_id, company_name, count in top_insurers_rows
     ]
 
-    claims_series_rows = (
-        db.execute(
-            select(func.date(Claim.created_at), func.count())
-            .where(*claim_filters)
-            .group_by(func.date(Claim.created_at))
-            .order_by(func.date(Claim.created_at))
-        )
-        .all()
-    )
+    claims_series_rows = db.execute(
+        select(func.date(Claim.created_at), func.count())
+        .where(*claim_filters)
+        .group_by(func.date(Claim.created_at))
+        .order_by(func.date(Claim.created_at))
+    ).all()
     claims_timeseries = [
         ClinicDashboardTimeseries(date=row[0], count=row[1]) for row in claims_series_rows
     ]
@@ -119,29 +121,21 @@ def clinic_dashboard(
         AuditLog.created_at <= end_dt,
         AuditLog.action.ilike("ai_%"),
     ]
-    ai_series_rows = (
-        db.execute(
-            select(func.date(AuditLog.created_at), func.count())
-            .where(*ai_filters)
-            .group_by(func.date(AuditLog.created_at))
-            .order_by(func.date(AuditLog.created_at))
-        )
-        .all()
-    )
-    ai_timeseries = [
-        ClinicDashboardTimeseries(date=row[0], count=row[1]) for row in ai_series_rows
-    ]
+    ai_series_rows = db.execute(
+        select(func.date(AuditLog.created_at), func.count())
+        .where(*ai_filters)
+        .group_by(func.date(AuditLog.created_at))
+        .order_by(func.date(AuditLog.created_at))
+    ).all()
+    ai_timeseries = [ClinicDashboardTimeseries(date=row[0], count=row[1]) for row in ai_series_rows]
 
-    recent_rows = (
-        db.execute(
-            select(AuditLog, User.full_name, User.email, User.role)
-            .join(User, User.id == AuditLog.actor_id, isouter=True)
-            .where(AuditLog.clinic_id == current_user.clinic_id)
-            .order_by(AuditLog.created_at.desc())
-            .limit(20)
-        )
-        .all()
-    )
+    recent_rows = db.execute(
+        select(AuditLog, User.full_name, User.email, User.role)
+        .join(User, User.id == AuditLog.actor_id, isouter=True)
+        .where(AuditLog.clinic_id == current_user.clinic_id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(20)
+    ).all()
     recent_activity = [
         AuditLogItemDTO(
             id=log.id,
@@ -230,7 +224,9 @@ def update_clinic_doctor(
 
     if payload.role is not None:
         if payload.role not in {"doctor", "chief_doctor", "clinic_admin"}:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid role")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid role"
+            )
         changes["role"] = payload.role
 
     if payload.is_active is not None:
@@ -254,7 +250,9 @@ def update_clinic_doctor(
             will_remove_admin = True
     if will_remove_admin:
         active_admins = db.execute(
-            select(func.count()).select_from(User).where(
+            select(func.count())
+            .select_from(User)
+            .where(
                 User.clinic_id == current_user.clinic_id,
                 User.role == "clinic_admin",
                 User.is_active.is_(True),
@@ -324,17 +322,14 @@ def list_clinic_audit_logs(
 
     total = db.execute(select(func.count()).select_from(AuditLog).where(*filters)).scalar_one()
 
-    rows = (
-        db.execute(
-            select(AuditLog, User.full_name, User.email, User.role)
-            .join(User, User.id == AuditLog.actor_id, isouter=True)
-            .where(*filters)
-            .order_by(AuditLog.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-        .all()
-    )
+    rows = db.execute(
+        select(AuditLog, User.full_name, User.email, User.role)
+        .join(User, User.id == AuditLog.actor_id, isouter=True)
+        .where(*filters)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
 
     items = [
         AuditLogItemDTO(
@@ -382,15 +377,12 @@ def export_clinic_audit_logs(
     if date_to:
         filters.append(AuditLog.created_at <= datetime.combine(date_to, time.max))
 
-    rows = (
-        db.execute(
-            select(AuditLog, User.full_name, User.email, User.role)
-            .join(User, User.id == AuditLog.actor_id, isouter=True)
-            .where(*filters)
-            .order_by(AuditLog.created_at.desc())
-        )
-        .all()
-    )
+    rows = db.execute(
+        select(AuditLog, User.full_name, User.email, User.role)
+        .join(User, User.id == AuditLog.actor_id, isouter=True)
+        .where(*filters)
+        .order_by(AuditLog.created_at.desc())
+    ).all()
 
     include_diff_json = bool(include_diff)
     headers = [

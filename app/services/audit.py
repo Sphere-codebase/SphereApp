@@ -82,8 +82,7 @@ class AuditLogger:
                 apply_rls_context(
                     audit_session,
                     resolved_clinic_id,
-                    resolved_scope == "platform"
-                    and resolved_actor_role == "platform_staff_admin",
+                    resolved_scope == "platform" and resolved_actor_role == "platform_staff_admin",
                 )
                 log_entry = AuditLog(
                     id=next_id(audit_session, AuditLog),

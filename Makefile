@@ -140,11 +140,13 @@ docker-build:
 
 docker-run: require-db-url
 	@echo "Starting container sphereapp_ci on :8000 (DATABASE_URL from .env)"
-	docker run -d --rm \
+	@CONTAINER_DATABASE_URL="$$(DATABASE_URL="$(DATABASE_URL)" python3 -c "import os; from urllib.parse import urlsplit, urlunsplit; url = os.environ['DATABASE_URL'].strip(); url = ('postgresql+psycopg://' + url[len('postgres://'):]) if url.startswith('postgres://') else (('postgresql+psycopg://' + url[len('postgresql://'):]) if url.startswith('postgresql://') else (('postgresql+psycopg://' + url[len('postgresql+psycopg2://'):]) if url.startswith('postgresql+psycopg2://') else url)); parts = urlsplit(url); netloc = parts.netloc.replace(parts.hostname, 'host.docker.internal', 1) if parts.hostname in {'localhost', '127.0.0.1'} else parts.netloc; url = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment)); print(url)")"; \
+	docker rm -f sphereapp_ci >/dev/null 2>&1 || true; \
+	docker run -d \
 	  -p 8000:8000 \
 	  --name sphereapp_ci \
 	  --add-host=host.docker.internal:host-gateway \
-	  -e DATABASE_URL="$(DATABASE_URL)" \
+	  -e DATABASE_URL="$$CONTAINER_DATABASE_URL" \
 	  -e ENV="$(ENV)" \
 	  -e JWT_SECRET="$(JWT_SECRET)" \
 	  -e READY_CHECK_LLM="$(READY_CHECK_LLM)" \
@@ -153,6 +155,12 @@ docker-run: require-db-url
 docker-smoke:
 	@echo "Waiting for /health: $(HEALTH_URL)"
 	@for i in $$(seq 1 30); do \
+	  state=$$(docker inspect -f '{{.State.Status}}' sphereapp_ci 2>/dev/null || echo missing); \
+	  if [ "$$state" != "running" ] && [ "$$state" != "created" ]; then \
+	    echo "Container state: $$state"; \
+	    docker logs sphereapp_ci || true; \
+	    exit 1; \
+	  fi; \
 	  if curl -fsS "$(HEALTH_URL)" > /dev/null; then \
 	    echo "health ok"; \
 	    break; \
@@ -170,9 +178,25 @@ docker-smoke:
 	@echo "ready ok"
 
 docker-stop:
-	@docker stop sphereapp_ci || true
+	@docker rm -f sphereapp_ci >/dev/null 2>&1 || true
 
-docker-ci: docker-build docker-run docker-smoke docker-stop
+docker-ci:
+	@set -e; \
+	cleanup() { \
+	  status=$$?; \
+	  if docker ps -a --format '{{.Names}}' | grep -qx sphereapp_ci; then \
+	    if [ $$status -ne 0 ]; then \
+	      echo "---- sphereapp_ci logs ----"; \
+	      docker logs sphereapp_ci || true; \
+	    fi; \
+	    docker rm -f sphereapp_ci >/dev/null 2>&1 || true; \
+	  fi; \
+	  exit $$status; \
+	}; \
+	trap cleanup EXIT; \
+	$(MAKE) docker-build; \
+	$(MAKE) docker-run; \
+	$(MAKE) docker-smoke
 
 # -----------------------
 # Frontend helpers

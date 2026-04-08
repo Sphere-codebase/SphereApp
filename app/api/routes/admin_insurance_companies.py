@@ -44,7 +44,9 @@ def list_insurance_companies(
 
     def _load_payload() -> list[dict[str, object]]:
         companies = (
-            db.execute(select(InsuranceCompany).order_by(InsuranceCompany.name.asc())).scalars().all()
+            db.execute(select(InsuranceCompany).order_by(InsuranceCompany.name.asc()))
+            .scalars()
+            .all()
         )
         return [
             InsuranceCompanyResponse.model_validate(company).model_dump(mode="json")

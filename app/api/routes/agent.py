@@ -95,7 +95,9 @@ def _build_claim_detail(db: Session, claim: Claim) -> ClaimDetailResponse:
         .where(ClaimMcpCode.claim_id == claim.id)
         .order_by(McpCode.code.asc())
     ).all()
-    mcp_codes = [McpCodeSummary(code=code.code, description=code.description) for _, code in mcp_rows]
+    mcp_codes = [
+        McpCodeSummary(code=code.code, description=code.description) for _, code in mcp_rows
+    ]
 
     diagnosis_rows = db.execute(
         select(ClaimDiagnosisCode, DiagnosisCode)
@@ -104,7 +106,8 @@ def _build_claim_detail(db: Session, claim: Claim) -> ClaimDetailResponse:
         .order_by(DiagnosisCode.code.asc())
     ).all()
     diagnosis_codes = [
-        DiagnosisCodeSummary(code=code.code, description=code.description) for _, code in diagnosis_rows
+        DiagnosisCodeSummary(code=code.code, description=code.description)
+        for _, code in diagnosis_rows
     ]
 
     status_value = claim.claim_status or "DRAFT"
@@ -247,7 +250,9 @@ def add_mcp_code(
         )
     ).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="MCP code already linked")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="MCP code already linked"
+        )
     db.add(ClaimMcpCode(claim_id=claim.id, mcp_code=payload.code))
     db.commit()
 
@@ -306,12 +311,13 @@ def add_diagnosis_code(
 ):
     claim = _load_claim(db, claim_id)
     _require_claim_draft(claim)
-    code = (
-        db.execute(select(DiagnosisCode).where(DiagnosisCode.code == payload.code))
-        .scalar_one_or_none()
-    )
+    code = db.execute(
+        select(DiagnosisCode).where(DiagnosisCode.code == payload.code)
+    ).scalar_one_or_none()
     if code is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Diagnosis code not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Diagnosis code not found"
+        )
     existing = db.execute(
         select(ClaimDiagnosisCode).where(
             ClaimDiagnosisCode.claim_id == claim.id,
@@ -319,7 +325,9 @@ def add_diagnosis_code(
         )
     ).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Diagnosis code already linked")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Diagnosis code already linked"
+        )
     db.add(ClaimDiagnosisCode(claim_id=claim.id, diagnosis_code=payload.code))
     db.commit()
 
@@ -352,7 +360,9 @@ def remove_diagnosis_code(
         )
     ).scalar_one_or_none()
     if link is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Diagnosis code not linked")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Diagnosis code not linked"
+        )
     db.delete(link)
     db.commit()
 
@@ -474,6 +484,8 @@ def validate_claim(
     ]
     return ClaimValidationResponse(
         is_complete=requirements["is_complete"],
-        missing=[{"key": item["key"], "question": item["question"]} for item in requirements["missing"]],
+        missing=[
+            {"key": item["key"], "question": item["question"]} for item in requirements["missing"]
+        ],
         warnings=warnings,
     )

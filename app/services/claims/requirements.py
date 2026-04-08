@@ -85,8 +85,7 @@ def _latest_policy_rules(db: Session, policy_link_ids: list[int]) -> dict[int, P
     )
     rows = (
         db.execute(
-            select(PolicyRule)
-            .join(
+            select(PolicyRule).join(
                 latest_subq,
                 (PolicyRule.policy_link_id == latest_subq.c.policy_link_id)
                 & (PolicyRule.extracted_at == latest_subq.c.latest_extracted),
@@ -137,7 +136,9 @@ def build_policy_rule_snapshots(
     return snapshots
 
 
-def build_claim_requirements(db: Session, claim: Claim) -> tuple[dict[str, Any], list[PolicyLink], list[PolicyRuleSnapshot]]:
+def build_claim_requirements(
+    db: Session, claim: Claim
+) -> tuple[dict[str, Any], list[PolicyLink], list[PolicyRuleSnapshot]]:
     mcp_codes = (
         db.execute(select(ClaimMcpCode.mcp_code).where(ClaimMcpCode.claim_id == claim.id))
         .scalars()
@@ -145,9 +146,7 @@ def build_claim_requirements(db: Session, claim: Claim) -> tuple[dict[str, Any],
     )
     diagnosis_codes = (
         db.execute(
-            select(ClaimDiagnosisCode.diagnosis_code).where(
-                ClaimDiagnosisCode.claim_id == claim.id
-            )
+            select(ClaimDiagnosisCode.diagnosis_code).where(ClaimDiagnosisCode.claim_id == claim.id)
         )
         .scalars()
         .all()
@@ -234,9 +233,7 @@ def build_claim_requirements(db: Session, claim: Claim) -> tuple[dict[str, Any],
         )
 
     facts = (
-        db.execute(
-            select(ClaimProcedureFact).where(ClaimProcedureFact.claim_id == claim.id)
-        )
+        db.execute(select(ClaimProcedureFact).where(ClaimProcedureFact.claim_id == claim.id))
         .scalars()
         .all()
     )

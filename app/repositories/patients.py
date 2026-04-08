@@ -104,17 +104,14 @@ def list_patients_paginated(
 
     total = db.execute(select(func.count()).select_from(Patient).where(*filters)).scalar_one()
 
-    rows = (
-        db.execute(
-            select(Patient, User.full_name)
-            .join(User, User.id == Patient.doctor_id, isouter=True)
-            .where(*filters)
-            .order_by(Patient.last_name.asc(), Patient.first_name.asc())
-            .limit(limit)
-            .offset(offset)
-        )
-        .all()
-    )
+    rows = db.execute(
+        select(Patient, User.full_name)
+        .join(User, User.id == Patient.doctor_id, isouter=True)
+        .where(*filters)
+        .order_by(Patient.last_name.asc(), Patient.first_name.asc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
     return rows, total
 
 

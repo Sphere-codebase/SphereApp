@@ -149,17 +149,14 @@ def list_patient_claims(
         Claim.clinic_id == current_user.clinic_id,
     ]
     total = db.execute(select(func.count()).select_from(Claim).where(*filters)).scalar_one()
-    rows = (
-        db.execute(
-            select(Claim, InsuranceCompany.name)
-            .join(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
-            .where(*filters)
-            .order_by(Claim.updated_at.desc().nullslast(), Claim.created_at.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-        .all()
-    )
+    rows = db.execute(
+        select(Claim, InsuranceCompany.name)
+        .join(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
+        .where(*filters)
+        .order_by(Claim.updated_at.desc().nullslast(), Claim.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
     items = []
     for claim, insurance_name in rows:
         status = "draft"

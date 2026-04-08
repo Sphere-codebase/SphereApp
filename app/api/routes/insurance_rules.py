@@ -35,7 +35,9 @@ DbSessionDep = Annotated[Session, Depends(get_db)]
 
 
 def _require_policy_link(db: Session, policy_link_id: int) -> PolicyLink:
-    link = db.execute(select(PolicyLink).where(PolicyLink.id == policy_link_id)).scalar_one_or_none()
+    link = db.execute(
+        select(PolicyLink).where(PolicyLink.id == policy_link_id)
+    ).scalar_one_or_none()
     if link is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy link not found")
     return link
@@ -86,7 +88,9 @@ def get_latest_policy_rules(
         .first()
     )
     if rule is None:
-        return PolicyRulesResponse(policy_link_id=policy_link_id, extracted_at=None, rules_json=None)
+        return PolicyRulesResponse(
+            policy_link_id=policy_link_id, extracted_at=None, rules_json=None
+        )
 
     parsed_rules = None
     if rule.rules_json:

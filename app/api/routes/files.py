@@ -29,17 +29,11 @@ def get_claim_pdf(
     current_user: CurrentUserDep,
 ) -> FileResponse:
     safe_name = os.path.basename(filename)
-    record = (
-        db.execute(select(ClaimPDF).where(ClaimPDF.storage_key == safe_name))
-        .scalars()
-        .first()
-    )
+    record = db.execute(select(ClaimPDF).where(ClaimPDF.storage_key == safe_name)).scalars().first()
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PDF not found")
 
-    claim = (
-        db.execute(select(Claim).where(Claim.id == record.claim_id)).scalars().first()
-    )
+    claim = db.execute(select(Claim).where(Claim.id == record.claim_id)).scalars().first()
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PDF not found")
     if not policy.can(current_user, policy.Action.READ, policy.Resource.CLAIM, claim):

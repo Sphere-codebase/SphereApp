@@ -115,4 +115,6 @@ def confirm_chat_action(
         actor_role=current_user.role,
     )
 
-    return ChatConfirmResponse(status="confirmed", result=result if isinstance(result, dict) else {})
+    return ChatConfirmResponse(
+        status="confirmed", result=result if isinstance(result, dict) else {}
+    )

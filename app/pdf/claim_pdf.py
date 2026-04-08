@@ -11,12 +11,14 @@ try:
     from reportlab.lib.pagesizes import letter
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListItem, ListFlowable
     from reportlab.lib.styles import getSampleStyleSheet
+
     _REPORTLAB_AVAILABLE = True
 except Exception:  # pragma: no cover - fallback for environments without reportlab
     letter = None
     SimpleDocTemplate = Paragraph = Spacer = ListItem = ListFlowable = None
     getSampleStyleSheet = None
     _REPORTLAB_AVAILABLE = False
+
 
 @dataclass
 class PersonBaseData:
@@ -25,12 +27,14 @@ class PersonBaseData:
     suffix: str | None
     middle: str | None
 
+
 @dataclass
 class PatientCondition:
     is_employment: bool
     is_auto: bool
     is_other: bool
     auto_incident_state: str | None
+
 
 @dataclass
 class EntityAddress:
@@ -40,6 +44,7 @@ class EntityAddress:
     state: str
     zip_code: str
 
+
 @dataclass
 class PatientData(PersonBaseData, PatientCondition, EntityAddress):
     dob: str
@@ -47,6 +52,7 @@ class PatientData(PersonBaseData, PatientCondition, EntityAddress):
     patient_relationship: str
     patient_signature: str
     account_number: str
+
 
 @dataclass
 class InsuredData(PersonBaseData, EntityAddress):
@@ -57,24 +63,29 @@ class InsuredData(PersonBaseData, EntityAddress):
     sex: str | None
     insured_signature: str
 
+
 @dataclass
 class OtherClaim:
     qualifier: str
     value: str
+
 
 @dataclass
 class QualifierValueOrDate:
     qualifier: str
     value: str
 
+
 @dataclass
 class DatePeriod:
     from_date: str
     to_date: str
 
+
 @dataclass
 class ProviderInfo(PersonBaseData):
     qualifier: str
+
 
 @dataclass
 class ServiceLine:
@@ -89,6 +100,7 @@ class ServiceLine:
     epsdt: str | None
     provider_id: list[str]
 
+
 @dataclass
 class PhysicianSupplierData(PersonBaseData):
     physician_supplier_signature: bool
@@ -98,11 +110,13 @@ class PhysicianSupplierData(PersonBaseData):
     email: str | None
     etin: str | None
 
+
 @dataclass
 class FacilityData(EntityAddress):
     name: str
     npi: str
     other_ids: list[QualifierValueOrDate]
+
 
 @dataclass
 class BillingData(PersonBaseData, EntityAddress):
@@ -110,6 +124,7 @@ class BillingData(PersonBaseData, EntityAddress):
     phone_number: str | None
     npi: str
     other_ids: list[QualifierValueOrDate]
+
 
 @dataclass
 class ClaimData:
@@ -141,6 +156,7 @@ class ClaimData:
     facility: FacilityData | None
     billing_info: BillingData
 
+
 def _is_empty(value: Any) -> bool:
     """Return True if value should be skipped in PDF."""
     if value is None:
@@ -164,6 +180,7 @@ def _normalize(value: Any) -> Any:
 def _format_key(key: str) -> str:
     """Convert snake_case to Title Case."""
     return key.replace("_", " ").title()
+
 
 def generate_pdf_bytes(claim) -> bytes:
     if claim is None:
@@ -239,20 +256,14 @@ def generate_pdf_bytes(claim) -> bytes:
                     sub_content = elements[sub_before:]
                     items.append(ListItem(sub_content))
                 else:
-                    items.append(
-                        ListItem(
-                            Paragraph(str(item), styles["Normal"])
-                        )
-                    )
+                    items.append(ListItem(Paragraph(str(item), styles["Normal"])))
 
             if items:
                 elements.append(ListFlowable(items, bulletType="bullet"))
                 elements.append(Spacer(1, 6))
 
         else:
-            elements.append(
-                Paragraph("&nbsp;" * indent * 4 + str(obj), styles["Normal"])
-            )
+            elements.append(Paragraph("&nbsp;" * indent * 4 + str(obj), styles["Normal"]))
             elements.append(Spacer(1, 4))
 
     render(data)
@@ -271,6 +282,7 @@ def generate_pdf_bytes(claim) -> bytes:
 
 
 # ---------- File Writer ----------
+
 
 def save_pdf(pdf_bytes: bytes, output_path: str) -> None:
     """

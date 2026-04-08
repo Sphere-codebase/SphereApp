@@ -63,9 +63,7 @@ def test_doctor_dashboard_allows_doctor_and_returns_empty_state(db_session: Sess
 
 def test_clinic_dashboard_allows_clinic_admin_with_live_query_params(db_session: Session) -> None:
     clinic = _seed_clinic(db_session)
-    clinic_admin = _seed_user(
-        db_session, "clinic-admin@example.com", "clinic_admin", clinic.id
-    )
+    clinic_admin = _seed_user(db_session, "clinic-admin@example.com", "clinic_admin", clinic.id)
     db_session.commit()
 
     _override_db(db_session)

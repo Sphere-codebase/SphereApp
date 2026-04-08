@@ -194,9 +194,13 @@ def test_blocked_clinic_denied_access(db_session: Session) -> None:
 
 def test_platform_admin_access_not_blocked(db_session: Session) -> None:
     clinic = _seed_clinic(db_session, "Platform Clinic", is_blocked=True)
-    admin_role = db_session.execute(select(Role).where(Role.code == "platform_staff_admin")).scalar_one_or_none()
+    admin_role = db_session.execute(
+        select(Role).where(Role.code == "platform_staff_admin")
+    ).scalar_one_or_none()
     if admin_role is None:
-        admin_role = Role(id=next_id(db_session, Role), code="platform_staff_admin", description="Platform Admin")
+        admin_role = Role(
+            id=next_id(db_session, Role), code="platform_staff_admin", description="Platform Admin"
+        )
         db_session.add(admin_role)
         db_session.flush()
     admin = User(
@@ -241,9 +245,9 @@ def test_rls_blocks_cross_clinic_reads(db_session: Session) -> None:
     token_clinic = set_current_clinic_id(clinic_b.id)
     try:
         apply_rls_context(db_session, clinic_b.id, False)
-        rows = db_session.execute(
-            sa.select(Patient).where(Patient.id == patient.id)
-        ).scalars().all()
+        rows = (
+            db_session.execute(sa.select(Patient).where(Patient.id == patient.id)).scalars().all()
+        )
         assert rows == []
     finally:
         reset_current_clinic_id(token_clinic)

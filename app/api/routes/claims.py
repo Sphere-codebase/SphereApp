@@ -181,16 +181,22 @@ def _pdf_filename(claim_id: int) -> tuple[str, str]:
 
 
 def _build_claim_financial_summary(db: Session, claim: Claim) -> ClaimFinancialSummary:
-    mcp_codes = db.execute(
-        select(ClaimMcpCode.mcp_code)
-        .where(ClaimMcpCode.claim_id == claim.id)
-        .order_by(ClaimMcpCode.mcp_code.asc())
-    ).scalars().all()
-    diagnosis_codes = db.execute(
-        select(ClaimDiagnosisCode.diagnosis_code).where(
-            ClaimDiagnosisCode.claim_id == claim.id
+    mcp_codes = (
+        db.execute(
+            select(ClaimMcpCode.mcp_code)
+            .where(ClaimMcpCode.claim_id == claim.id)
+            .order_by(ClaimMcpCode.mcp_code.asc())
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
+    diagnosis_codes = (
+        db.execute(
+            select(ClaimDiagnosisCode.diagnosis_code).where(ClaimDiagnosisCode.claim_id == claim.id)
+        )
+        .scalars()
+        .all()
+    )
 
     predictions: list[ClaimFinancialPrediction] = []
     flags: list[ClaimFinancialFlag] = []
@@ -209,31 +215,39 @@ def _build_claim_financial_summary(db: Session, claim: Claim) -> ClaimFinancialS
 
     if mcp_codes:
         today = date.today()
-        payment_rows = db.execute(
-            select(McpPaymentPrediction)
-            .where(
-                McpPaymentPrediction.insurance_company_id == claim.insurance_company_id,
-                McpPaymentPrediction.mcp_code.in_(mcp_codes),
-                McpPaymentPrediction.prediction_date <= today,
+        payment_rows = (
+            db.execute(
+                select(McpPaymentPrediction)
+                .where(
+                    McpPaymentPrediction.insurance_company_id == claim.insurance_company_id,
+                    McpPaymentPrediction.mcp_code.in_(mcp_codes),
+                    McpPaymentPrediction.prediction_date <= today,
+                )
+                .order_by(
+                    McpPaymentPrediction.mcp_code.asc(),
+                    McpPaymentPrediction.prediction_date.desc(),
+                )
             )
-            .order_by(
-                McpPaymentPrediction.mcp_code.asc(),
-                McpPaymentPrediction.prediction_date.desc(),
-            )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for row in payment_rows:
             if row.mcp_code not in payment_map:
                 payment_map[row.mcp_code] = row
 
-        ml_rows = db.execute(
-            select(MlPrediction)
-            .where(
-                MlPrediction.claim_id == claim.id,
-                MlPrediction.insurance_company_id == claim.insurance_company_id,
-                MlPrediction.mcp_code.in_(mcp_codes),
+        ml_rows = (
+            db.execute(
+                select(MlPrediction)
+                .where(
+                    MlPrediction.claim_id == claim.id,
+                    MlPrediction.insurance_company_id == claim.insurance_company_id,
+                    MlPrediction.mcp_code.in_(mcp_codes),
+                )
+                .order_by(MlPrediction.mcp_code.asc(), MlPrediction.created_at.desc())
             )
-            .order_by(MlPrediction.mcp_code.asc(), MlPrediction.created_at.desc())
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for row in ml_rows:
             if row.mcp_code not in ml_map:
                 ml_map[row.mcp_code] = row
@@ -645,9 +659,7 @@ def add_diagnosis_codes(
             )
         link = ClaimDiagnosisCode(claim_id=claim.id, diagnosis_code=code_value)
         db.add(link)
-        responses.append(
-            ClaimDiagnosisCodeResponse(claim_id=claim.id, diagnosis_code=code_value)
-        )
+        responses.append(ClaimDiagnosisCodeResponse(claim_id=claim.id, diagnosis_code=code_value))
     db.commit()
     audit.log_event(
         action="UPDATE",

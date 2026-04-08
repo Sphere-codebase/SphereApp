@@ -29,6 +29,19 @@ class _CorsDotEnvSettingsSource(DotEnvSettingsSource):
         return super().decode_complex_value(field_name, field, value)
 
 
+def normalize_database_url(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    url = value.strip()
+    if url.startswith("postgres://"):
+        return f"postgresql+psycopg://{url[len('postgres://') :]}"
+    if url.startswith("postgresql://"):
+        return f"postgresql+psycopg://{url[len('postgresql://') :]}"
+    if url.startswith("postgresql+psycopg2://"):
+        return f"postgresql+psycopg://{url[len('postgresql+psycopg2://') :]}"
+    return url
+
+
 class Settings(BaseSettings):
     env: Literal["dev", "test", "prod"] = Field("dev", alias="ENV")
     log_level: str = Field("INFO", alias="LOG_LEVEL")
@@ -70,9 +83,7 @@ class Settings(BaseSettings):
     ready_db_cache_ttl_seconds: float = Field(2.0, alias="READY_DB_CACHE_TTL_SECONDS")
     auth_me_cache_ttl_seconds: float = Field(60.0, alias="AUTH_ME_CACHE_TTL_SECONDS")
     admin_ref_cache_ttl_seconds: float = Field(300.0, alias="ADMIN_REF_CACHE_TTL_SECONDS")
-    chat_sessions_cache_ttl_seconds: float = Field(
-        5.0, alias="CHAT_SESSIONS_CACHE_TTL_SECONDS"
-    )
+    chat_sessions_cache_ttl_seconds: float = Field(5.0, alias="CHAT_SESSIONS_CACHE_TTL_SECONDS")
 
     pdf_parser_url: str = Field("http://localhost:8001", alias="PDF_PARSER_URL")
     pdf_parser_api_key: str = Field("default_secret", alias="PDF_PARSER_API_KEY")
@@ -120,6 +131,11 @@ class Settings(BaseSettings):
                 return [str(item) for item in parsed]
             return [item.strip() for item in trimmed.split(",") if item.strip()]
         raise ValueError("CORS_ORIGINS must be a list or comma-separated string")
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def parse_database_url(cls, value: object) -> object:
+        return normalize_database_url(value)
 
 
 settings = Settings()  # type: ignore[call-arg]

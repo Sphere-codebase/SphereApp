@@ -86,9 +86,7 @@ def upgrade() -> None:
         )
     )
     bind.execute(
-        sa.text(
-            "UPDATE claim_procedure_facts " "SET clinic_id = :clinic_id WHERE clinic_id IS NULL"
-        ),
+        sa.text("UPDATE claim_procedure_facts SET clinic_id = :clinic_id WHERE clinic_id IS NULL"),
         {"clinic_id": default_clinic_id},
     )
 

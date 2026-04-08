@@ -43,8 +43,7 @@ def list_diagnosis_codes(
     def _load_payload() -> list[dict[str, object]]:
         codes = db.execute(select(DiagnosisCode).order_by(DiagnosisCode.code.asc())).scalars().all()
         return [
-            DiagnosisCodeResponse.model_validate(code).model_dump(mode="json")
-            for code in codes
+            DiagnosisCodeResponse.model_validate(code).model_dump(mode="json") for code in codes
         ]
 
     payload = admin_ref_response_cache.get_or_set(

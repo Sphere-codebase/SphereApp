@@ -54,20 +54,17 @@ def doctor_dashboard(
     )
 
     session_updated_at = func.coalesce(message_updates.c.last_message_at, ChatSession.created_at)
-    session_rows = (
-        db.execute(
-            select(ChatSession, session_updated_at.label("updated_at"))
-            .outerjoin(message_updates, message_updates.c.session_id == ChatSession.id)
-            .where(
-                ChatSession.clinic_id == current_user.clinic_id,
-                ChatSession.doctor_id == current_user.id,
-                ChatSession.status == "open",
-            )
-            .order_by(session_updated_at.desc())
-            .limit(limit_sessions)
+    session_rows = db.execute(
+        select(ChatSession, session_updated_at.label("updated_at"))
+        .outerjoin(message_updates, message_updates.c.session_id == ChatSession.id)
+        .where(
+            ChatSession.clinic_id == current_user.clinic_id,
+            ChatSession.doctor_id == current_user.id,
+            ChatSession.status == "open",
         )
-        .all()
-    )
+        .order_by(session_updated_at.desc())
+        .limit(limit_sessions)
+    ).all()
     active_sessions = [
         DashboardSessionSummary(
             id=session.id,
@@ -78,20 +75,17 @@ def doctor_dashboard(
     ]
 
     claim_updated_at = func.coalesce(Claim.updated_at, Claim.created_at)
-    claim_rows = (
-        db.execute(
-            select(Claim, Patient, InsuranceCompany, claim_updated_at.label("updated_at"))
-            .join(Patient, Claim.patient_id == Patient.id)
-            .outerjoin(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
-            .where(
-                Claim.clinic_id == current_user.clinic_id,
-                Claim.doctor_id == current_user.id,
-            )
-            .order_by(claim_updated_at.desc())
-            .limit(limit_claims)
+    claim_rows = db.execute(
+        select(Claim, Patient, InsuranceCompany, claim_updated_at.label("updated_at"))
+        .join(Patient, Claim.patient_id == Patient.id)
+        .outerjoin(InsuranceCompany, Claim.insurance_company_id == InsuranceCompany.id)
+        .where(
+            Claim.clinic_id == current_user.clinic_id,
+            Claim.doctor_id == current_user.id,
         )
-        .all()
-    )
+        .order_by(claim_updated_at.desc())
+        .limit(limit_claims)
+    ).all()
     recent_claims: list[DashboardClaimSummary] = []
     for claim, patient, company, updated_at in claim_rows:
         patient_name = " ".join(

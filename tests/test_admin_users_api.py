@@ -38,6 +38,8 @@ def _seed_user(db_session: Session, email: str, is_admin: bool) -> User:
         db_session.add(UserRole(user_id=user.id, role_id=admin_role.id))
     db_session.commit()
     return user
+
+
 def test_non_admin_cannot_list_users(db_session: Session) -> None:
     user = _seed_user(db_session, "member@example.com", is_admin=False)
     token = create_access_token(str(user.id))
