@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -13,10 +13,8 @@ from sqlalchemy.orm import Session
 from app.api.deps import AuditLoggerDep, CurrentUserDep, require_roles
 from app.db.models import AuditLog, Claim, InsuranceCompany, User
 from app.db.session import get_db
-from app.utils.audit_export import diff_to_json, iter_csv
 from app.schemas.clinic_admin import (
     AuditLogItemDTO,
-    AuditLogListResponse,
     ClinicDashboardInsurer,
     ClinicDashboardKpis,
     ClinicDashboardRange,
@@ -26,6 +24,7 @@ from app.schemas.clinic_admin import (
     DoctorUpdateRequest,
     DoctorUserDTO,
 )
+from app.utils.audit_export import diff_to_json, iter_csv
 
 router = APIRouter(prefix="/api/clinic", tags=["clinic_admin"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
@@ -320,8 +319,6 @@ def list_clinic_audit_logs(
     if date_to:
         filters.append(AuditLog.created_at <= datetime.combine(date_to, time.max))
 
-    total = db.execute(select(func.count()).select_from(AuditLog).where(*filters)).scalar_one()
-
     rows = db.execute(
         select(AuditLog, User.full_name, User.email, User.role)
         .join(User, User.id == AuditLog.actor_id, isouter=True)
@@ -398,7 +395,7 @@ def export_clinic_audit_logs(
         headers.append("diff_json")
 
     def row_iter():
-        for log, full_name, email, role in rows:
+        for log, _full_name, _email, role in rows:
             actor_role = log.actor_role or role
             row = [
                 log.created_at.isoformat() if log.created_at else "",

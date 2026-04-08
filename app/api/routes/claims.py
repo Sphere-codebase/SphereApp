@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
 import logging
 import os
+from datetime import UTC, date, datetime
 from typing import Annotated
 
 from fastapi import (
@@ -29,29 +29,32 @@ from app.core.logging import error_payload
 from app.core.security import get_current_user
 from app.db.id_utils import next_id
 from app.db.models import (
+    ChatSession,
     Claim,
     ClaimDiagnosisCode,
     ClaimMcpCode,
-    ChatSession,
     ClaimPDF,
     DiagnosisCode,
     InsuranceCompany,
+    McpCode,
     McpPaymentPrediction,
     MlPrediction,
-    McpCode,
     Patient,
     PolicyLink,
     User,
 )
 from app.db.session import get_db
+from app.pdf.claim_pdf import generate_pdf_bytes, save_pdf
+from app.repositories import patients as patient_repo
+from app.schemas.agent import ClaimRequirementsResponse
 from app.schemas.claims import (
+    ClaimCreateRequest,
     ClaimDetailResponse,
+    ClaimDiagnosisCodeCreateRequest,
+    ClaimDiagnosisCodeResponse,
     ClaimFinancialFlag,
     ClaimFinancialPrediction,
     ClaimFinancialSummary,
-    ClaimDiagnosisCodeCreateRequest,
-    ClaimDiagnosisCodeResponse,
-    ClaimCreateRequest,
     ClaimMcpCodeCreateRequest,
     ClaimMcpCodeResponse,
     ClaimPdfIngestResponse,
@@ -64,14 +67,11 @@ from app.schemas.claims import (
     MyClaimsListResponseSchema,
     PatientSummary,
 )
-from app.schemas.agent import ClaimRequirementsResponse
-from app.repositories import patients as patient_repo
 from app.services.claims.ingestion import ingest_pdf_from_path, ingest_pdf_from_upload
 from app.services.claims.pdf import build_claim_pdf_data
 from app.services.claims.requirements import build_claim_requirements
 from app.services.claims.summary import ClaimsService, MyClaimsFilters
 from app.utils.time import utcnow
-from app.pdf.claim_pdf import generate_pdf_bytes, save_pdf
 
 router = APIRouter(prefix="/api/claims", tags=["claims"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
@@ -174,7 +174,7 @@ def _build_claim_detail(db: Session, claim: Claim) -> ClaimDetailResponse:
 
 
 def _pdf_filename(claim_id: int) -> tuple[str, str]:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     pdf_id = f"claim_{claim_id}_{timestamp}"
     filename = f"{pdf_id}.pdf"
     return pdf_id, filename

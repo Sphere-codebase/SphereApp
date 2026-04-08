@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import AuditLoggerDep, require_agent_token
 from app.core.tenancy import apply_rls_context
 from app.db.models import (
+    ChatSession,
     Claim,
     ClaimDiagnosisCode,
     ClaimMcpCode,
@@ -19,7 +20,6 @@ from app.db.models import (
     McpCode,
     PolicyLink,
     PolicyRule,
-    ChatSession,
     User,
 )
 from app.db.session import get_db

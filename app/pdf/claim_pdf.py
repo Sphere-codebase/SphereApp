@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import os
-from dataclasses import is_dataclass, asdict, dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from io import BytesIO
 from typing import Any
 
 try:
     from reportlab.lib.pagesizes import letter
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, ListItem, ListFlowable
     from reportlab.lib.styles import getSampleStyleSheet
+    from reportlab.platypus import ListFlowable, ListItem, Paragraph, SimpleDocTemplate, Spacer
 
     _REPORTLAB_AVAILABLE = True
 except Exception:  # pragma: no cover - fallback for environments without reportlab

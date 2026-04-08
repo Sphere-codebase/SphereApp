@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import AuditLoggerDep, CurrentUserDep
 from app.core import policy
-from app.db.models import ChatSession, Claim, User
+from app.db.models import ChatSession, Claim
 from app.db.session import get_db
 from app.llm.tools.registry import ToolContext, execute_tool, validate_tool_args
 from app.schemas.chat import ChatConfirmRequest, ChatConfirmResponse

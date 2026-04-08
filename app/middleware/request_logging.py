@@ -6,9 +6,9 @@ import json
 import logging
 import time
 
-from app.core.logging import request_id_ctx
-
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from app.core.logging import request_id_ctx
 
 
 class RequestLoggingMiddleware:

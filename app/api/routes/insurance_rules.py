@@ -10,22 +10,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuditLoggerDep, CurrentUserDep, require_roles
-from app.core import policy
 from app.db.id_utils import next_id
 from app.db.models import (
     ClinicPolicyOverride,
     DoctorPolicyOverride,
     PolicyLink,
     PolicyRule,
-    User,
 )
 from app.db.session import get_db
 from app.schemas.insurance_rules import (
     ClinicOverrideResponse,
     DoctorOverrideResponse,
     OverrideUpsertRequest,
-    PolicyLinkListResponse,
     PolicyLinkItem,
+    PolicyLinkListResponse,
     PolicyRulesResponse,
 )
 from app.utils.time import utcnow

@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Index, Numeric, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.models.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.db.models.chat import ChatSession
+    from app.db.models.claim_pdf import ClaimPDF
 
 
 class Claim(TimestampMixin, Base):
@@ -49,11 +54,11 @@ class Claim(TimestampMixin, Base):
     doctor = relationship("User", backref="claims")
     patient = relationship("Patient", backref="claims")
     insurance_company = relationship("InsuranceCompany", backref="claims")
-    chat_sessions: Mapped[list["ChatSession"]] = relationship(
+    chat_sessions: Mapped[list[ChatSession]] = relationship(
         "ChatSession",
         back_populates="claim",
     )
-    claim_pdfs: Mapped[list["ClaimPDF"]] = relationship(
+    claim_pdfs: Mapped[list[ClaimPDF]] = relationship(
         "ClaimPDF",
         back_populates="claim",
     )

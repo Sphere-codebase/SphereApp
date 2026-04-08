@@ -4,10 +4,10 @@ import tempfile
 import pytest
 
 from app.pdf.claim_pdf import (
+    BillingData,
     ClaimData,
     PatientData,
     PhysicianSupplierData,
-    BillingData,
     ServiceLine,
     generate_pdf_bytes,
     save_pdf,

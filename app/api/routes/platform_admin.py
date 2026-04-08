@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import AuditLoggerDep, require_platform_staff_admin
 from app.db.id_utils import next_id
-from app.db.models import AuditLog, Claim, Clinic, Patient, User, Address
+from app.db.models import Address, AuditLog, Claim, Clinic, Patient, User
 from app.db.session import get_db
 from app.schemas.platform_admin import (
     ClinicCounters,
@@ -324,7 +324,7 @@ def export_platform_audit_logs(
         headers.append("diff_json")
 
     def row_iter():
-        for log, clinic_name, full_name, email, role in rows:
+        for log, clinic_name, _full_name, _email, role in rows:
             actor_role = log.actor_role or role
             row = [
                 log.created_at.isoformat() if log.created_at else "",

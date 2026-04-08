@@ -1,3 +1,4 @@
+import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,11 +12,10 @@ from app.core.tenancy import (
     set_current_is_platform_admin,
 )
 from app.db.id_utils import next_id
-from app.db.models import Clinic, InsuranceCompany, Role, User, UserRole, Patient
+from app.db.models import Clinic, InsuranceCompany, Patient, Role, User, UserRole
 from app.db.session import get_db
 from app.main import app
 from app.utils.time import utcnow
-import sqlalchemy as sa
 
 
 def _seed_clinic(db_session: Session, name: str, *, is_blocked: bool = False) -> Clinic:

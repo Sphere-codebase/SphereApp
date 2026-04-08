@@ -17,11 +17,10 @@ from app.repositories.patients import list_patients_paginated
 from app.schemas.patients import (
     NewPatientCreateRequest,
     NewPatientCreateResponse,
-    PatientCreateRequest,
     PatientClaimsResponse,
+    PatientCreateRequest,
     PatientDetailResponse,
     PatientListItem,
-    PatientListResponse,
     PatientResponse,
     PatientUpdateRequest,
 )
