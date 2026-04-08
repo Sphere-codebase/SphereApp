@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from datetime import UTC, date, datetime
 from typing import Annotated
 
@@ -44,7 +43,7 @@ from app.db.models import (
     User,
 )
 from app.db.session import get_db
-from app.pdf.claim_pdf import generate_pdf_bytes, save_pdf
+from app.pdf.claim_pdf import generate_pdf_bytes
 from app.repositories import patients as patient_repo
 from app.schemas.agent import ClaimRequirementsResponse
 from app.schemas.claims import (
@@ -77,8 +76,6 @@ router = APIRouter(prefix="/api/claims", tags=["claims"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
-
-PDF_STORAGE_DIR = os.path.join("var", "pdfs")
 
 logger = logging.getLogger(__name__)
 
@@ -754,8 +751,6 @@ def generate_claim_pdf(
     try:
         pdf_bytes = generate_pdf_bytes(claim_data)
         pdf_id, filename = _pdf_filename(claim.id)
-        output_path = os.path.join(PDF_STORAGE_DIR, filename)
-        save_pdf(pdf_bytes, output_path)
     except Exception as exc:
         logger.exception("Failed to generate PDF for claim %s", claim.id)
         raise HTTPException(

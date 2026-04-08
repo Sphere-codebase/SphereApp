@@ -4,6 +4,8 @@ Codex: implement the app wiring, include routers, middleware, and dependencies.
 """
 
 import logging
+import os
+import platform
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -59,6 +61,7 @@ from app.db.session import engine
 from app.llm.client import LLMUnavailable
 from app.middleware.request_id import RequestIdMiddleware
 from app.middleware.request_logging import RequestLoggingMiddleware
+from app.parsers.pdf.remote_client import close_remote_pdf_parser_http_client
 from app.parsers.policy.policy_parse import router as policy_parse_router
 
 configure_logging(settings.log_level)
@@ -69,18 +72,29 @@ setup_sqlalchemy_query_logging(engine)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan event handler."""
-    # Startup: Verify key routes are registered
     logger = logging.getLogger(__name__)
+    logger.info(
+        "startup env=%s is_vercel=%s is_serverless=%s python=%s cwd=%s",
+        settings.env,
+        settings.is_vercel,
+        settings.is_serverless,
+        platform.python_version(),
+        os.getcwd(),
+    )
+    for warning in settings.runtime_warnings():
+        logger.warning("runtime configuration issue: %s", warning)
+
+    # Startup: Verify key routes are registered
     target_path = "/api/admin/policy-links/{policy_link_id}/rules"
     all_paths = [route.path for route in app.routes if hasattr(route, "path")]
     if target_path in all_paths:
-        logger.info(f"Route registered: {target_path}")
+        logger.info("route registered: %s", target_path)
     else:
-        logger.error(f"Route MISSING: {target_path}")
+        logger.error("route missing: %s", target_path)
 
     yield
 
-    # Shutdown: (None currently)
+    close_remote_pdf_parser_http_client()
 
 
 app = FastAPI(title="claims-assistant", lifespan=lifespan)

@@ -56,34 +56,41 @@ def configure_performance_logging() -> logging.Logger:
     if _performance_configured:
         return logger
 
-    # Performance logs are written to logs/performance.log by default.
-    log_dir = Path(settings.chat_log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / PERFORMANCE_LOG_FILE
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:
+            pass
 
-    handler_exists = False
-    for handler in logger.handlers:
-        if isinstance(handler, RotatingFileHandler) and Path(handler.baseFilename) == log_path:
-            handler_exists = True
-            break
-
-    if not handler_exists:
-        handler = RotatingFileHandler(
-            log_path,
-            maxBytes=10 * 1024 * 1024,
-            backupCount=5,
-        )
-        handler.setLevel(logging.INFO)
-        handler.addFilter(_PerformanceDefaultsFilter())
-        handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s %(levelname)s "
-                "path=%(path)s method=%(method)s status=%(status_code)s "
-                "duration_ms=%(duration_ms)s sql_count=%(sql_count)s "
-                "connect_created=%(connect_created)s %(message)s"
+    formatter = logging.Formatter(
+        "%(asctime)s %(levelname)s "
+        "path=%(path)s method=%(method)s status=%(status_code)s "
+        "duration_ms=%(duration_ms)s sql_count=%(sql_count)s "
+        "connect_created=%(connect_created)s %(message)s"
+    )
+    try:
+        if settings.is_serverless:
+            handler: logging.Handler = logging.StreamHandler()
+        else:
+            log_dir = Path(settings.chat_log_dir)
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_path = log_dir / PERFORMANCE_LOG_FILE
+            handler = RotatingFileHandler(
+                log_path,
+                maxBytes=10 * 1024 * 1024,
+                backupCount=5,
             )
+    except OSError:
+        logging.getLogger(__name__).exception(
+            "failed to configure performance file logging, falling back to stdout"
         )
-        logger.addHandler(handler)
+        handler = logging.StreamHandler()
+
+    handler.setLevel(logging.INFO)
+    handler.addFilter(_PerformanceDefaultsFilter())
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
     logger.setLevel(logging.INFO)
     logger.propagate = False

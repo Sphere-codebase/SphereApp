@@ -45,32 +45,45 @@ def configure_logging(log_level: str) -> None:
     _configure_chat_file_logger()
 
 
+def _clear_handlers(logger: logging.Logger) -> None:
+    for handler in list(logger.handlers):
+        logger.removeHandler(handler)
+        try:
+            handler.close()
+        except Exception:
+            pass
+
+
 def _configure_chat_file_logger() -> None:
     global _chat_log_path
     logger = logging.getLogger(CHAT_LOGGER_NAME)
-    if not chat_file_logs_enabled(settings):
-        for handler in list(logger.handlers):
-            logger.removeHandler(handler)
-        logger.handlers.clear()
-        logger.propagate = False
-        _chat_log_path = None
-        return
-
-    log_dir = Path(settings.chat_log_dir)
-    log_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = log_dir / f"chat_run_{timestamp}.log"
-
-    for handler in list(logger.handlers):
-        logger.removeHandler(handler)
-
-    file_handler = logging.FileHandler(log_path)
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(logging.Formatter("%(message)s"))
-    logger.addHandler(file_handler)
+    _clear_handlers(logger)
     logger.setLevel(logging.INFO)
     logger.propagate = False
-    _chat_log_path = log_path
+
+    if chat_file_logs_enabled(settings):
+        try:
+            log_dir = Path(settings.chat_log_dir)
+            log_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_path = log_dir / f"chat_run_{timestamp}.log"
+
+            file_handler = logging.FileHandler(log_path)
+            file_handler.setLevel(logging.INFO)
+            file_handler.setFormatter(logging.Formatter("%(message)s"))
+            logger.addHandler(file_handler)
+            _chat_log_path = log_path
+            return
+        except OSError:
+            logging.getLogger(__name__).exception(
+                "failed to configure chat file logging, falling back to stdout"
+            )
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setLevel(logging.INFO)
+    stream_handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(stream_handler)
+    _chat_log_path = None
 
 
 def chat_log_path() -> Path | None:
@@ -78,6 +91,8 @@ def chat_log_path() -> Path | None:
 
 
 def chat_file_logs_enabled(settings_obj: Settings) -> bool:
+    if settings_obj.is_serverless:
+        return False
     if settings_obj.chat_file_logs is not None:
         return settings_obj.chat_file_logs
     return settings_obj.env != "prod"

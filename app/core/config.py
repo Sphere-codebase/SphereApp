@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Literal, cast
 
 from pydantic import Field, field_validator
@@ -27,6 +28,26 @@ class _CorsDotEnvSettingsSource(DotEnvSettingsSource):
         if field_name == "cors_origins":
             return value
         return super().decode_complex_value(field_name, field, value)
+
+
+def _truthy_env(name: str) -> bool:
+    value = os.getenv(name, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_vercel_runtime_env() -> bool:
+    return _truthy_env("VERCEL") or bool(os.getenv("VERCEL_ENV")) or bool(os.getenv("VERCEL_URL"))
+
+
+def _default_runtime_env() -> Literal["dev", "test", "prod"]:
+    if _is_vercel_runtime_env():
+        return "prod"
+    return "dev"
+
+
+def _looks_local_address(value: str) -> bool:
+    lowered = value.lower()
+    return any(token in lowered for token in ("localhost", "127.0.0.1", "0.0.0.0"))
 
 
 def normalize_database_url(value: object) -> object:
@@ -132,10 +153,42 @@ class Settings(BaseSettings):
             return [item.strip() for item in trimmed.split(",") if item.strip()]
         raise ValueError("CORS_ORIGINS must be a list or comma-separated string")
 
+    @field_validator("env", mode="before")
+    @classmethod
+    def parse_env(cls, value: object) -> object:
+        if (value is None or value == "dev") and os.getenv("ENV") is None:
+            return _default_runtime_env()
+        return value
+
     @field_validator("database_url", mode="before")
     @classmethod
     def parse_database_url(cls, value: object) -> object:
         return normalize_database_url(value)
+
+    @property
+    def is_vercel(self) -> bool:
+        return _is_vercel_runtime_env()
+
+    @property
+    def is_serverless(self) -> bool:
+        return self.is_vercel or bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+
+    def runtime_warnings(self) -> list[str]:
+        warnings: list[str] = []
+        if self.env != "prod":
+            return warnings
+
+        if self.jwt_secret == "change-me":
+            warnings.append("JWT_SECRET is using the default insecure value.")
+        if _looks_local_address(self.database_url):
+            warnings.append("DATABASE_URL points to a local host and will fail on Vercel.")
+        if self.ready_check_llm and _looks_local_address(self.lmstudio_base_url):
+            warnings.append(
+                "READY_CHECK_LLM is enabled but LMSTUDIO_BASE_URL points to a local host."
+            )
+        if _looks_local_address(self.pdf_parser_url):
+            warnings.append("PDF_PARSER_URL points to a local host.")
+        return warnings
 
 
 settings = Settings()  # type: ignore[call-arg]

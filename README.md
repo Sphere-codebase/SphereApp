@@ -3,7 +3,7 @@
 FastAPI service with Postgres + Alembic migrations and optional local LLM (LM Studio).
 
 ## Requirements
-- Python 3.11
+- Python 3.12
 - Docker (for Postgres)
 - (Optional) LM Studio for local LLM server
 
@@ -139,7 +139,7 @@ FastAPI app so `/docs` and `/openapi.json` work by default.
 ### Required environment variables (Vercel)
 - `DATABASE_URL` (Postgres connection string)
 - `JWT_SECRET`
-- `ENV=prod`
+- `ENV=prod` (recommended; defaults to `prod` automatically on Vercel)
 
 ### Common optional environment variables
 - `ADMIN_API_KEY` (needed to bootstrap admins)
@@ -161,8 +161,10 @@ FastAPI app so `/docs` and `/openapi.json` work by default.
 ### Notes for serverless
 - The SQLAlchemy engine is created with `create_engine(...)` and opens a connection on first use;
   use a managed Postgres or pooler if you see connection churn on cold starts.
-- The app avoids writing to disk in `ENV=prod`; if you enable chat file logs, set `CHAT_LOG_DIR`
-  to a writable mount.
+- Vercel/serverless startup no longer writes to the repo filesystem; structured chat/performance
+  logs go to stdout so failures are visible in function logs.
+- Claim PDFs are generated on demand for `/api/files/pdfs/{filename}` instead of relying on local
+  persistent disk, which is not durable across serverless invocations.
 
 ### Dev vs prod latency expectations (remote DB)
 - If your app runs locally and Postgres is remote (for example Supabase in another region), each DB round-trip can cost hundreds of milliseconds and fresh connects can exceed a second.

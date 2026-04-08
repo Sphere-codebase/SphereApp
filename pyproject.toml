@@ -3,7 +3,7 @@ name = "claims-assistant"
 version = "0.1.0"
 description = "FastAPI backend for a multi-tenant doctor claims assistant using LM Studio tool calling"
 readme = "README.md"
-requires-python = ">=3.11,<3.12"
+requires-python = "~=3.12.0"
 license = {text = "Proprietary"}
 authors = [{name="Your Team"}]
 dependencies = [
@@ -23,6 +23,7 @@ dependencies = [
   "sqlalchemy==2.0.36",
   "alembic==1.14.0",
   "psycopg[binary]==3.2.3",
+  "reportlab==4.4.1",
   "tenacity==9.0.0",
   "beautifulsoup4==4.12.3",
   "lxml==5.3.0"
@@ -43,7 +44,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
@@ -56,7 +57,7 @@ testpaths = ["tests"]
 addopts = "-q"
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false

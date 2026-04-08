@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import os
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,12 +14,13 @@ from app.core import policy
 from app.core.security import get_current_user
 from app.db.models import Claim, ClaimPDF, User
 from app.db.session import get_db
+from app.pdf.claim_pdf import generate_pdf_bytes
+from app.services.claims.pdf import build_claim_pdf_data
 
 router = APIRouter(prefix="/api/files", tags=["files"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
-
-PDF_STORAGE_DIR = os.path.join("var", "pdfs")
+logger = logging.getLogger(__name__)
 
 
 @router.get("/pdfs/{filename}")
@@ -27,8 +28,8 @@ def get_claim_pdf(
     filename: str,
     db: DbSessionDep,
     current_user: CurrentUserDep,
-) -> FileResponse:
-    safe_name = os.path.basename(filename)
+) -> Response:
+    safe_name = filename.rsplit("/", maxsplit=1)[-1]
     record = db.execute(select(ClaimPDF).where(ClaimPDF.storage_key == safe_name)).scalars().first()
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PDF not found")
@@ -39,12 +40,18 @@ def get_claim_pdf(
     if not policy.can(current_user, policy.Action.READ, policy.Resource.CLAIM, claim):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
-    file_path = os.path.join(PDF_STORAGE_DIR, safe_name)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="PDF not found")
+    try:
+        claim_data = build_claim_pdf_data(db, claim)
+        pdf_bytes = generate_pdf_bytes(claim_data)
+    except Exception as exc:
+        logger.exception("Failed to render PDF for claim %s storage_key=%s", claim.id, safe_name)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="PDF unavailable",
+        ) from exc
 
-    return FileResponse(
-        file_path,
+    return Response(
+        content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
     )
