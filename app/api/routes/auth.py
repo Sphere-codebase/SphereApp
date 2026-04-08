@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import AuditLoggerDep
 from app.core.config import settings
+from app.core.response_cache import auth_me_response_cache
 from app.core.security import (
     create_access_token,
     get_current_user,
@@ -18,7 +19,7 @@ from app.core.security import (
     verify_password,
 )
 from app.db.id_utils import next_id
-from app.db.models import User, UserRole
+from app.db.models import Role, User, UserRole
 from app.db.session import get_db
 from app.schemas.auth import (
     AdminCreateUserRequest,
@@ -52,6 +53,8 @@ def login(payload: LoginRequest, db: DbSessionDep, audit: AuditLoggerDep) -> Tok
     user = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User inactive")
 
     token = create_access_token(str(user.id))
     audit.log_event(
@@ -144,10 +147,46 @@ def dev_token(payload: DevTokenRequest, db: DbSessionDep, audit: AuditLoggerDep)
 
 
 @router.get("/me", response_model=UserResponse)
-def me(current_user: CurrentUserDep) -> UserResponse:
-    return UserResponse(
-        id=current_user.id,
-        email=current_user.email,
-        is_active=bool(current_user.is_active),
-        roles=[current_user.role],
+def me(current_user: CurrentUserDep, db: DbSessionDep) -> UserResponse:
+    cache_key = (
+        "auth_me",
+        current_user.id,
+        current_user.email,
+        current_user.full_name,
+        current_user.clinic_id,
+        current_user.role,
+        bool(current_user.is_active),
+        current_user.role == "platform_staff_admin",
     )
+
+    def _load_payload() -> dict[str, object]:
+        roles = (
+            db.execute(
+                select(Role.code)
+                .join(UserRole, UserRole.role_id == Role.id)
+                .where(UserRole.user_id == current_user.id)
+                .order_by(Role.code.asc())
+            )
+            .scalars()
+            .all()
+        )
+        if not roles and current_user.role:
+            roles = [current_user.role]
+        response = UserResponse(
+            id=current_user.id,
+            email=current_user.email,
+            full_name=current_user.full_name,
+            role=current_user.role,
+            roles=roles,
+            clinic_id=current_user.clinic_id,
+            clinic_name=current_user.clinic.name if current_user.clinic else None,
+            is_active=bool(current_user.is_active),
+        )
+        return response.model_dump(mode="json")
+
+    payload = auth_me_response_cache.get_or_set(
+        cache_key,
+        settings.auth_me_cache_ttl_seconds,
+        _load_payload,
+    )
+    return UserResponse.model_validate(payload)

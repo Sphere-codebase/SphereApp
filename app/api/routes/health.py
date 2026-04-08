@@ -2,29 +2,31 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
-from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.session import get_db
+from app.db.session import engine
 from app.llm.client import LLMClient, LLMUnavailable
 
-_LAST: dict[str, object] = {
-    "checks": {"db": "err", "llm": "err"},
-    "details": {"db": None, "llm": None},
-    "ok": False,
-    "ts": 0.0,
+_READY_CACHE_LOCK = threading.Lock()
+_READY_CACHE: dict[str, object] = {
+    "expires_at": 0.0,
+    "status_code": status.HTTP_503_SERVICE_UNAVAILABLE,
+    "payload": {
+        "ok": False,
+        "checks": {"db": "err", "llm": "err"},
+        "details": {"db": None, "llm": None},
+    },
 }
 
-SKIP_PING_TTL_SECONDS = 10.0
-
 router = APIRouter(tags=["health"])
-DbSessionDep = Annotated[Session, Depends(get_db)]
 
 
 def get_llm_client() -> LLMClient:
@@ -44,10 +46,20 @@ def root() -> dict[str, str]:
     return {"service": "SphereApp API", "status": "ok"}
 
 
-def _readiness(db: Session, llm_client: LLMClient) -> tuple[bool, bool | None, str | None]:
-    try:
-        db.execute(text("SELECT 1"))
-    except Exception:
+def _copy_ready_payload(payload_obj: object) -> dict[str, object]:
+    payload = payload_obj if isinstance(payload_obj, dict) else {}
+    checks = payload.get("checks", {})
+    details = payload.get("details", {})
+    return {
+        "ok": bool(payload.get("ok", False)),
+        "checks": dict(checks if isinstance(checks, dict) else {}),
+        "details": dict(details if isinstance(details, dict) else {}),
+    }
+
+
+def _readiness(llm_client: LLMClient) -> tuple[bool, bool | None, str | None]:
+    db_status, _ = check_db()
+    if db_status != "ok":
         return False, None, "DB_NOT_READY"
 
     if settings.ready_check_llm:
@@ -60,15 +72,16 @@ def _readiness(db: Session, llm_client: LLMClient) -> tuple[bool, bool | None, s
     return True, None, None
 
 
-def check_db(db: DbSessionDep) -> tuple[str, str | None]:
+def check_db() -> tuple[str, str | None]:
     try:
-        db.execute(text("SELECT 1"))
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
         return "ok", None
     except Exception as exc:
         return "err", str(exc)
 
 
-def check_llm(llm_client: LlmClientDep) -> tuple[str, str | None]:
+def check_llm(llm_client: LLMClient) -> tuple[str, str | None]:
     try:
         llm_client.health_check()
         return "ok", None
@@ -77,51 +90,42 @@ def check_llm(llm_client: LlmClientDep) -> tuple[str, str | None]:
 
 
 @router.get("/ready")
-def ready(db: DbSessionDep, llm_client: LlmClientDep) -> dict[str, object]:
-    # print(float(_LAST["ts"]))
-    last_checks = _LAST["checks"]
-    assert isinstance(last_checks, dict)
+def ready(llm_client: LlmClientDep) -> dict[str, object]:
+    with _READY_CACHE_LOCK:
+        now = time.monotonic()
+        expires_at = float(_READY_CACHE["expires_at"])
+        if now < expires_at:
+            payload = _copy_ready_payload(_READY_CACHE["payload"])
+            status_code = int(_READY_CACHE["status_code"])
+        else:
+            checks: dict[str, str] = {"db": "err", "llm": "err"}
+            details: dict[str, str | None] = {"db": None, "llm": None}
 
-    if (
-        last_checks.get("db") == "ok"
-        and last_checks.get("llm") == "ok"
-        and float(_LAST["ts"]) < SKIP_PING_TTL_SECONDS
-    ):
-        _LAST["ts"] += 0.1
-        payload = {
-            "ok": bool(_LAST["ok"]),
-            "checks": dict(_LAST["checks"]),
-            "details": dict(_LAST["details"]),
-        }
-        return payload
+            db_status, db_err = check_db()
+            checks["db"] = db_status
+            details["db"] = db_err
 
-    checks: dict[str, str] = {"db": "err", "llm": "err"}
-    details: dict[str, str | None] = {"db": None, "llm": None}
+            if settings.ready_check_llm:
+                llm_status, llm_err = check_llm(llm_client)
+                checks["llm"] = llm_status
+                details["llm"] = llm_err
+            else:
+                checks["llm"] = "warn"
+                details["llm"] = "LLM check disabled"
 
-    db_status, db_err = check_db(db)
-    checks["db"] = db_status
-    details["db"] = db_err
+            overall_ok = checks["db"] == "ok"
+            payload = {"ok": overall_ok, "checks": checks, "details": details}
+            status_code = status.HTTP_200_OK
+            if checks["db"] != "ok":
+                status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            ttl_seconds = max(0.0, float(settings.ready_db_cache_ttl_seconds))
+            _READY_CACHE["payload"] = _copy_ready_payload(payload)
+            _READY_CACHE["status_code"] = int(status_code)
+            _READY_CACHE["expires_at"] = time.monotonic() + ttl_seconds
 
-    if settings.ready_check_llm:
-        llm_status, llm_err = check_llm(llm_client)
-        checks["llm"] = llm_status
-        details["llm"] = llm_err
-    else:
-        checks["llm"] = "warn"
-        details["llm"] = "LLM check disabled"
-
-    overall_ok = checks["db"] == "ok"
-    payload = {"ok": overall_ok, "checks": checks, "details": details}
-
-    _LAST["checks"] = checks
-    _LAST["details"] = details
-    _LAST["ok"] = overall_ok
-    _LAST["ts"] = 9
-
-    # print(_LAST)
-    if checks["db"] != "ok":
+    if status_code != status.HTTP_200_OK:
         return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            status_code=status_code,
             content=payload,
         )
 
@@ -129,8 +133,8 @@ def ready(db: DbSessionDep, llm_client: LlmClientDep) -> dict[str, object]:
 
 
 @router.get("/api/status")
-def status_endpoint(db: DbSessionDep, llm_client: LlmClientDep) -> dict[str, object]:
-    db_ready, llm_ready, reason = _readiness(db, llm_client)
+def status_endpoint(llm_client: LlmClientDep) -> dict[str, object]:
+    db_ready, llm_ready, reason = _readiness(llm_client)
     overall_ready = db_ready and (llm_ready in (True, None))
     checked_at = datetime.now().isoformat(timespec="seconds")
     return {

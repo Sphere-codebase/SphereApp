@@ -1,14 +1,20 @@
 import { Plus, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
   addDiagnosisCode,
   addMcpCode,
+  finalizeClaim,
   getClaim,
+  getClaimFinancialSummary,
+  getClaimRequirements,
+  generateClaimPdf,
   removeDiagnosisCode,
   removeMcpCode,
+  refreshClaimFinancialSummary,
 } from "@/api/claims";
+import { getPatient } from "@/api/patients";
 import { Conversation } from "@/components/ai/conversation";
 import type { MessageProps } from "@/components/ai/message";
 import { PromptInput } from "@/components/ai/prompt-input";
@@ -21,29 +27,18 @@ import type { ClaimDraftPreview } from "@/components/workspace/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { confirmChatAction } from "@/lib/api/chat";
 import { ApiError } from "@/lib/api/errors";
-import { canAccessAdmin } from "@/lib/auth/permissions";
 import { ChatProvider, useChat } from "@/lib/chat/ChatContext";
-import { cn } from "@/lib/utils";
-import type { ClaimDTO, DiagnosisCodeDTO, MCPCodeDTO } from "@/types/claim";
-
-type ThemeMode = "light" | "dark";
-
-const THEME_STORAGE_KEY = "sphereapp-theme";
-
-function getInitialTheme(): ThemeMode {
-  if (typeof window === "undefined") {
-    return "light";
-  }
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (stored === "light" || stored === "dark") {
-    return stored;
-  }
-  const prefersDark = window.matchMedia
-    ? window.matchMedia("(prefers-color-scheme: dark)").matches
-    : false;
-  return prefersDark ? "dark" : "light";
-}
+import { cn, getInitialTheme, THEME_STORAGE_KEY, ThemeMode } from "@/lib/utils";
+import type {
+  ClaimDTO,
+  ClaimFinancialSummaryDTO,
+  ClaimRequirementsDTO,
+  DiagnosisCodeDTO,
+  MCPCodeDTO,
+} from "@/types/claim";
+import type { PatientDetailDTO } from "@/types/patients";
 
 function formatTime(value?: string | null): string | undefined {
   if (!value) {
@@ -70,6 +65,7 @@ function WorkspaceShell() {
     isSending,
     actionRequired,
     proposedChanges,
+    uiActions,
     error,
     lastRequestId,
     llmUnavailable,
@@ -80,22 +76,52 @@ function WorkspaceShell() {
     sendMessage,
     clearError,
     addLocalMessage,
+    clearProposal,
+    clearUiActions,
   } = useChat();
-  const { logout, user } = useAuth();
+  const { logout, me, hasRole } = useAuth();
   const navigate = useNavigate();
+  const { sessionId: routeSessionId } = useParams<{ sessionId?: string }>();
+  const [searchParams] = useSearchParams();
+  const openCreateClaim = searchParams.get("openCreateClaim") === "1";
+  const patientIdParam = searchParams.get("patientId");
+  const claimIdParam = searchParams.get("claimId");
+  const autoOpenRef = useRef(false);
+  const parsedRouteSessionId = routeSessionId ? Number(routeSessionId) : null;
+  const parsedPatientId = patientIdParam ? Number(patientIdParam) : null;
+  const parsedClaimId = claimIdParam ? Number(claimIdParam) : null;
   const [draft, setDraft] = useState("");
-  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [createClaimOpen, setCreateClaimOpen] = useState(false);
   const [currentClaim, setCurrentClaim] = useState<ClaimDTO | null>(null);
   const [isLoadingClaim, setIsLoadingClaim] = useState(false);
   const [claimError, setClaimError] = useState<string | null>(null);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [draftPreview, setDraftPreview] = useState<Partial<ClaimDraftPreview>>({});
+  const [selectedPatient, setSelectedPatient] = useState<PatientDetailDTO | null>(null);
+  const [patientError, setPatientError] = useState<string | null>(null);
+  const [isLoadingPatient, setIsLoadingPatient] = useState(false);
+  const [isConfirmingProposal, setIsConfirmingProposal] = useState(false);
+  const [proposalError, setProposalError] = useState<string | null>(null);
+  const [financialSummary, setFinancialSummary] =
+    useState<ClaimFinancialSummaryDTO | null>(null);
+  const [isLoadingFinancial, setIsLoadingFinancial] = useState(false);
+  const [financialError, setFinancialError] = useState<string | null>(null);
+  const financialKeyRef = useRef<string | null>(null);
+  const [requirements, setRequirements] = useState<ClaimRequirementsDTO | null>(null);
+  const [isCheckingRequirements, setIsCheckingRequirements] = useState(false);
+  const [requirementsError, setRequirementsError] = useState<string | null>(null);
+  const [missingFieldAnswers, setMissingFieldAnswers] = useState<Record<string, string>>(
+    {}
+  );
+  const [formResponses, setFormResponses] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-  }, [theme]);
+  const handleUnauthorized = useCallback(() => {
+    logout();
+    navigate("/login");
+  }, [logout, navigate]);
 
   const conversationMessages = useMemo<MessageProps[]>(
     () =>
@@ -110,8 +136,109 @@ function WorkspaceShell() {
 
   const activeSession =
     sessions.find((session) => session.id === activeSessionId) ?? null;
+  const isReadOnly = currentClaim?.claim_status === "final";
+
+  useEffect(() => {
+    if (isReadOnly) {
+      setUploadOpen(false);
+      setCreateClaimOpen(false);
+    }
+  }, [isReadOnly]);
+
+  useEffect(() => {
+    if (!actionRequired) {
+      setProposalError(null);
+      return;
+    }
+    setProposalError(null);
+  }, [actionRequired, proposedChanges]);
+
+  useEffect(() => {
+    if (!parsedRouteSessionId || !Number.isFinite(parsedRouteSessionId)) {
+      return;
+    }
+    if (activeSessionId === parsedRouteSessionId) {
+      return;
+    }
+    const exists = sessions.some((session) => session.id === parsedRouteSessionId);
+    if (exists) {
+      selectSession(parsedRouteSessionId);
+    }
+  }, [activeSessionId, parsedRouteSessionId, selectSession, sessions]);
+
+  useEffect(() => {
+    if (!openCreateClaim || autoOpenRef.current) {
+      return;
+    }
+    if (isReadOnly) {
+      return;
+    }
+    if (!activeSessionId) {
+      return;
+    }
+    if (parsedRouteSessionId && activeSessionId !== parsedRouteSessionId) {
+      return;
+    }
+    autoOpenRef.current = true;
+    setCreateClaimOpen(true);
+  }, [activeSessionId, isReadOnly, openCreateClaim, parsedRouteSessionId]);
+
+  useEffect(() => {
+    if (!parsedPatientId || !Number.isFinite(parsedPatientId)) {
+      setSelectedPatient(null);
+      setPatientError(null);
+      setIsLoadingPatient(false);
+      return;
+    }
+    setIsLoadingPatient(true);
+    setPatientError(null);
+    getPatient(parsedPatientId)
+      .then((patient) => {
+        setSelectedPatient(patient);
+        setDraftPreview((prev) => ({
+          ...prev,
+          patient: {
+            first_name: patient.first_name ?? "",
+            last_name: patient.last_name ?? "",
+            date_of_birth: patient.date_of_birth ?? "",
+          },
+        }));
+      })
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        setSelectedPatient(null);
+        setPatientError("Unable to load selected patient.");
+      })
+      .finally(() => {
+        setIsLoadingPatient(false);
+      });
+  }, [parsedPatientId, handleUnauthorized]);
+
+  useEffect(() => {
+    setRequirements(null);
+    setRequirementsError(null);
+    setMissingFieldAnswers({});
+    setFormResponses({});
+  }, [currentClaim?.id]);
+
+  const formAction = useMemo(() => {
+    if (!uiActions?.length) {
+      return null;
+    }
+    const action = uiActions.find((item) => item.type === "form");
+    if (!action || !Array.isArray(action.fields)) {
+      return null;
+    }
+    return action as { type: string; fields: Array<Record<string, unknown>> };
+  }, [uiActions]);
 
   const handleSend = () => {
+    if (isReadOnly) {
+      return;
+    }
     const trimmed = draft.trim();
     if (!trimmed) {
       return;
@@ -119,11 +246,6 @@ function WorkspaceShell() {
     setDraft("");
     clearError();
     void sendMessage(trimmed);
-  };
-
-  const handleUnauthorized = () => {
-    logout();
-    navigate("/login");
   };
 
   const loadClaim = async (claimId: number) => {
@@ -148,16 +270,101 @@ function WorkspaceShell() {
     }
   };
 
+  const financialKey = useMemo(() => {
+    if (!currentClaim) {
+      return null;
+    }
+    const mcpKey = currentClaim.mcp_codes
+      .map((code) => code.code)
+      .sort()
+      .join("|");
+    const diagnosisKey = currentClaim.diagnosis_codes
+      .map((code) => code.code)
+      .sort()
+      .join("|");
+    return `${currentClaim.id}:${currentClaim.insurance_company_id}:${mcpKey}:${diagnosisKey}`;
+  }, [currentClaim]);
+
+  const fetchFinancialSummary = useCallback(
+    async (claim: ClaimDTO, options?: { force?: boolean; refresh?: boolean }) => {
+      if (!options?.force && financialKeyRef.current === financialKey) {
+        return;
+      }
+      setIsLoadingFinancial(true);
+      setFinancialError(null);
+      try {
+        const summary = options?.refresh
+          ? await refreshClaimFinancialSummary(claim.id)
+          : await getClaimFinancialSummary(claim.id);
+        setFinancialSummary(summary);
+        financialKeyRef.current = financialKey;
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        setFinancialError("Unable to load financial insights.");
+      } finally {
+        setIsLoadingFinancial(false);
+      }
+    },
+    [
+      financialKey,
+      getClaimFinancialSummary,
+      handleUnauthorized,
+      refreshClaimFinancialSummary,
+    ]
+  );
+
   useEffect(() => {
-    setCurrentClaim(null);
+    if (!parsedClaimId || !Number.isFinite(parsedClaimId)) {
+      return;
+    }
+    const match = sessions.find((session) => session.claim_id === parsedClaimId);
+    if (match && activeSessionId !== match.id) {
+      selectSession(match.id);
+    }
+  }, [activeSessionId, parsedClaimId, selectSession, sessions]);
+
+  useEffect(() => {
     setClaimError(null);
     setIsLoadingClaim(false);
+    setPdfPreviewUrl(null);
+    if (activeSession?.claim_id) {
+      setCurrentClaim(null);
+      setDraftPreview({});
+      setCreateClaimOpen(false);
+      setUploadOpen(false);
+      void loadClaim(activeSession.claim_id);
+      return;
+    }
+    if (parsedClaimId && Number.isFinite(parsedClaimId)) {
+      setCurrentClaim(null);
+      setDraftPreview({});
+      setCreateClaimOpen(false);
+      setUploadOpen(false);
+      void loadClaim(parsedClaimId);
+      return;
+    }
+    setCurrentClaim(null);
     setDraftPreview({});
     setCreateClaimOpen(false);
-    if (activeSession?.claim_id) {
-      void loadClaim(activeSession.claim_id);
+    setUploadOpen(false);
+  }, [activeSessionId, activeSession?.claim_id, parsedClaimId]);
+
+  useEffect(() => {
+    if (!currentClaim) {
+      setFinancialSummary(null);
+      setFinancialError(null);
+      setIsLoadingFinancial(false);
+      financialKeyRef.current = null;
+      return;
     }
-  }, [activeSessionId, activeSession?.claim_id]);
+    if (financialSummary && financialSummary.claim_id !== currentClaim.id) {
+      setFinancialSummary(null);
+    }
+    void fetchFinancialSummary(currentClaim);
+  }, [currentClaim, fetchFinancialSummary, financialSummary]);
 
   const handleClaimCreated = (claim: ClaimDTO) => {
     setCurrentClaim(claim);
@@ -171,6 +378,145 @@ function WorkspaceShell() {
       service_date: claim.service_date ?? "",
     });
     void loadSessions();
+  };
+
+  const handleFinalizeClaim = async () => {
+    if (!currentClaim || currentClaim.claim_status === "final") {
+      return;
+    }
+    setIsFinalizing(true);
+    setClaimError(null);
+    try {
+      const updated = await finalizeClaim(currentClaim.id);
+      setCurrentClaim(updated);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setClaimError("Unable to finalize claim.");
+    } finally {
+      setIsFinalizing(false);
+    }
+  };
+
+  const handleGeneratePdf = async () => {
+    if (!currentClaim) {
+      return;
+    }
+    setIsGeneratingPdf(true);
+    setClaimError(null);
+    try {
+      const result = await generateClaimPdf(currentClaim.id);
+      setPdfPreviewUrl(result.pdf_url);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setClaimError("Unable to generate PDF.");
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleCheckRequirements = async () => {
+    if (!currentClaim) {
+      return;
+    }
+    setIsCheckingRequirements(true);
+    setRequirementsError(null);
+    try {
+      const response = await getClaimRequirements(currentClaim.id);
+      setRequirements(response);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setRequirementsError("Unable to check claim requirements.");
+    } finally {
+      setIsCheckingRequirements(false);
+    }
+  };
+
+  const handleRefreshFinancial = async () => {
+    if (!currentClaim) {
+      return;
+    }
+    await fetchFinancialSummary(currentClaim, { force: true, refresh: true });
+  };
+
+  const handleProposalDecision = async (decision: "confirm" | "reject") => {
+    if (!activeSessionId) {
+      setProposalError("No active session available.");
+      return;
+    }
+    if (!proposedChanges || typeof proposedChanges !== "object") {
+      setProposalError("Missing proposal details.");
+      return;
+    }
+    const proposal = proposedChanges as Record<string, unknown>;
+    const tool = typeof proposal.tool === "string" ? proposal.tool : null;
+    if (!tool) {
+      setProposalError("Missing proposal tool information.");
+      return;
+    }
+    const argumentsPayload =
+      proposal.arguments && typeof proposal.arguments === "object"
+        ? (proposal.arguments as Record<string, unknown>)
+        : {};
+    const proposalId =
+      typeof proposal.proposal_id === "string" ? proposal.proposal_id : null;
+    const payload =
+      proposal.proposed_changes && typeof proposal.proposed_changes === "object"
+        ? (proposal.proposed_changes as Record<string, unknown>)
+        : null;
+
+    setIsConfirmingProposal(true);
+    setProposalError(null);
+    try {
+      const result = await confirmChatAction({
+        session_id: activeSessionId,
+        proposal_id: proposalId,
+        decision,
+        tool,
+        arguments: argumentsPayload,
+        payload,
+      });
+      clearProposal();
+      addLocalMessage(
+        "system",
+        decision === "confirm" ? "AI proposal confirmed." : "AI proposal rejected."
+      );
+
+      if (decision === "confirm") {
+        let claimId: number | null = null;
+        const resultClaimId = result.result ? result.result["claim_id"] : undefined;
+        if (typeof resultClaimId === "number") {
+          claimId = resultClaimId;
+        } else if (tool === "update_claim_fields") {
+          const argumentId = argumentsPayload["claim_id"];
+          if (typeof argumentId === "number") {
+            claimId = argumentId;
+          } else if (currentClaim) {
+            claimId = currentClaim.id;
+          }
+        }
+        if (claimId) {
+          await loadClaim(claimId);
+        }
+        await loadSessions();
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+      setProposalError("Unable to apply proposal.");
+    } finally {
+      setIsConfirmingProposal(false);
+    }
   };
 
   const handleAddMcpCode = async (code: MCPCodeDTO) => {
@@ -278,13 +624,10 @@ function WorkspaceShell() {
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-6 py-8">
         <WorkspaceTopBar
           title={activeSession?.title ?? "Chat sessions"}
-          subtitle="SphereApp Chat"
-          theme={theme}
+          subtitle={me?.clinic_name ?? "SphereApp Chat"}
           isSending={isSending}
-          showAdmin={canAccessAdmin(user)}
-          onOpenUploadPdf={() => setUploadOpen(true)}
-          onOpenCreateClaim={() => setCreateClaimOpen(true)}
-          onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
+          showAdmin={hasRole(["platform_staff_admin", "clinic_admin", "chief_doctor"])}
+          claimStatus={currentClaim?.claim_status ?? null}
           onLogout={handleUnauthorized}
         />
 
@@ -303,9 +646,15 @@ function WorkspaceShell() {
           onUnauthorized={handleUnauthorized}
           onClaimCreated={handleClaimCreated}
           sessionId={activeSessionId}
+          selectedPatient={selectedPatient}
+          patientError={patientError}
+          isLoadingPatient={isLoadingPatient}
         />
 
-        <div className="grid gap-6 lg:grid-cols-[260px_1fr_260px]">
+        <div
+          className="grid gap-6 lg:grid-cols-[260px_1fr_260px]"
+          style={{ height: "80vh" }}
+        >
           <aside className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -374,7 +723,7 @@ function WorkspaceShell() {
             )}
           </aside>
 
-          <section className="flex min-h-[480px] flex-1 flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <section className="flex min-h-[480px] min-h-0 flex-1 flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             {llmUnavailable ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
                 LLM unavailable, retry later.
@@ -395,11 +744,41 @@ function WorkspaceShell() {
                   <pre className="mt-3 max-h-40 overflow-auto rounded-2xl bg-white p-3 text-xs text-slate-700">
                     {JSON.stringify(proposedChanges ?? {}, null, 2)}
                   </pre>
+                  {proposalError ? (
+                    <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                      {proposalError}
+                    </div>
+                  ) : null}
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void handleProposalDecision("confirm")}
+                      disabled={isReadOnly || isConfirmingProposal}
+                    >
+                      {isConfirmingProposal ? "Confirming..." : "Confirm"}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => void handleProposalDecision("reject")}
+                      disabled={isReadOnly || isConfirmingProposal}
+                    >
+                      Reject
+                    </Button>
+                    {isReadOnly ? (
+                      <span className="text-xs text-amber-700">
+                        Claim is finalized. Proposals are locked.
+                      </span>
+                    ) : null}
+                  </div>
                 </CardContent>
               </Card>
             ) : null}
 
-            <div className="flex-1 overflow-auto">
+            <div className="min-h-0 flex-1">
               <Conversation
                 messages={conversationMessages}
                 emptyState={
@@ -408,7 +787,150 @@ function WorkspaceShell() {
               />
             </div>
 
-            <PromptInput value={draft} onChange={setDraft} onSubmit={handleSend} />
+            {formAction ? (
+              <Card className="border-indigo-200 bg-indigo-50">
+                <CardHeader>
+                  <CardTitle>Additional Info Requested</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-indigo-900">
+                  <div className="text-sm">
+                    The assistant needs a few more details to continue.
+                  </div>
+                  <div className="space-y-2">
+                    {formAction.fields.map((field, index) => {
+                      const key =
+                        (field.key as string) ||
+                        (field.name as string) ||
+                        `field_${index}`;
+                      const label =
+                        (field.label as string) || (field.question as string) || key;
+                      return (
+                        <label key={key} className="flex flex-col gap-1 text-xs">
+                          <span className="font-semibold">{label}</span>
+                          <input
+                            type="text"
+                            value={formResponses[key] ?? ""}
+                            onChange={(event) =>
+                              setFormResponses((prev) => ({
+                                ...prev,
+                                [key]: event.target.value,
+                              }))
+                            }
+                            className="rounded-xl border border-indigo-200 bg-white px-3 py-2 text-sm text-slate-900"
+                            disabled={isReadOnly}
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        const payload = {
+                          fields: formAction.fields,
+                          answers: formResponses,
+                        };
+                        void sendMessage(`Form responses: ${JSON.stringify(payload)}`);
+                        setFormResponses({});
+                        clearUiActions();
+                      }}
+                      disabled={isReadOnly}
+                    >
+                      Send to Assistant
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => clearUiActions()}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            {requirements?.missing?.length ? (
+              <Card className="border-amber-200 bg-amber-50">
+                <CardHeader>
+                  <CardTitle>Missing Claim Fields</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm text-amber-900">
+                  <div className="text-sm">
+                    The following fields are still missing. You can answer here to send
+                    them back to the assistant.
+                  </div>
+                  <div className="space-y-2">
+                    {requirements.missing.map((item) => (
+                      <label key={item.key} className="flex flex-col gap-1 text-xs">
+                        <span className="font-semibold">{item.question}</span>
+                        <input
+                          type="text"
+                          value={missingFieldAnswers[item.key] ?? ""}
+                          onChange={(event) =>
+                            setMissingFieldAnswers((prev) => ({
+                              ...prev,
+                              [item.key]: event.target.value,
+                            }))
+                          }
+                          className="rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm text-slate-900"
+                          disabled={isReadOnly}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        const payload = {
+                          missing_fields: requirements.missing.map((item) => item.key),
+                          answers: missingFieldAnswers,
+                        };
+                        void sendMessage(
+                          `Missing field answers: ${JSON.stringify(payload)}`
+                        );
+                        setMissingFieldAnswers({});
+                      }}
+                      disabled={isReadOnly}
+                    >
+                      Send to Assistant
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setRequirements(null)}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : null}
+
+            <PromptInput
+              value={draft}
+              onChange={setDraft}
+              onSubmit={handleSend}
+              disabled={isReadOnly}
+              placeholder={
+                isReadOnly
+                  ? "This claim is finalized. Start a new claim to continue."
+                  : "Send a message..."
+              }
+            />
+            {isReadOnly ? (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300">
+                This claim is finalized. Start a new claim to continue.
+              </div>
+            ) : null}
 
             <details className="text-xs text-slate-500 dark:text-slate-400">
               <summary className="cursor-pointer">Last request ID</summary>
@@ -421,10 +943,35 @@ function WorkspaceShell() {
             draftPreview={draftPreview}
             isLoading={isLoadingClaim}
             claimError={claimError}
+            showAdmin={hasRole(["platform_staff_admin", "clinic_admin", "chief_doctor"])}
+            onOpenUploadPdf={() => {
+              if (!isReadOnly) {
+                setUploadOpen(true);
+              }
+            }}
+            onOpenCreateClaim={() => {
+              if (!isReadOnly) {
+                setCreateClaimOpen(true);
+              }
+            }}
             onAddMcpCode={handleAddMcpCode}
             onRemoveMcpCode={handleRemoveMcpCode}
             onAddDiagnosisCode={handleAddDiagnosisCode}
             onRemoveDiagnosisCode={handleRemoveDiagnosisCode}
+            onFinalizeClaim={handleFinalizeClaim}
+            isFinalizing={isFinalizing}
+            onGeneratePdf={handleGeneratePdf}
+            isGeneratingPdf={isGeneratingPdf}
+            pdfPreviewUrl={pdfPreviewUrl}
+            onClosePdfPreview={() => setPdfPreviewUrl(null)}
+            financialSummary={financialSummary}
+            isLoadingFinancial={isLoadingFinancial}
+            financialError={financialError}
+            onRefreshFinancial={handleRefreshFinancial}
+            requirements={requirements}
+            isCheckingRequirements={isCheckingRequirements}
+            requirementsError={requirementsError}
+            onCheckRequirements={handleCheckRequirements}
           />
         </div>
       </div>

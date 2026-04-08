@@ -4,14 +4,15 @@ import tempfile
 import pytest
 
 from app.pdf.claim_pdf import (
+    BillingData,
     ClaimData,
     PatientData,
     PhysicianSupplierData,
-    BillingData,
     ServiceLine,
     generate_pdf_bytes,
     save_pdf,
 )
+
 
 @pytest.fixture
 def sample_claim():
@@ -107,6 +108,7 @@ def sample_claim():
         facility=None,
         billing_info=billing,
     )
+
 
 def test_pdf_generation_does_not_fail(sample_claim):
     pdf_bytes = generate_pdf_bytes(sample_claim)

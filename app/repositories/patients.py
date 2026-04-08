@@ -8,7 +8,14 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.id_utils import next_id
-from app.db.models import Address, InsuranceCard, InsuranceCompany, Patient, PatientInsurancePolicy
+from app.db.models import (
+    Address,
+    InsuranceCard,
+    InsuranceCompany,
+    Patient,
+    PatientInsurancePolicy,
+    User,
+)
 from app.utils.time import utcnow
 
 
@@ -63,9 +70,49 @@ def list_patients_query(
             or_(
                 Patient.first_name.ilike(like),
                 Patient.last_name.ilike(like),
+                Patient.chart_number.ilike(like),
+                Patient.primary_phone.ilike(like),
             )
         )
     return db.execute(stmt.order_by(Patient.last_name.asc())).scalars().all()
+
+
+def list_patients_paginated(
+    db: Session,
+    *,
+    clinic_id: int | None,
+    doctor_id: int | None,
+    query: str | None,
+    limit: int,
+    offset: int,
+) -> tuple[list[tuple[Patient, str | None]], int]:
+    filters = []
+    if clinic_id is not None:
+        filters.append(Patient.clinic_id == clinic_id)
+    if doctor_id is not None:
+        filters.append(Patient.doctor_id == doctor_id)
+    if query:
+        like = f"%{query}%"
+        filters.append(
+            or_(
+                Patient.first_name.ilike(like),
+                Patient.last_name.ilike(like),
+                Patient.chart_number.ilike(like),
+                Patient.primary_phone.ilike(like),
+            )
+        )
+
+    total = db.execute(select(func.count()).select_from(Patient).where(*filters)).scalar_one()
+
+    rows = db.execute(
+        select(Patient, User.full_name)
+        .join(User, User.id == Patient.doctor_id, isouter=True)
+        .where(*filters)
+        .order_by(Patient.last_name.asc(), Patient.first_name.asc())
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return rows, total
 
 
 class PatientRepository:

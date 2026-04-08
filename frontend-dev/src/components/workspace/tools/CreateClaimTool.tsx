@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { ClaimDraftPreview } from "@/components/workspace/types";
+import type { PatientDetailDTO } from "@/types/patients";
 import { ApiError } from "@/lib/api/errors";
 import type { ClaimDTO } from "@/types/claim";
 
@@ -25,6 +26,9 @@ type CreateClaimToolProps = {
   onUnauthorized: () => void;
   onClaimCreated: (claim: ClaimDTO) => void;
   sessionId?: number | null;
+  selectedPatient?: PatientDetailDTO | null;
+  patientError?: string | null;
+  isLoadingPatient?: boolean;
 };
 
 export default function CreateClaimTool({
@@ -35,6 +39,9 @@ export default function CreateClaimTool({
   onUnauthorized,
   onClaimCreated,
   sessionId,
+  selectedPatient,
+  patientError,
+  isLoadingPatient,
 }: CreateClaimToolProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -71,13 +78,24 @@ export default function CreateClaimTool({
   };
 
   const handleSubmit = async () => {
-    const firstName = draftPreview.patient?.first_name?.trim() ?? "";
-    const lastName = draftPreview.patient?.last_name?.trim() ?? "";
-    const dateOfBirth = draftPreview.patient?.date_of_birth?.trim() ?? "";
+    const hasSelectedPatient = Boolean(selectedPatient?.id);
+    const firstName = hasSelectedPatient
+      ? selectedPatient?.first_name?.trim() ?? ""
+      : draftPreview.patient?.first_name?.trim() ?? "";
+    const lastName = hasSelectedPatient
+      ? selectedPatient?.last_name?.trim() ?? ""
+      : draftPreview.patient?.last_name?.trim() ?? "";
+    const dateOfBirth = hasSelectedPatient
+      ? selectedPatient?.date_of_birth?.trim() ?? ""
+      : draftPreview.patient?.date_of_birth?.trim() ?? "";
     const insuranceValue = draftPreview.insurance_company_id?.toString().trim() ?? "";
     const serviceDate = draftPreview.service_date?.trim() ?? "";
 
-    if (!firstName || !lastName || !insuranceValue || !serviceDate) {
+    if ((!firstName || !lastName) && !hasSelectedPatient) {
+      setFormError(requiredNotice);
+      return;
+    }
+    if (!insuranceValue || !serviceDate) {
       setFormError(requiredNotice);
       return;
     }
@@ -94,11 +112,14 @@ export default function CreateClaimTool({
 
     try {
       const claim = await createClaimDraft({
-        patient: {
-          first_name: firstName,
-          last_name: lastName,
-          date_of_birth: dateOfBirth || null,
-        },
+        patient_id: hasSelectedPatient ? selectedPatient?.id ?? null : undefined,
+        patient: hasSelectedPatient
+          ? undefined
+          : {
+              first_name: firstName,
+              last_name: lastName,
+              date_of_birth: dateOfBirth || null,
+            },
         insurance_company_id: insuranceId,
         service_date: serviceDate,
         session_id: sessionId ?? null,
@@ -127,22 +148,43 @@ export default function CreateClaimTool({
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
+          {isLoadingPatient ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+              Loading patient details...
+            </div>
+          ) : null}
+          {patientError ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+              {patientError}
+            </div>
+          ) : null}
+          {selectedPatient ? (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+              Using selected patient. Patient details are locked for this claim.
+            </div>
+          ) : null}
           <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
-            First name *
+            First name {selectedPatient ? "" : "*"}
             <input
               type="text"
               className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              value={draftPreview.patient?.first_name ?? ""}
+              value={
+                selectedPatient?.first_name ?? draftPreview.patient?.first_name ?? ""
+              }
               onChange={(event) => updatePatient("first_name", event.target.value)}
+              disabled={Boolean(selectedPatient)}
             />
           </label>
           <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
-            Last name *
+            Last name {selectedPatient ? "" : "*"}
             <input
               type="text"
               className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              value={draftPreview.patient?.last_name ?? ""}
+              value={
+                selectedPatient?.last_name ?? draftPreview.patient?.last_name ?? ""
+              }
               onChange={(event) => updatePatient("last_name", event.target.value)}
+              disabled={Boolean(selectedPatient)}
             />
           </label>
           <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
@@ -150,8 +192,13 @@ export default function CreateClaimTool({
             <input
               type="date"
               className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              value={draftPreview.patient?.date_of_birth ?? ""}
+              value={
+                selectedPatient?.date_of_birth ??
+                draftPreview.patient?.date_of_birth ??
+                ""
+              }
               onChange={(event) => updatePatient("date_of_birth", event.target.value)}
+              disabled={Boolean(selectedPatient)}
             />
           </label>
           <label className="text-sm font-medium text-slate-700 dark:text-slate-200">

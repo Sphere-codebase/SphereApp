@@ -18,6 +18,7 @@ from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from tenacity import RetryError
 
 from app.core.config import Settings, settings
+from app.core.exceptions import ClinicBlockedError
 from app.llm.client import LLMUnavailable
 
 request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")
@@ -154,7 +155,8 @@ def error_payload(code: str, message: str, details: Any | None = None) -> dict[s
     }
 
 
-def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    request.state.error_code = "VALIDATION_ERROR"
     return JSONResponse(
         status_code=422,
         content=error_payload(
@@ -165,10 +167,11 @@ def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSO
     )
 
 
-def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     details: dict[str, Any] = {}
     if exc.detail is not None:
         details = exc.detail if isinstance(exc.detail, dict) else {"detail": exc.detail}
+    request.state.error_code = f"HTTP_{exc.status_code}"
     return JSONResponse(
         status_code=exc.status_code,
         content=error_payload(
@@ -179,7 +182,20 @@ def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
     )
 
 
-def llm_unavailable_handler(_: Request, exc: LLMUnavailable) -> JSONResponse:
+def clinic_blocked_handler(request: Request, exc: ClinicBlockedError) -> JSONResponse:
+    request.state.error_code = "CLINIC_BLOCKED"
+    return JSONResponse(
+        status_code=403,
+        content=error_payload(
+            code="CLINIC_BLOCKED",
+            message="Clinic is blocked",
+            details={"clinic_id": exc.clinic_id},
+        ),
+    )
+
+
+def llm_unavailable_handler(request: Request, exc: LLMUnavailable) -> JSONResponse:
+    request.state.error_code = "LLM_UNAVAILABLE"
     return JSONResponse(
         status_code=503,
         content=error_payload(
@@ -194,7 +210,8 @@ def llm_unavailable_handler(_: Request, exc: LLMUnavailable) -> JSONResponse:
     )
 
 
-def retry_error_handler(_: Request, exc: RetryError) -> JSONResponse:
+def retry_error_handler(request: Request, exc: RetryError) -> JSONResponse:
+    request.state.error_code = "LLM_UNAVAILABLE"
     return JSONResponse(
         status_code=503,
         content=error_payload(
@@ -209,7 +226,8 @@ def retry_error_handler(_: Request, exc: RetryError) -> JSONResponse:
     )
 
 
-def db_timeout_handler(_: Request, exc: SQLAlchemyTimeoutError) -> JSONResponse:
+def db_timeout_handler(request: Request, exc: SQLAlchemyTimeoutError) -> JSONResponse:
+    request.state.error_code = "DB_UNAVAILABLE"
     details: dict[str, Any] = {}
     if settings.env in {"dev", "test"}:
         details["error"] = str(exc)
@@ -223,7 +241,10 @@ def db_timeout_handler(_: Request, exc: SQLAlchemyTimeoutError) -> JSONResponse:
     )
 
 
-def unhandled_exception_handler(_: Request, exc: Exception, settings: Settings) -> JSONResponse:
+def unhandled_exception_handler(
+    request: Request, exc: Exception, settings: Settings
+) -> JSONResponse:
+    request.state.error_code = "INTERNAL_SERVER_ERROR"
     logger = logging.getLogger(__name__)
     logger.error("unhandled exception", exc_info=exc)
     details: dict[str, Any] = {}

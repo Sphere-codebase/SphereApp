@@ -31,9 +31,15 @@ const chatResponseSchema = z.object({
   proposed_changes: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
+const chatConfirmResponseSchema = z.object({
+  status: z.enum(["confirmed", "rejected"]),
+  result: z.record(z.string(), z.unknown()).nullable().optional(),
+});
+
 export type ChatSession = z.infer<typeof chatSessionSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 export type ChatResponse = z.infer<typeof chatResponseSchema>;
+export type ChatConfirmResponse = z.infer<typeof chatConfirmResponseSchema>;
 
 export interface SendChatInput {
   session_id: number;
@@ -41,6 +47,15 @@ export interface SendChatInput {
   metadata?: {
     client_message_id?: string;
   };
+}
+
+export interface ConfirmChatActionInput {
+  session_id: number;
+  proposal_id?: string | null;
+  decision: "confirm" | "reject";
+  tool: string;
+  arguments?: Record<string, unknown>;
+  payload?: Record<string, unknown> | null;
 }
 
 function parseWithSchema<T>(schema: z.ZodType<T>, data: unknown, label: string): T {
@@ -52,18 +67,44 @@ function parseWithSchema<T>(schema: z.ZodType<T>, data: unknown, label: string):
   return parsed.data;
 }
 
-export async function listSessions(): Promise<ChatSession[]> {
-  const data = await requestJson<unknown>("/api/chat/sessions");
+export async function listSessions(
+  options: { limit?: number; offset?: number } = {}
+): Promise<ChatSession[]> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) {
+    params.set("limit", String(options.limit));
+  }
+  if (options.offset !== undefined) {
+    params.set("offset", String(options.offset));
+  }
+  const query = params.toString();
+  const url = query ? `/api/chat/sessions?${query}` : "/api/chat/sessions";
+  const data = await requestJson<unknown>(url);
   return parseWithSchema(chatSessionsSchema, data, "list sessions");
 }
 
-export async function createSession(title?: string): Promise<ChatSession> {
+export async function createSession(
+  title?: string,
+  claimId?: number | null
+): Promise<ChatSession> {
   const data = await requestJson<unknown>("/api/chat/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title: title ?? null }),
+    body: JSON.stringify({ title: title ?? null, claim_id: claimId ?? null }),
   });
   return parseWithSchema(chatSessionSchema, data, "create session");
+}
+
+export async function updateSession(
+  sessionId: number,
+  payload: { title?: string | null; claim_id?: number | null }
+): Promise<ChatSession> {
+  const data = await requestJson<unknown>(`/api/chat/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseWithSchema(chatSessionSchema, data, "update session");
 }
 
 export async function deleteSession(id: number): Promise<void> {
@@ -82,4 +123,22 @@ export async function sendChatMessage(input: SendChatInput): Promise<ChatRespons
     body: JSON.stringify(input),
   });
   return parseWithSchema(chatResponseSchema, data, "send chat");
+}
+
+export async function confirmChatAction(
+  input: ConfirmChatActionInput
+): Promise<ChatConfirmResponse> {
+  const data = await requestJson<unknown>("/api/chat/confirm-action", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_id: input.session_id,
+      proposal_id: input.proposal_id ?? null,
+      decision: input.decision,
+      tool: input.tool,
+      arguments: input.arguments ?? {},
+      payload: input.payload ?? null,
+    }),
+  });
+  return parseWithSchema(chatConfirmResponseSchema, data, "confirm chat action");
 }

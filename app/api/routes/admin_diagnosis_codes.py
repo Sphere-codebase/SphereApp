@@ -10,7 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuditLoggerDep, require_platform_staff_admin
+from app.core.config import settings
 from app.core.logging import error_payload
+from app.core.response_cache import admin_ref_response_cache
 from app.db.models import DiagnosisCode, User
 from app.db.session import get_db
 from app.schemas.admin_catalogs import (
@@ -29,8 +31,27 @@ def list_diagnosis_codes(
     db: DbSessionDep,
     current_user: AdminUserDep,
 ) -> list[DiagnosisCodeResponse]:
-    codes = db.execute(select(DiagnosisCode).order_by(DiagnosisCode.code.asc())).scalars().all()
-    return [DiagnosisCodeResponse.model_validate(code) for code in codes]
+    cache_key = (
+        "admin_ref",
+        "diagnosis_codes",
+        current_user.id,
+        current_user.clinic_id,
+        current_user.role,
+        current_user.role == "platform_staff_admin",
+    )
+
+    def _load_payload() -> list[dict[str, object]]:
+        codes = db.execute(select(DiagnosisCode).order_by(DiagnosisCode.code.asc())).scalars().all()
+        return [
+            DiagnosisCodeResponse.model_validate(code).model_dump(mode="json") for code in codes
+        ]
+
+    payload = admin_ref_response_cache.get_or_set(
+        cache_key,
+        settings.admin_ref_cache_ttl_seconds,
+        _load_payload,
+    )
+    return [DiagnosisCodeResponse.model_validate(item) for item in payload]
 
 
 @router.post("", response_model=DiagnosisCodeResponse, status_code=status.HTTP_201_CREATED)
@@ -62,6 +83,7 @@ def create_diagnosis_code(
     db.add(code)
     db.commit()
     db.refresh(code)
+    admin_ref_response_cache.invalidate_prefix(("admin_ref", "diagnosis_codes"))
     audit.log_event(
         action="CREATE",
         entity="diagnosis_code",
@@ -111,6 +133,7 @@ def update_diagnosis_code(
     db.add(diagnosis_code)
     db.commit()
     db.refresh(diagnosis_code)
+    admin_ref_response_cache.invalidate_prefix(("admin_ref", "diagnosis_codes"))
     audit.log_event(
         action="UPDATE",
         entity="diagnosis_code",
@@ -139,6 +162,7 @@ def delete_diagnosis_code(
         )
     db.delete(diagnosis_code)
     db.commit()
+    admin_ref_response_cache.invalidate_prefix(("admin_ref", "diagnosis_codes"))
     audit.log_event(
         action="DELETE",
         entity="diagnosis_code",

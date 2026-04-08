@@ -1,8 +1,8 @@
-import { FileText, Moon, Pencil, Plus, RefreshCcw, Sun, Trash2 } from "lucide-react";
+import { FileText, Pencil, Plus, RefreshCcw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import ChatStatusHud from "@/components/chat/ChatStatusHud";
+import Audit from "@/components/admin/organisms/Audit";
 import ErrorNotice from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import WorkspaceTopBar from "@/components/workspace/WorkspaceTopBar";
 import {
   createAdminUser,
   createDiagnosisCode,
@@ -59,26 +60,18 @@ import EditDialog from "@/features/admin/components/EditDialog";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { cn } from "@/lib/utils";
+import Clinics from "@/components/admin/organisms/Clinics";
+import type { UserRole } from "@/types/auth";
 
-type AdminTab = "reference" | "companies" | "dashboard" | "users";
+const tabs = [
+  { name: "Dashboard", value: "dashboard" },
+  { name: "Reference Data", value: "reference" },
+  { name: "Companies", value: "companies" },
+  { name: "Users", value: "users" },
+  { name: "Audit", value: "audit" },
+  { name: "Clinics", value: "clinics" },
+];
 type ReferenceTab = "mcp-codes" | "diagnosis-codes";
-type ThemeMode = "light" | "dark";
-
-const THEME_STORAGE_KEY = "sphereapp-theme";
-
-function getInitialTheme(): ThemeMode {
-  if (typeof window === "undefined") {
-    return "light";
-  }
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (stored === "light" || stored === "dark") {
-    return stored;
-  }
-  const prefersDark = window.matchMedia
-    ? window.matchMedia("(prefers-color-scheme: dark)").matches
-    : false;
-  return prefersDark ? "dark" : "light";
-}
 
 type InsuranceCompanyFormState = {
   name: string;
@@ -104,7 +97,7 @@ type UserFormState = {
   email: string;
   full_name: string;
   password: string;
-  is_admin: boolean;
+  role: UserRole;
   is_active: boolean;
 };
 
@@ -144,7 +137,7 @@ const emptyUserForm: UserFormState = {
   email: "",
   full_name: "",
   password: "",
-  is_admin: false,
+  role: "doctor",
   is_active: true,
 };
 
@@ -160,6 +153,21 @@ const emptyClaimFilters: ClaimsFilters = {
   service_to: "",
 };
 
+const userRoleOptions: Array<{ value: UserRole; label: string }> = [
+  { value: "doctor", label: "Doctor" },
+  { value: "chief_doctor", label: "Chief Doctor" },
+  { value: "clinic_admin", label: "Clinic Admin" },
+  { value: "platform_staff_admin", label: "Platform Staff Admin" },
+];
+
+function getAdminUserRole(user: AdminUser): UserRole {
+  return user.role ?? (user.roles[0] as UserRole | undefined) ?? "doctor";
+}
+
+function formatUserRole(role: UserRole): string {
+  return userRoleOptions.find((option) => option.value === role)?.label ?? role;
+}
+
 function formatDateOnly(value?: string | null): string {
   if (!value) {
     return "—";
@@ -173,13 +181,12 @@ function formatDateOnly(value?: string | null): string {
 
 export default function AdminPage() {
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
-  const isAdmin = Boolean(user?.roles?.includes("admin"));
-  const [activeTab, setActiveTab] = useState<AdminTab>("reference");
+  const { me, logout, hasRole } = useAuth();
+  const isAdmin = me?.role === "platform_staff_admin";
+  const [activeTab, setActiveTab] = useState<string>("reference");
   const [referenceTab, setReferenceTab] = useState<ReferenceTab>("mcp-codes");
   const [error, setError] = useState<unknown>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
 
   const [companies, setCompanies] = useState<InsuranceCompany[]>([]);
   const [mcpCodes, setMcpCodes] = useState<McpCode[]>([]);
@@ -190,16 +197,13 @@ export default function AdminPage() {
   const [claims, setClaims] = useState<AdminClaimSummary[]>([]);
   const [claimDetail, setClaimDetail] = useState<AdminClaimDetail | null>(null);
   const [policyRefreshDialogOpen, setPolicyRefreshDialogOpen] = useState(false);
-  const [policyRefreshTarget, setPolicyRefreshTarget] = useState<PolicyLink | null>(
-    null
-  );
+  const [policyRefreshTarget, setPolicyRefreshTarget] = useState<PolicyLink | null>(null);
   const [policyRefreshProposed, setPolicyRefreshProposed] =
     useState<PolicyRulesParseProposed | null>(null);
   const [policyRefreshLoading, setPolicyRefreshLoading] = useState(false);
 
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>("");
-  const [claimsFilters, setClaimsFilters] =
-    useState<ClaimsFilters>(emptyClaimFilters);
+  const [claimsFilters, setClaimsFilters] = useState<ClaimsFilters>(emptyClaimFilters);
   const [policyFilters, setPolicyFilters] = useState({
     query: "",
     mcp_code: "",
@@ -213,13 +217,9 @@ export default function AdminPage() {
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [claimDialogOpen, setClaimDialogOpen] = useState(false);
 
-  const [editingCompany, setEditingCompany] = useState<InsuranceCompany | null>(
-    null
-  );
+  const [editingCompany, setEditingCompany] = useState<InsuranceCompany | null>(null);
   const [editingMcp, setEditingMcp] = useState<McpCode | null>(null);
-  const [editingDiagnosis, setEditingDiagnosis] = useState<DiagnosisCode | null>(
-    null
-  );
+  const [editingDiagnosis, setEditingDiagnosis] = useState<DiagnosisCode | null>(null);
   const [editingPolicy, setEditingPolicy] = useState<PolicyLink | null>(null);
   const [editingUser, setEditingUser] = useState<AdminUser | null>(null);
   const [resetTarget, setResetTarget] = useState<AdminUser | null>(null);
@@ -234,6 +234,8 @@ export default function AdminPage() {
   const [resetForm, setResetForm] = useState<ResetPasswordState>(emptyResetForm);
   const [userFormError, setUserFormError] = useState<string | null>(null);
   const [resetFormError, setResetFormError] = useState<string | null>(null);
+  const [userRoleDrafts, setUserRoleDrafts] = useState<Record<number, UserRole>>({});
+  const [savingUserRoleId, setSavingUserRoleId] = useState<number | null>(null);
 
   const companyById = useMemo(
     () => new Map(companies.map((company) => [company.id, company])),
@@ -243,6 +245,11 @@ export default function AdminPage() {
   const mcpCodeByCode = useMemo(
     () => new Map(mcpCodes.map((code) => [code.code, code])),
     [mcpCodes]
+  );
+
+  const visibleTabs = useMemo(
+    () => (isAdmin ? tabs : tabs.filter((tab) => tab.value !== "users")),
+    [isAdmin]
   );
 
   const handleApiError = useCallback(
@@ -257,10 +264,10 @@ export default function AdminPage() {
     [logout, navigate]
   );
 
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-  }, [theme]);
+  const handleUnauthorized = useCallback(() => {
+    logout();
+    navigate("/login");
+  }, [logout, navigate]);
 
   const loadCompanies = useCallback(async () => {
     setIsLoading(true);
@@ -339,17 +346,25 @@ export default function AdminPage() {
   );
 
   const loadUsers = useCallback(async () => {
+    if (!isAdmin) {
+      setUsers([]);
+      setUserRoleDrafts({});
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
       const data = await listAdminUsers({});
       setUsers(data);
+      setUserRoleDrafts(
+        Object.fromEntries(data.map((user) => [user.id, getAdminUserRole(user)]))
+      );
     } catch (err) {
       handleApiError(err);
     } finally {
       setIsLoading(false);
     }
-  }, [handleApiError]);
+  }, [handleApiError, isAdmin]);
 
   const loadPatients = useCallback(async () => {
     setIsLoading(true);
@@ -423,10 +438,14 @@ export default function AdminPage() {
   }, [activeTab, loadPolicyLinks, selectedCompanyId]);
 
   useEffect(() => {
-    if (activeTab === "users") {
+    if (!isAdmin && activeTab === "users") {
+      setActiveTab("reference");
+      return;
+    }
+    if (activeTab === "users" && isAdmin) {
       void loadUsers();
     }
-  }, [activeTab, loadUsers]);
+  }, [activeTab, isAdmin, loadUsers]);
 
   useEffect(() => {
     if (activeTab === "dashboard") {
@@ -499,7 +518,7 @@ export default function AdminPage() {
             email: target.email,
             full_name: target.full_name ?? "",
             password: "",
-            is_admin: target.roles.includes("admin"),
+            role: getAdminUserRole(target),
             is_active: target.is_active,
           }
         : emptyUserForm
@@ -704,21 +723,30 @@ export default function AdminPage() {
       setUserFormError("Password is required for new users.");
       return;
     }
+    if (editingUser?.id === me?.id && userForm.role !== getAdminUserRole(editingUser)) {
+      setUserFormError("You cannot change your own role.");
+      return;
+    }
+    if (editingUser?.id === me?.id && !userForm.is_active) {
+      setUserFormError("You cannot deactivate your own account.");
+      return;
+    }
     try {
       if (editingUser) {
         const payload: AdminUserUpdateInput = {
           email,
           full_name: fullName ? fullName : null,
-          roles: userForm.is_admin ? ["admin"] : [],
+          roles: [userForm.role],
           is_active: userForm.is_active,
         };
-        await updateAdminUser(editingUser.id, payload);
+        const updated = await updateAdminUser(editingUser.id, payload);
+        setUserRoleDrafts((prev) => ({ ...prev, [updated.id]: getAdminUserRole(updated) }));
       } else {
         const payload: AdminUserCreateInput = {
           email,
           full_name: fullName ? fullName : null,
           password: userForm.password.trim(),
-          roles: userForm.is_admin ? ["admin"] : [],
+          roles: [userForm.role],
           is_active: userForm.is_active,
         };
         await createAdminUser(payload);
@@ -764,16 +792,45 @@ export default function AdminPage() {
   };
 
   const handleUserToggle = async (target: AdminUser) => {
+    if (target.id === me?.id) {
+      return;
+    }
     setError(null);
     try {
       const updated = await updateAdminUser(target.id, {
         is_active: !target.is_active,
       });
-      setUsers((prev) =>
-        prev.map((item) => (item.id === updated.id ? updated : item))
-      );
+      setUsers((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setUserRoleDrafts((prev) => ({ ...prev, [updated.id]: getAdminUserRole(updated) }));
     } catch (err) {
       handleApiError(err);
+    }
+  };
+
+  const handleUserRoleDraftChange = (userId: number, role: UserRole) => {
+    setUserRoleDrafts((prev) => ({ ...prev, [userId]: role }));
+  };
+
+  const handleUserRoleSave = async (target: AdminUser) => {
+    if (!isAdmin || target.id === me?.id) {
+      return;
+    }
+    const nextRole = userRoleDrafts[target.id] ?? getAdminUserRole(target);
+    if (nextRole === getAdminUserRole(target)) {
+      return;
+    }
+    setSavingUserRoleId(target.id);
+    setError(null);
+    try {
+      const updated = await updateAdminUser(target.id, {
+        roles: [nextRole],
+      });
+      setUsers((prev) => prev.map((item) => (item.id === updated.id ? updated : item)));
+      setUserRoleDrafts((prev) => ({ ...prev, [updated.id]: getAdminUserRole(updated) }));
+    } catch (err) {
+      handleApiError(err);
+    } finally {
+      setSavingUserRoleId(null);
     }
   };
 
@@ -799,71 +856,35 @@ export default function AdminPage() {
   };
 
   const policyCompanyName = selectedCompanyId
-    ? companyById.get(Number(selectedCompanyId))?.name ?? "Selected company"
+    ? (companyById.get(Number(selectedCompanyId))?.name ?? "Selected company")
     : "Select a company";
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-7xl flex-col gap-6 px-6 py-8">
-        <header className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Admin
-            </p>
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-              Control Center
-            </h1>
-            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-              {user?.email ?? "Admin"}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <ChatStatusHud busy={false} />
-            <Button type="button" variant="outline" onClick={() => navigate("/app/chat")}>
-              Back to chat
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                logout();
-                navigate("/login");
-              }}
-            >
-              Logout
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              aria-label="Toggle theme"
-            >
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-          </div>
-        </header>
+        <WorkspaceTopBar
+          title="Admin"
+          subtitle={me?.clinic_name ?? "Clinic"}
+          isSending={false}
+          showAdmin={hasRole(["platform_staff_admin", "clinic_admin", "chief_doctor"])}
+          claimStatus={null}
+          onLogout={handleUnauthorized}
+        />
 
         <div className="flex flex-wrap gap-2">
-          {(["reference", "companies", "dashboard", "users"] as const).map((tab) => (
+          {visibleTabs.map((tab) => (
             <button
-              key={tab}
+              key={tab.value}
               type="button"
               className={cn(
                 "rounded-full px-4 py-2 text-sm font-medium",
-                activeTab === tab
+                activeTab === tab.value
                   ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
                   : "bg-white text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300"
               )}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => setActiveTab(tab.value)}
             >
-              {tab === "reference"
-                ? "Reference"
-                : tab === "companies"
-                  ? "Companies & Policies"
-                  : tab === "dashboard"
-                    ? "Dashboard"
-                    : "Users"}
+              {tab.name}
             </button>
           ))}
         </div>
@@ -1045,7 +1066,9 @@ export default function AdminPage() {
                     >
                       <div className="flex items-center justify-between">
                         <span className="font-medium">{company.name}</span>
-                        <span className="text-xs">{formatDateOnly(company.created_at)}</span>
+                        <span className="text-xs">
+                          {formatDateOnly(company.created_at)}
+                        </span>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <Button
@@ -1144,22 +1167,7 @@ export default function AdminPage() {
                     {
                       key: "description",
                       header: "Description",
-                      cell: (row) =>
-                        mcpCodeByCode.get(row.mcp_code)?.description ?? "—",
-                    },
-                    {
-                      key: "url",
-                      header: "Policy URL",
-                      cell: (row) => (
-                        <a
-                          href={row.policy_url}
-                          className="text-slate-600 underline dark:text-slate-300"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {row.policy_url}
-                        </a>
-                      ),
+                      cell: (row) => mcpCodeByCode.get(row.mcp_code)?.description ?? "—",
                     },
                     {
                       key: "created",
@@ -1170,13 +1178,14 @@ export default function AdminPage() {
                       key: "actions",
                       header: "",
                       cell: (row) => (
-                        <div className="flex items-center justify-end gap-2">
+                        <div className="ml-auto flex min-w-[168px] max-w-[184px] flex-col items-stretch gap-2">
                           {isAdmin ? (
-                            <>
+                            <div className="flex flex-col gap-2">
                               <Button
                                 type="button"
                                 size="sm"
                                 variant="outline"
+                                className="w-full justify-center"
                                 onClick={() => void handlePolicyRulesRefresh(row)}
                                 aria-label={`Refresh rules for policy ${row.id}`}
                                 disabled={
@@ -1191,32 +1200,39 @@ export default function AdminPage() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
+                                className="w-full justify-center"
                                 onClick={() => openPolicyRulesPage(row)}
                                 aria-label={`View rules for policy ${row.id}`}
                               >
                                 <FileText className="h-4 w-4" />
                                 View Rules
                               </Button>
-                            </>
+                            </div>
                           ) : null}
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={() => openPolicyDialog(row)}
-                            aria-label={`Edit policy ${row.id}`}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => void handlePolicyDelete(row.id)}
-                            aria-label={`Delete policy ${row.id}`}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          <div className="inline-flex items-center gap-1 self-end rounded-full border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-950">
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => openPolicyDialog(row)}
+                              aria-label={`Edit policy ${row.id}`}
+                              title="Edit"
+                              className="h-8 w-8 rounded-full"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => void handlePolicyDelete(row.id)}
+                              aria-label={`Delete policy ${row.id}`}
+                              title="Delete"
+                              className="h-8 w-8 rounded-full text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/60 dark:hover:text-red-300"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                       ),
                       cellClassName: "text-right",
@@ -1239,7 +1255,11 @@ export default function AdminPage() {
                     Read-only list of patients.
                   </p>
                 </div>
-                <Button type="button" variant="outline" onClick={() => void loadPatients()}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void loadPatients()}
+                >
                   Refresh
                 </Button>
               </div>
@@ -1253,7 +1273,8 @@ export default function AdminPage() {
                       key: "name",
                       header: "Name",
                       cell: (row) => {
-                        const name = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim();
+                        const name =
+                          `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim();
                         return name || "—";
                       },
                     },
@@ -1371,9 +1392,7 @@ export default function AdminPage() {
                       key: "service",
                       header: "Service",
                       cell: (row) =>
-                        row.service_date
-                          ? formatDateOnly(row.service_date)
-                          : "—",
+                        row.service_date ? formatDateOnly(row.service_date) : "—",
                     },
                     {
                       key: "actions",
@@ -1398,13 +1417,13 @@ export default function AdminPage() {
           </section>
         ) : null}
 
-        {activeTab === "users" ? (
+        {activeTab === "users" && isAdmin ? (
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold">Users</h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Manage admin and doctor accounts.
+                  Manage user accounts and roles.
                 </p>
               </div>
               <Button type="button" onClick={() => openUserDialog(null)}>
@@ -1422,7 +1441,19 @@ export default function AdminPage() {
                   {
                     key: "email",
                     header: "Email",
-                    cell: (row) => row.email,
+                    cell: (row) => {
+                      const isCurrentUser = row.id === me?.id;
+                      return (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span>{row.email}</span>
+                          {isCurrentUser ? (
+                            <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                              You
+                            </span>
+                          ) : null}
+                        </div>
+                      );
+                    },
                   },
                   {
                     key: "name",
@@ -1431,8 +1462,61 @@ export default function AdminPage() {
                   },
                   {
                     key: "role",
-                    header: "Admin",
-                    cell: (row) => (row.roles.includes("admin") ? "Yes" : "No"),
+                    header: "Role",
+                    cell: (row) => {
+                      const currentRole = getAdminUserRole(row);
+                      const draftRole = userRoleDrafts[row.id] ?? currentRole;
+                      const isCurrentUser = row.id === me?.id;
+                      const roleDirty = draftRole !== currentRole;
+                      const isSaving = savingUserRoleId === row.id;
+
+                      return (
+                        <div className="min-w-[220px] space-y-2">
+                          <div className="font-medium text-slate-700 dark:text-slate-100">
+                            {formatUserRole(currentRole)}
+                          </div>
+                          {!isCurrentUser ? (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label className="sr-only" htmlFor={`user-role-${row.id}`}>
+                                Role for {row.email}
+                              </label>
+                              <select
+                                id={`user-role-${row.id}`}
+                                className="min-w-[150px] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                value={draftRole}
+                                onChange={(event) =>
+                                  handleUserRoleDraftChange(
+                                    row.id,
+                                    event.target.value as UserRole
+                                  )
+                                }
+                                aria-label={`Role for ${row.email}`}
+                              >
+                                {userRoleOptions.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={!roleDirty || isSaving}
+                                onClick={() => void handleUserRoleSave(row)}
+                                aria-label={`Save role for ${row.email}`}
+                              >
+                                Save
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                              Current account role cannot be changed here.
+                            </div>
+                          )}
+                        </div>
+                      );
+                    },
                   },
                   {
                     key: "active",
@@ -1457,6 +1541,14 @@ export default function AdminPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => void handleUserToggle(row)}
+                          disabled={row.id === me?.id}
+                          aria-label={
+                            row.id === me?.id
+                              ? "Current account cannot be disabled"
+                              : row.is_active
+                                ? `Disable ${row.email}`
+                                : `Enable ${row.email}`
+                          }
                         >
                           {row.is_active ? "Disable" : "Enable"}
                         </Button>
@@ -1478,6 +1570,8 @@ export default function AdminPage() {
             </div>
           </section>
         ) : null}
+        {activeTab === "audit" ? <Audit /> : null}
+        {activeTab === "clinics" ? <Clinics /> : null}
       </div>
 
       <EditDialog
@@ -1638,9 +1732,7 @@ export default function AdminPage() {
             <div className="space-y-3 text-sm text-slate-700 dark:text-slate-200">
               <div>
                 <div className="text-xs uppercase text-slate-400">Title</div>
-                <div className="font-medium">
-                  {policyRefreshProposed.title ?? "—"}
-                </div>
+                <div className="font-medium">{policyRefreshProposed.title ?? "—"}</div>
               </div>
               <div className="grid gap-2 md:grid-cols-2">
                 <div>
@@ -1729,20 +1821,36 @@ export default function AdminPage() {
           </label>
         ) : null}
         <div className="grid gap-3 md:grid-cols-2">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={userForm.is_admin}
+          <label className="flex flex-col gap-1 text-sm">
+            Role
+            <select
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              value={userForm.role}
+              disabled={editingUser?.id === me?.id}
               onChange={(event) =>
-                setUserForm((prev) => ({ ...prev, is_admin: event.target.checked }))
+                setUserForm((prev) => ({
+                  ...prev,
+                  role: event.target.value as UserRole,
+                }))
               }
-            />
-            Admin
+            >
+              {userRoleOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {editingUser?.id === me?.id ? (
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                Your current account role cannot be changed.
+              </span>
+            ) : null}
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={userForm.is_active}
+              disabled={editingUser?.id === me?.id}
               onChange={(event) =>
                 setUserForm((prev) => ({ ...prev, is_active: event.target.checked }))
               }
@@ -1864,7 +1972,11 @@ export default function AdminPage() {
             <p className="text-sm text-slate-500">Loading...</p>
           )}
           <DialogFooter>
-            <Button type="button" variant="secondary" onClick={() => setClaimDialogOpen(false)}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setClaimDialogOpen(false)}
+            >
               Close
             </Button>
           </DialogFooter>

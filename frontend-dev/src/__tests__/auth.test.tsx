@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -23,12 +24,20 @@ const buildJsonResponse = ({ status, body, requestId }: JsonResponseInit): Respo
 };
 
 const renderWithProviders = (initialEntries: string[]) => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
   return render(
-    <AuthProvider>
-      <MemoryRouter initialEntries={initialEntries}>
-        <AppRoutes />
-      </MemoryRouter>
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <MemoryRouter initialEntries={initialEntries}>
+          <AppRoutes />
+        </MemoryRouter>
+      </AuthProvider>
+    </QueryClientProvider>
   );
 };
 
@@ -46,7 +55,6 @@ describe("auth flow", () => {
   });
 
   test("login success stores token and redirects", async () => {
-    const sessionId = 42;
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url =
         typeof input === "string"
@@ -70,34 +78,34 @@ describe("auth flow", () => {
             body: {
               id: 7,
               email: "doctor@example.com",
+              full_name: "Doc One",
+              role: "doctor",
+              clinic_id: 1,
+              clinic_name: "Test Clinic",
               is_active: true,
-              roles: ["doctor"],
             },
           })
         );
       }
-      if (url.endsWith("/api/chat/sessions") && method === "GET") {
+      if (url.includes("/api/chat/sessions") && method === "GET") {
         return Promise.resolve(
           buildJsonResponse({
             status: 200,
             body: [
               {
-                id: sessionId,
+                id: 1,
                 doctor_id: 7,
-                created_at: "2026-01-14T05:00:00",
-                title: null,
+                created_at: "2026-02-19T10:00:00Z",
+                claim_id: null,
+                patient_id: null,
+                title: "Test Session",
               },
             ],
           })
         );
       }
-      if (url.includes(`/api/chat/sessions/${sessionId}/messages`)) {
-        return Promise.resolve(
-          buildJsonResponse({
-            status: 200,
-            body: [],
-          })
-        );
+      if (url.includes("/api/chat/sessions/1/messages") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
       }
       return Promise.reject(new Error("unexpected request"));
     });
@@ -113,7 +121,7 @@ describe("auth flow", () => {
       expect(stored).not.toBeNull();
     });
 
-    expect(await screen.findByText(/Chat sessions/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Dashboard/i)).toBeInTheDocument();
   });
 
   test("login failure shows error", async () => {
@@ -145,5 +153,41 @@ describe("auth flow", () => {
     renderWithProviders(["/app/chat"]);
 
     expect(screen.getByText("Login")).toBeInTheDocument();
+  });
+
+  test("bootstrap 404 does not leave protected route stuck on loading", async () => {
+    localStorage.setItem(
+      "sphereapp_token",
+      JSON.stringify({ accessToken: "stale-token", tokenType: "bearer" })
+    );
+
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(
+          buildJsonResponse({
+            status: 404,
+            body: {
+              error: {
+                code: "HTTP_404",
+                message: "Not found",
+              },
+            },
+          })
+        );
+      }
+      return Promise.reject(new Error("unexpected request"));
+    });
+
+    renderWithProviders(["/app/chat"]);
+
+    await waitFor(() => {
+      expect(screen.getByText("Login")).toBeInTheDocument();
+    });
   });
 });

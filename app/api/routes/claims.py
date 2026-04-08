@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import date
+import logging
+import os
+from datetime import UTC, date, datetime
 from typing import Annotated
 
 from fastapi import (
@@ -27,23 +29,32 @@ from app.core.logging import error_payload
 from app.core.security import get_current_user
 from app.db.id_utils import next_id
 from app.db.models import (
+    ChatSession,
     Claim,
     ClaimDiagnosisCode,
     ClaimMcpCode,
-    ChatSession,
+    ClaimPDF,
     DiagnosisCode,
     InsuranceCompany,
     McpCode,
+    McpPaymentPrediction,
+    MlPrediction,
     Patient,
     PolicyLink,
     User,
 )
 from app.db.session import get_db
+from app.pdf.claim_pdf import generate_pdf_bytes, save_pdf
+from app.repositories import patients as patient_repo
+from app.schemas.agent import ClaimRequirementsResponse
 from app.schemas.claims import (
+    ClaimCreateRequest,
     ClaimDetailResponse,
     ClaimDiagnosisCodeCreateRequest,
     ClaimDiagnosisCodeResponse,
-    ClaimCreateRequest,
+    ClaimFinancialFlag,
+    ClaimFinancialPrediction,
+    ClaimFinancialSummary,
     ClaimMcpCodeCreateRequest,
     ClaimMcpCodeResponse,
     ClaimPdfIngestResponse,
@@ -56,8 +67,9 @@ from app.schemas.claims import (
     MyClaimsListResponseSchema,
     PatientSummary,
 )
-from app.repositories import patients as patient_repo
 from app.services.claims.ingestion import ingest_pdf_from_path, ingest_pdf_from_upload
+from app.services.claims.pdf import build_claim_pdf_data
+from app.services.claims.requirements import build_claim_requirements
 from app.services.claims.summary import ClaimsService, MyClaimsFilters
 from app.utils.time import utcnow
 
@@ -65,6 +77,10 @@ router = APIRouter(prefix="/api/claims", tags=["claims"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
+
+PDF_STORAGE_DIR = os.path.join("var", "pdfs")
+
+logger = logging.getLogger(__name__)
 
 
 class PdfLocalIngestRequest(BaseModel):
@@ -76,6 +92,13 @@ def _get_claim_or_404(db: Session, claim_id: int, current_user: User) -> Claim:
     filters = [Claim.id == claim_id]
     filters.extend(policy.claim_scope_filters(current_user, Claim))
     claim = db.execute(select(Claim).where(*filters)).scalar_one_or_none()
+    if claim is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
+    return claim
+
+
+def _get_claim_unscoped_or_404(db: Session, claim_id: int) -> Claim:
+    claim = db.execute(select(Claim).where(Claim.id == claim_id)).scalar_one_or_none()
     if claim is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Claim not found")
     return claim
@@ -108,6 +131,9 @@ def _require_claim_draft(claim: Claim) -> None:
 
 
 def _build_claim_detail(db: Session, claim: Claim) -> ClaimDetailResponse:
+    status_value = claim.claim_status or "DRAFT"
+    if status_value.upper() == "FINAL":
+        status_value = "final"
     mcp_rows = db.execute(
         select(ClaimMcpCode, McpCode)
         .join(McpCode, ClaimMcpCode.mcp_code == McpCode.code)
@@ -132,7 +158,8 @@ def _build_claim_detail(db: Session, claim: Claim) -> ClaimDetailResponse:
     patient = claim.patient
     return ClaimDetailResponse(
         id=claim.id,
-        claim_status=claim.claim_status or "DRAFT",
+        claim_status=status_value,
+        updated_at=claim.updated_at,
         patient=PatientSummary(
             id=patient.id,
             first_name=patient.first_name,
@@ -143,6 +170,160 @@ def _build_claim_detail(db: Session, claim: Claim) -> ClaimDetailResponse:
         service_date=claim.service_date,
         mcp_codes=mcp_codes,
         diagnosis_codes=diagnosis_codes,
+    )
+
+
+def _pdf_filename(claim_id: int) -> tuple[str, str]:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    pdf_id = f"claim_{claim_id}_{timestamp}"
+    filename = f"{pdf_id}.pdf"
+    return pdf_id, filename
+
+
+def _build_claim_financial_summary(db: Session, claim: Claim) -> ClaimFinancialSummary:
+    mcp_codes = (
+        db.execute(
+            select(ClaimMcpCode.mcp_code)
+            .where(ClaimMcpCode.claim_id == claim.id)
+            .order_by(ClaimMcpCode.mcp_code.asc())
+        )
+        .scalars()
+        .all()
+    )
+    diagnosis_codes = (
+        db.execute(
+            select(ClaimDiagnosisCode.diagnosis_code).where(ClaimDiagnosisCode.claim_id == claim.id)
+        )
+        .scalars()
+        .all()
+    )
+
+    predictions: list[ClaimFinancialPrediction] = []
+    flags: list[ClaimFinancialFlag] = []
+
+    if not diagnosis_codes:
+        flags.append(
+            ClaimFinancialFlag(
+                code="missing_diagnosis",
+                severity="warn",
+                message="No diagnosis codes attached to this claim.",
+            )
+        )
+
+    payment_map: dict[str, McpPaymentPrediction] = {}
+    ml_map: dict[str, MlPrediction] = {}
+
+    if mcp_codes:
+        today = date.today()
+        payment_rows = (
+            db.execute(
+                select(McpPaymentPrediction)
+                .where(
+                    McpPaymentPrediction.insurance_company_id == claim.insurance_company_id,
+                    McpPaymentPrediction.mcp_code.in_(mcp_codes),
+                    McpPaymentPrediction.prediction_date <= today,
+                )
+                .order_by(
+                    McpPaymentPrediction.mcp_code.asc(),
+                    McpPaymentPrediction.prediction_date.desc(),
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in payment_rows:
+            if row.mcp_code not in payment_map:
+                payment_map[row.mcp_code] = row
+
+        ml_rows = (
+            db.execute(
+                select(MlPrediction)
+                .where(
+                    MlPrediction.claim_id == claim.id,
+                    MlPrediction.insurance_company_id == claim.insurance_company_id,
+                    MlPrediction.mcp_code.in_(mcp_codes),
+                )
+                .order_by(MlPrediction.mcp_code.asc(), MlPrediction.created_at.desc())
+            )
+            .scalars()
+            .all()
+        )
+        for row in ml_rows:
+            if row.mcp_code not in ml_map:
+                ml_map[row.mcp_code] = row
+
+    for code in mcp_codes:
+        if code in payment_map:
+            row = payment_map[code]
+            predicted_amount = float(row.predicted_paid_amount)
+            predictions.append(
+                ClaimFinancialPrediction(
+                    mcp_code=code,
+                    predicted_paid_amount=predicted_amount,
+                    confidence=row.confidence,
+                    explanation=None,
+                    source="mcp_payment_predictions",
+                )
+            )
+            if row.confidence is not None and row.confidence < 0.5:
+                severity = "high" if row.confidence < 0.3 else "warn"
+                flags.append(
+                    ClaimFinancialFlag(
+                        code=f"low_confidence:{code}",
+                        severity=severity,
+                        message=f"Low confidence prediction for {code}.",
+                    )
+                )
+            continue
+
+        if code in ml_map:
+            row = ml_map[code]
+            predictions.append(
+                ClaimFinancialPrediction(
+                    mcp_code=code,
+                    predicted_paid_amount=0.0,
+                    confidence=row.confidence,
+                    explanation=row.explanation,
+                    source="ml_predictions",
+                )
+            )
+            if row.confidence is not None and row.confidence < 0.5:
+                severity = "high" if row.confidence < 0.3 else "warn"
+                flags.append(
+                    ClaimFinancialFlag(
+                        code=f"low_confidence:{code}",
+                        severity=severity,
+                        message=f"Low confidence prediction for {code}.",
+                    )
+                )
+            continue
+
+        predictions.append(
+            ClaimFinancialPrediction(
+                mcp_code=code,
+                predicted_paid_amount=0.0,
+                confidence=None,
+                explanation="No prediction found.",
+                source="ml_predictions",
+            )
+        )
+        flags.append(
+            ClaimFinancialFlag(
+                code=f"missing_prediction:{code}",
+                severity="warn",
+                message=f"No prediction available for {code}.",
+            )
+        )
+
+    predicted_total = sum(item.predicted_paid_amount for item in predictions)
+
+    return ClaimFinancialSummary(
+        claim_id=claim.id,
+        currency="USD",
+        predicted_total_paid_amount=predicted_total,
+        predicted_per_mcp=predictions,
+        flags=flags,
+        updated_at=utcnow(),
     )
 
 
@@ -296,6 +477,17 @@ def get_claim(
 ) -> ClaimDetailResponse:
     claim = _get_claim_or_404(db, claim_id, current_user)
     return _build_claim_detail(db, claim)
+
+
+@router.post("/{claim_id}/requirements", response_model=ClaimRequirementsResponse)
+def get_claim_requirements(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+) -> ClaimRequirementsResponse:
+    claim = _get_claim_or_404(db, claim_id, current_user)
+    requirements, _, _ = build_claim_requirements(db, claim)
+    return ClaimRequirementsResponse(**requirements)
 
 
 @router.patch("/{claim_id}", response_model=ClaimResponse)
@@ -467,9 +659,7 @@ def add_diagnosis_codes(
             )
         link = ClaimDiagnosisCode(claim_id=claim.id, diagnosis_code=code_value)
         db.add(link)
-        responses.append(
-            ClaimDiagnosisCodeResponse(claim_id=claim.id, diagnosis_code=code_value)
-        )
+        responses.append(ClaimDiagnosisCodeResponse(claim_id=claim.id, diagnosis_code=code_value))
     db.commit()
     audit.log_event(
         action="UPDATE",
@@ -519,6 +709,83 @@ def remove_diagnosis_code(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post("/{claim_id}/finalize", response_model=ClaimDetailResponse)
+def finalize_claim(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+) -> ClaimDetailResponse:
+    claim = _get_claim_unscoped_or_404(db, claim_id)
+    if not policy.can(current_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if claim.claim_status and claim.claim_status.lower() == "final":
+        return _build_claim_detail(db, claim)
+    claim.claim_status = "FINAL"
+    claim.updated_at = utcnow()
+    db.add(claim)
+    db.commit()
+    db.refresh(claim)
+    audit.log_event(
+        action="claim.finalized",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={"from": "draft", "to": "final"},
+        scope="clinic",
+        actor_role=current_user.role,
+    )
+    return _build_claim_detail(db, claim)
+
+
+@router.post("/{claim_id}/pdf")
+def generate_claim_pdf(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+) -> dict[str, str]:
+    claim = _get_claim_unscoped_or_404(db, claim_id)
+    if not policy.can(current_user, policy.Action.READ, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    claim_data = build_claim_pdf_data(db, claim)
+    try:
+        pdf_bytes = generate_pdf_bytes(claim_data)
+        pdf_id, filename = _pdf_filename(claim.id)
+        output_path = os.path.join(PDF_STORAGE_DIR, filename)
+        save_pdf(pdf_bytes, output_path)
+    except Exception as exc:
+        logger.exception("Failed to generate PDF for claim %s", claim.id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate PDF",
+        ) from exc
+
+    record = ClaimPDF(
+        clinic_id=claim.clinic_id,
+        claim_id=claim.id,
+        storage_key=filename,
+        version=1,
+        created_by=current_user.id,
+    )
+    db.add(record)
+    db.commit()
+    audit.log_event(
+        action="claim.pdf_generated",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={"pdf_id": pdf_id, "filename": filename, "bytes": len(pdf_bytes)},
+        scope="clinic",
+        actor_role=current_user.role,
+    )
+    return {"pdf_id": pdf_id, "pdf_url": f"/api/files/pdfs/{filename}"}
+
+
 @router.get("/{claim_id}/policy-links", response_model=list[ClaimPolicyLinkItem])
 def resolve_policy_links(
     claim_id: int,
@@ -554,6 +821,43 @@ def resolve_policy_links(
             )
         )
     return items
+
+
+@router.get("/{claim_id}/financial", response_model=ClaimFinancialSummary)
+def get_claim_financial(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+) -> ClaimFinancialSummary:
+    claim = _get_claim_unscoped_or_404(db, claim_id)
+    if not policy.can(current_user, policy.Action.READ, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    return _build_claim_financial_summary(db, claim)
+
+
+@router.post("/{claim_id}/financial/refresh", response_model=ClaimFinancialSummary)
+def refresh_claim_financial(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+) -> ClaimFinancialSummary:
+    claim = _get_claim_unscoped_or_404(db, claim_id)
+    if not policy.can(current_user, policy.Action.READ, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    summary = _build_claim_financial_summary(db, claim)
+    audit.log_event(
+        action="claim.financial_refreshed",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={"reason": "user_clicked_refresh"},
+        scope="clinic",
+        actor_role=current_user.role,
+    )
+    return summary
 
 
 @router.post("/ingest-pdf", response_model=ClaimPdfIngestResponse)

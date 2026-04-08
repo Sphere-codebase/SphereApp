@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -104,6 +105,7 @@ class ClaimDetailResponse(BaseModel):
 
     id: int
     claim_status: str | None
+    updated_at: datetime | None = None
     patient: PatientSummary
     insurance_company_id: int
     service_date: date | None
@@ -164,3 +166,26 @@ class ClaimSummaryListResponse(BaseModel):
     limit: int
     offset: int
     total: int
+
+
+class ClaimFinancialFlag(BaseModel):
+    code: str
+    severity: Literal["info", "warn", "high"]
+    message: str
+
+
+class ClaimFinancialPrediction(BaseModel):
+    mcp_code: str
+    predicted_paid_amount: float
+    confidence: float | None = None
+    explanation: str | None = None
+    source: Literal["ml_predictions", "mcp_payment_predictions"]
+
+
+class ClaimFinancialSummary(BaseModel):
+    claim_id: int
+    currency: Literal["USD"]
+    predicted_total_paid_amount: float
+    predicted_per_mcp: list[ClaimFinancialPrediction] = Field(default_factory=list)
+    flags: list[ClaimFinancialFlag] = Field(default_factory=list)
+    updated_at: datetime

@@ -15,7 +15,8 @@ from sqlalchemy import (
     event,
     text,
 )
-from sqlalchemy.orm import Mapped, Session as OrmSession, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Session as OrmSession
 
 from app.db.models.base import Base, TimestampMixin
 from app.db.models.claim import Claim
@@ -107,11 +108,11 @@ def _resolve_related_clinic_id(
     related_obj: object | None,
 ) -> int:
     if related_obj is not None and getattr(related_obj, "id", None) == related_id:
-        return getattr(related_obj, "clinic_id")
+        return related_obj.clinic_id
     related = session.get(related_cls, related_id)
     if related is None:
         raise ValueError(f"{related_cls.__name__} not found for chat session tenant check")
-    return getattr(related, "clinic_id")
+    return related.clinic_id
 
 
 # Tenant integrity for claim_id/patient_id is enforced in the ORM before flush.

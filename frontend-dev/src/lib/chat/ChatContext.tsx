@@ -37,6 +37,7 @@ export interface ChatContextValue {
   sessions: ChatSession[];
   activeSessionId: number | null;
   messages: ChatMessageView[];
+  uiActions: Record<string, unknown>[];
   isLoadingSessions: boolean;
   isLoadingMessages: boolean;
   isSending: boolean;
@@ -51,6 +52,8 @@ export interface ChatContextValue {
   deleteSession: (sessionId: number) => Promise<void>;
   sendMessage: (content: string) => Promise<void>;
   addLocalMessage: (role: ChatRole, content: string) => void;
+  clearProposal: () => void;
+  clearUiActions: () => void;
   clearError: () => void;
 }
 
@@ -82,6 +85,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [messages, setMessages] = useState<ChatMessageView[]>([]);
+  const [uiActions, setUiActions] = useState<Record<string, unknown>[]>([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -133,6 +137,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages([]);
     setActionRequired(false);
     setProposedChanges(null);
+    setUiActions([]);
     return session;
   }, [syncRequestId]);
 
@@ -141,7 +146,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setError(null);
     setLlmUnavailable(false);
     try {
-      const data = await listSessions();
+      const data = await listSessions({ limit: 50, offset: 0 });
       syncRequestId();
       setSessions(data);
       if (data.length === 0) {
@@ -168,6 +173,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const data = await listMessages(sessionId);
         syncRequestId();
         setMessages(mapMessages(data));
+        setUiActions([]);
       } catch (err) {
         handleApiError(err);
       } finally {
@@ -181,6 +187,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setActiveSessionId(sessionId);
     setActionRequired(false);
     setProposedChanges(null);
+    setUiActions([]);
   }, []);
 
   const createNewSession = useCallback(async () => {
@@ -228,6 +235,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     (response: ChatResponse, clientMessageId: string) => {
       setActionRequired(response.action_required);
       setProposedChanges(response.proposed_changes ?? null);
+      setUiActions(response.ui_actions ?? []);
       if (response.assistant_message) {
         setMessages((prev) => [
           ...prev,
@@ -269,16 +277,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         role: "user",
         content: trimmed,
         isOptimistic: true,
+        created_at: new Date().toISOString(),
       };
 
       setMessages((prev) => [...prev, optimisticMessage]);
       setIsSending(true);
       try {
-      const response = await sendChatMessage({
-        session_id: sessionId,
-        message: trimmed,
-        metadata: { client_message_id: clientMessageId },
-      });
+        const response = await sendChatMessage({
+          session_id: sessionId,
+          message: trimmed,
+          metadata: { client_message_id: clientMessageId },
+        });
         syncRequestId();
         handleChatResponse(response, clientMessageId);
         const refreshed = await listMessages(sessionId);
@@ -290,7 +299,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setIsSending(false);
       }
     },
-    [activeSessionId, createSessionAndSelect, handleApiError, handleChatResponse, syncRequestId]
+    [
+      activeSessionId,
+      createSessionAndSelect,
+      handleApiError,
+      handleChatResponse,
+      syncRequestId,
+    ]
   );
 
   const addLocalMessage = useCallback((role: ChatRole, content: string) => {
@@ -311,6 +326,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   const clearError = useCallback(() => {
     setError(null);
+  }, []);
+
+  const clearProposal = useCallback(() => {
+    setActionRequired(false);
+    setProposedChanges(null);
+  }, []);
+
+  const clearUiActions = useCallback(() => {
+    setUiActions([]);
   }, []);
 
   useEffect(() => {
@@ -334,6 +358,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       sessions,
       activeSessionId,
       messages,
+      uiActions,
       isLoadingSessions,
       isLoadingMessages,
       isSending,
@@ -348,12 +373,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       deleteSession,
       sendMessage,
       addLocalMessage,
+      clearProposal,
+      clearUiActions,
       clearError,
     }),
     [
       sessions,
       activeSessionId,
       messages,
+      uiActions,
       isLoadingSessions,
       isLoadingMessages,
       isSending,
@@ -368,6 +396,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       deleteSession,
       sendMessage,
       addLocalMessage,
+      clearProposal,
+      clearUiActions,
       clearError,
     ]
   );

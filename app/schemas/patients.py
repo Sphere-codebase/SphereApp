@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -112,6 +113,52 @@ class PatientResponse(BaseModel):
     last_name: str | None
     date_of_birth: date | None
     created_at: datetime | None
+
+
+class PatientListItem(BaseModel):
+    id: int
+    first_name: str | None
+    last_name: str | None
+    date_of_birth: date | None
+    chart_number: str | None
+    primary_phone: str | None
+    doctor_id: int | None = None
+    doctor_name: str | None = None
+
+
+class PatientListResponse(BaseModel):
+    items: list[PatientListItem]
+    limit: int
+    offset: int
+    total: int
+
+
+class PatientDetailResponse(BaseModel):
+    id: int
+    first_name: str | None
+    last_name: str | None
+    date_of_birth: date | None
+    gender: str | None
+    chart_number: str | None
+    primary_phone: str | None
+    secondary_phone: str | None
+    address: PatientAddressResponse | None = None
+    doctor_id: int | None = None
+
+
+class PatientClaimListItem(BaseModel):
+    id: int
+    service_date: date | None
+    claim_status: Literal["draft", "final"]
+    insurance_company_name: str | None
+    updated_at: datetime | None
+
+
+class PatientClaimsResponse(BaseModel):
+    items: list[PatientClaimListItem]
+    limit: int
+    offset: int
+    total: int
 
 
 class InsuranceCompanyListItem(BaseModel):

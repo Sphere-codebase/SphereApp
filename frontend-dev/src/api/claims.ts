@@ -2,6 +2,8 @@ import { z } from "zod";
 
 import type {
   ClaimDTO,
+  ClaimFinancialSummaryDTO,
+  ClaimRequirementsDTO,
   DiagnosisCodeDTO,
   MCPCodeDTO,
   PatientDTO,
@@ -41,9 +43,33 @@ const diagnosisCodeSchema = z.object({
   description: z.string().nullable().optional(),
 });
 
+const financialPredictionSchema = z.object({
+  mcp_code: z.string(),
+  predicted_paid_amount: z.number(),
+  confidence: z.number().nullable().optional(),
+  explanation: z.string().nullable().optional(),
+  source: z.enum(["ml_predictions", "mcp_payment_predictions"]),
+});
+
+const financialFlagSchema = z.object({
+  code: z.string(),
+  severity: z.enum(["info", "warn", "high"]),
+  message: z.string(),
+});
+
+const claimFinancialSummarySchema = z.object({
+  claim_id: z.number(),
+  currency: z.literal("USD"),
+  predicted_total_paid_amount: z.number(),
+  predicted_per_mcp: z.array(financialPredictionSchema),
+  flags: z.array(financialFlagSchema),
+  updated_at: z.string(),
+});
+
 const claimDetailSchema = z.object({
   id: z.number(),
   claim_status: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
   patient: patientSchema,
   insurance_company_id: z.number(),
   service_date: z.string().nullable().optional(),
@@ -51,15 +77,40 @@ const claimDetailSchema = z.object({
   diagnosis_codes: z.array(diagnosisCodeSchema).optional(),
 });
 
+const claimPdfResponseSchema = z.object({
+  pdf_id: z.string(),
+  pdf_url: z.string(),
+});
+
+const requirementFieldSchema = z.object({
+  key: z.string(),
+  source: z.enum(["base", "policy"]),
+  severity: z.enum(["required", "recommended"]),
+  reason: z.string().nullable().optional(),
+});
+
+const missingFieldSchema = z.object({
+  key: z.string(),
+  question: z.string(),
+});
+
+const claimRequirementsSchema = z.object({
+  claim_id: z.number(),
+  required_fields: z.array(requirementFieldSchema),
+  missing: z.array(missingFieldSchema),
+  is_complete: z.boolean(),
+});
+
 const mcpCodesSchema = z.array(mcpCodeSchema);
 const diagnosisCodesSchema = z.array(diagnosisCodeSchema);
 
 export type ClaimDraftInput = {
-  patient: {
+  patient?: {
     first_name: string;
     last_name: string;
     date_of_birth?: string | null;
   };
+  patient_id?: number | null;
   insurance_company_id: number;
   service_date: string;
   session_id?: number | null;
@@ -116,6 +167,18 @@ function toClaim(dto: z.infer<typeof claimDetailSchema>): ClaimDTO {
   };
 }
 
+function toFinancialSummary(
+  dto: z.infer<typeof claimFinancialSummarySchema>
+): ClaimFinancialSummaryDTO {
+  return dto;
+}
+
+function toClaimRequirements(
+  dto: z.infer<typeof claimRequirementsSchema>
+): ClaimRequirementsDTO {
+  return dto;
+}
+
 export async function ingestPdf(
   file: File,
   sessionId?: number | null
@@ -150,6 +213,63 @@ export async function getClaim(claimId: number): Promise<ClaimDTO> {
   const data = await requestJson<unknown>(`/api/claims/${claimId}`);
   const parsed = parseWithSchema(claimDetailSchema, data, "get claim");
   return toClaim(parsed);
+}
+
+export async function getClaimFinancialSummary(
+  claimId: number
+): Promise<ClaimFinancialSummaryDTO> {
+  const data = await requestJson<unknown>(`/api/claims/${claimId}/financial`);
+  const parsed = parseWithSchema(
+    claimFinancialSummarySchema,
+    data,
+    "claim financial summary"
+  );
+  return toFinancialSummary(parsed);
+}
+
+export async function getClaimRequirements(
+  claimId: number
+): Promise<ClaimRequirementsDTO> {
+  const data = await requestJson<unknown>(`/api/claims/${claimId}/requirements`, {
+    method: "POST",
+  });
+  const parsed = parseWithSchema(
+    claimRequirementsSchema,
+    data,
+    "claim requirements"
+  );
+  return toClaimRequirements(parsed);
+}
+
+export async function refreshClaimFinancialSummary(
+  claimId: number
+): Promise<ClaimFinancialSummaryDTO> {
+  const data = await requestJson<unknown>(`/api/claims/${claimId}/financial/refresh`, {
+    method: "POST",
+  });
+  const parsed = parseWithSchema(
+    claimFinancialSummarySchema,
+    data,
+    "claim financial refresh"
+  );
+  return toFinancialSummary(parsed);
+}
+
+export async function finalizeClaim(claimId: number): Promise<ClaimDTO> {
+  const data = await requestJson<unknown>(`/api/claims/${claimId}/finalize`, {
+    method: "POST",
+  });
+  const parsed = parseWithSchema(claimDetailSchema, data, "finalize claim");
+  return toClaim(parsed);
+}
+
+export async function generateClaimPdf(
+  claimId: number
+): Promise<{ pdf_url: string; pdf_id: string }> {
+  const data = await requestJson<unknown>(`/api/claims/${claimId}/pdf`, {
+    method: "POST",
+  });
+  return parseWithSchema(claimPdfResponseSchema, data, "generate claim pdf");
 }
 
 export async function searchMcpCodes(query: string): Promise<MCPCodeDTO[]> {

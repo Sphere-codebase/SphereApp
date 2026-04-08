@@ -9,6 +9,12 @@ from pydantic import BaseModel, ConfigDict
 
 class ChatSessionCreateRequest(BaseModel):
     title: str | None = None
+    claim_id: int | None = None
+
+
+class ChatSessionUpdateRequest(BaseModel):
+    title: str | None = None
+    claim_id: int | None = None
 
 
 class ChatSessionResponse(BaseModel):

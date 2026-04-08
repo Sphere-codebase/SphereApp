@@ -88,3 +88,27 @@ export async function requestVoid(path: string, init: RequestInit = {}): Promise
     throw new ApiError(response.status, payload, requestId);
   }
 }
+
+export async function requestBlob(
+  path: string,
+  init: RequestInit = {}
+): Promise<{ blob: Blob; filename: string | null; requestId: string | null }> {
+  const response = await fetch(buildUrl(path), {
+    ...init,
+    headers: buildHeaders(init.headers),
+  });
+  const requestId = response.headers.get("X-Request-ID");
+  setLastRequestId(requestId);
+
+  if (!response.ok) {
+    const data = await safeParseJson(response);
+    const payload = isApiErrorPayload(data) ? data : null;
+    throw new ApiError(response.status, payload, requestId);
+  }
+
+  const blob = await response.blob();
+  const contentDisposition = response.headers.get("Content-Disposition");
+  const filenameMatch = contentDisposition?.match(/filename=([^;]+)/i);
+  const filename = filenameMatch ? filenameMatch[1]?.replace(/"/g, "") : null;
+  return { blob, filename, requestId };
+}

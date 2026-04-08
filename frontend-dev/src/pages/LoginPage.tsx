@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import ErrorNotice from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/button";
@@ -7,16 +7,52 @@ import { useAuth } from "@/lib/auth/AuthContext";
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { login, user, isLoading } = useAuth();
+  const [searchParams] = useSearchParams();
+  const { login, me, isAuthLoading, clinicBlocked, blockedMessage } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
-    if (user) {
-      navigate("/app/chat", { replace: true });
+    if (me) {
+      const returnTo = searchParams.get("returnTo");
+      const normalized = returnTo?.startsWith("/app/") ? returnTo : null;
+      const role = me.role;
+      const allow = (roles: string[]) => roles.includes(role);
+      const isAllowedReturnTo = (path: string) => {
+        if (path.startsWith("/app/platform")) {
+          return role === "platform_staff_admin";
+        }
+        if (path.startsWith("/app/clinic")) {
+          return allow(["chief_doctor", "clinic_admin"]);
+        }
+        if (path.startsWith("/app/admin")) {
+          return allow(["platform_staff_admin", "clinic_admin", "chief_doctor"]);
+        }
+        if (
+          path.startsWith("/app/chat") ||
+          path.startsWith("/app/workspace") ||
+          path.startsWith("/app/patients") ||
+          path.startsWith("/app/ai-history") ||
+          path.startsWith("/app/insurance-rules")
+        ) {
+          return allow(["doctor", "chief_doctor", "clinic_admin", "platform_staff_admin"]);
+        }
+        if (path.startsWith("/app/dashboard")) {
+          return allow([
+            "doctor",
+            "chief_doctor",
+            "clinic_admin",
+            "platform_staff_admin",
+          ]);
+        }
+        return false;
+      };
+      const nextRoute =
+        normalized && isAllowedReturnTo(normalized) ? normalized : "/app/chat";
+      navigate(nextRoute, { replace: true });
     }
-  }, [user, navigate]);
+  }, [me, navigate, searchParams]);
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -24,7 +60,6 @@ export default function LoginPage() {
       setError(null);
       try {
         await login(email, password);
-        navigate("/app/chat", { replace: true });
       } catch (err: unknown) {
         setError(err);
       }
@@ -42,6 +77,11 @@ export default function LoginPage() {
           <p className="mt-2 max-w-xl text-sm text-slate-600">
             Placeholder login screen. Wire up JWT auth once the API client is connected.
           </p>
+          {clinicBlocked ? (
+            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {blockedMessage ?? "Your clinic is blocked. Contact support for assistance."}
+            </div>
+          ) : null}
           <form className="mt-6 flex flex-col gap-4" onSubmit={handleSubmit}>
             <label className="text-sm font-medium text-slate-700">
               Email
@@ -67,7 +107,7 @@ export default function LoginPage() {
             </label>
             {error ? <ErrorNotice error={error} /> : null}
             <div className="flex gap-3">
-              <Button type="submit" disabled={isLoading}>
+              <Button type="submit" disabled={isAuthLoading}>
                 Sign in
               </Button>
             </div>

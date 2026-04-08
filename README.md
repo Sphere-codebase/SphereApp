@@ -84,8 +84,20 @@ Create .env (or export vars in your shell). Minimum:
 export DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/claims_assistant"
 export JWT_SECRET="dev-secret"
 export ENV="dev"
+# DB pool defaults (recommended)
+export DB_POOL_SIZE="10"
+export DB_MAX_OVERFLOW="20"
+export DB_POOL_TIMEOUT="30"
+export DB_POOL_RECYCLE="1800"
+export DB_POOL_PRE_PING="true"
 # Optional: readiness should not depend on LLM during local debugging
 export READY_CHECK_LLM="false"
+# Optional: cache /ready DB probe result to avoid burst amplification
+export READY_DB_CACHE_TTL_SECONDS="2"
+# Optional: read-response caches for remote DB latency mitigation
+export AUTH_ME_CACHE_TTL_SECONDS="60"
+export ADMIN_REF_CACHE_TTL_SECONDS="300"
+export CHAT_SESSIONS_CACHE_TTL_SECONDS="5"
 # Optional: policy parser integration
 export PARSER_MODE="local"
 export PARSER_BASE_URL="http://localhost:8001"
@@ -134,6 +146,15 @@ FastAPI app so `/docs` and `/openapi.json` work by default.
 - `CORS_ORIGINS` (comma-separated or JSON array)
 - `LMSTUDIO_BASE_URL`, `LLM_MODEL`, `LLM_TIMEOUT_SECONDS`, `LLM_MAX_STEPS`, `LLM_TEMPERATURE`
 - `READY_CHECK_LLM` (set `false` to avoid readiness blocking on LLM)
+- `DB_POOL_SIZE` (default `10`)
+- `DB_MAX_OVERFLOW` (default `20`)
+- `DB_POOL_TIMEOUT` (default `30`)
+- `DB_POOL_RECYCLE` (default `1800`)
+- `DB_POOL_PRE_PING` (default `true`)
+- `READY_DB_CACHE_TTL_SECONDS` (default `2`)
+- `AUTH_ME_CACHE_TTL_SECONDS` (default `60`)
+- `ADMIN_REF_CACHE_TTL_SECONDS` (default `300`)
+- `CHAT_SESSIONS_CACHE_TTL_SECONDS` (default `5`)
 - `PARSER_MODE`, `PARSER_BASE_URL`
 - `CHAT_FILE_LOGS=false` (recommended for serverless; defaults to disabled in `ENV=prod`)
 
@@ -142,6 +163,11 @@ FastAPI app so `/docs` and `/openapi.json` work by default.
   use a managed Postgres or pooler if you see connection churn on cold starts.
 - The app avoids writing to disk in `ENV=prod`; if you enable chat file logs, set `CHAT_LOG_DIR`
   to a writable mount.
+
+### Dev vs prod latency expectations (remote DB)
+- If your app runs locally and Postgres is remote (for example Supabase in another region), each DB round-trip can cost hundreds of milliseconds and fresh connects can exceed a second.
+- In this setup, endpoint latency is dominated by SQL statement count, not CPU time. Prefer fewer queries and short TTL response caching for read-heavy GET routes.
+- In production where app and DB are co-located, round-trip cost drops and cache TTLs can usually be shorter. Set any cache TTL to `0` to disable that cache immediately.
 
 ## Policy Parser Integration
 - The PDF parser lives under `app/parsers/pdf/` (`pdf_parse.py` + `aetna_eob.py`).

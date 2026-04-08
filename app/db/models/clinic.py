@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.models.base import Base, TimestampMixin
@@ -19,6 +19,7 @@ class Clinic(TimestampMixin, Base):
         BigInteger, ForeignKey("addresses.id"), nullable=True
     )
     phone: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
 
     address = relationship("Address", back_populates="clinics")

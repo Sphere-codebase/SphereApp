@@ -1,43 +1,36 @@
-import { ChevronDown, Moon, Sun } from "lucide-react";
-import { useRef } from "react";
-import { Link } from "react-router-dom";
+import { Moon, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
+import { NavLink } from "react-router-dom";
 
 import ChatStatusHud from "@/components/chat/ChatStatusHud";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { getInitialTheme, THEME_STORAGE_KEY } from "@/lib/utils";
 
 type ThemeMode = "light" | "dark";
 
 type WorkspaceTopBarProps = {
   title: string;
   subtitle?: string;
-  theme: ThemeMode;
   isSending: boolean;
   showAdmin: boolean;
-  onOpenUploadPdf: () => void;
-  onOpenCreateClaim: () => void;
-  onToggleTheme: () => void;
+  claimStatus?: "draft" | "final" | null;
   onLogout: () => void;
 };
 
 export default function WorkspaceTopBar({
   title,
   subtitle,
-  theme,
   isSending,
   showAdmin,
-  onOpenUploadPdf,
-  onOpenCreateClaim,
-  onToggleTheme,
+  claimStatus = null,
   onLogout,
 }: WorkspaceTopBarProps) {
-  const toolsRef = useRef<HTMLDetailsElement | null>(null);
+  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
 
-  const closeToolsMenu = () => {
-    if (toolsRef.current) {
-      toolsRef.current.open = false;
-    }
-  };
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   return (
     <header className="flex flex-wrap items-center justify-between gap-4">
@@ -51,46 +44,55 @@ export default function WorkspaceTopBar({
       </div>
       <div className="flex items-center gap-2">
         <ChatStatusHud busy={isSending} />
-        <details ref={toolsRef} className="relative">
-          <summary
+        {claimStatus ? (
+          <span
             className={cn(
-              "list-none rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm",
-              "cursor-pointer transition hover:border-slate-300 hover:text-slate-900",
-              "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-500"
+              "rounded-full px-3 py-1 text-xs font-semibold",
+              claimStatus === "final"
+                ? "bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                : "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200"
             )}
           >
-            <span className="inline-flex items-center gap-2">
-              Tools
-              <ChevronDown className="h-4 w-4" />
-            </span>
-          </summary>
-          <div className="absolute right-0 z-20 mt-2 w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white text-sm text-slate-700 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200">
-            <button
-              type="button"
-              className="w-full px-4 py-2 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
-              onClick={() => {
-                closeToolsMenu();
-                onOpenUploadPdf();
-              }}
-            >
-              Upload PDF
-            </button>
-            <button
-              type="button"
-              className="w-full px-4 py-2 text-left transition hover:bg-slate-100 dark:hover:bg-slate-800"
-              onClick={() => {
-                closeToolsMenu();
-                onOpenCreateClaim();
-              }}
-            >
-              Create Claim
-            </button>
-          </div>
-        </details>
+            {claimStatus === "final" ? "Finalized" : "Draft"}
+          </span>
+        ) : null}
+        <NavLink
+          to="/app/chat"
+          className={({ isActive }) =>
+            `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-colors h-11 px-5 border ${
+              isActive
+                ? "bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900" // Активный стиль
+                : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" // Обычный стиль
+            }`
+          }
+        >
+          Chat
+        </NavLink>
+        <NavLink
+          className={({ isActive }) =>
+            `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-colors h-11 px-5 border ${
+              isActive
+                ? "bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900" // Активный стиль
+                : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" // Обычный стиль
+            }`
+          }
+          to="/app/dashboard"
+        >
+          Dashboard
+        </NavLink>
         {showAdmin ? (
-          <Button asChild type="button" variant="outline">
-            <Link to="/app/admin">Admin</Link>
-          </Button>
+          <NavLink
+            className={({ isActive }) =>
+              `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-colors h-11 px-5 border ${
+                isActive
+                  ? "bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900" // Активный стиль
+                  : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" // Обычный стиль
+              }`
+            }
+            to="/app/admin"
+          >
+            Admin
+          </NavLink>
         ) : null}
         <Button type="button" variant="outline" onClick={onLogout}>
           Logout
@@ -99,7 +101,7 @@ export default function WorkspaceTopBar({
           type="button"
           size="sm"
           variant="outline"
-          onClick={onToggleTheme}
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           aria-label="Toggle theme"
         >
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}

@@ -1,6 +1,13 @@
 import { z } from "zod";
+import type { UserRole } from "@/types/auth";
 
 const dateString = z.string();
+export const userRoleSchema = z.enum([
+  "doctor",
+  "chief_doctor",
+  "clinic_admin",
+  "platform_staff_admin",
+]);
 
 export const insuranceCompanySchema = z.object({
   id: z.number(),
@@ -98,27 +105,37 @@ export const policyRuleSchema = z.object({
   medical_necessity_clean: z.string().nullable(),
 });
 
-export const adminUserSchema = z.object({
-  id: z.number(),
-  email: z.string().email(),
-  full_name: z.string().nullable(),
-  is_active: z.boolean(),
-  roles: z.array(z.string()),
-  created_at: dateString.nullable(),
-});
+export const adminUserSchema = z
+  .object({
+    id: z.number(),
+    email: z.string().email(),
+    full_name: z.string().nullable(),
+    is_active: z.boolean(),
+    role: userRoleSchema.optional(),
+    roles: z.array(userRoleSchema).default([]),
+    created_at: dateString.nullable(),
+  })
+  .transform((value) => {
+    const role = (value.role ?? value.roles[0] ?? "doctor") as UserRole;
+    return {
+      ...value,
+      role,
+      roles: value.roles.length ? value.roles : [role],
+    };
+  });
 
 export const adminUserCreateSchema = z.object({
   email: z.string().email(),
   full_name: z.string().nullable().optional(),
   password: z.string(),
-  roles: z.array(z.string()).optional(),
+  roles: z.array(userRoleSchema).optional(),
   is_active: z.boolean(),
 });
 
 export const adminUserUpdateSchema = z.object({
   email: z.string().email().nullable().optional(),
   full_name: z.string().nullable().optional(),
-  roles: z.array(z.string()).optional(),
+  roles: z.array(userRoleSchema).optional(),
   is_active: z.boolean().optional(),
 });
 
@@ -135,7 +152,13 @@ export const adminPatientSchema = z.object({
   created_at: dateString.nullable(),
 });
 
-export const claimStatusSchema = z.enum(["DRAFT", "SUBMITTED", "PAID", "DENIED"]);
+export const claimStatusSchema = z.enum([
+  "DRAFT",
+  "SUBMITTED",
+  "PAID",
+  "DENIED",
+  "FINAL",
+]);
 const claimStatusNullableSchema = claimStatusSchema.nullable();
 
 export const adminClaimSummarySchema = z.object({

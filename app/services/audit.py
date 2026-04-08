@@ -11,6 +11,7 @@ from fastapi import Request
 from sqlalchemy.orm import Session
 
 from app.core.logging import request_id_ctx
+from app.core.tenancy import apply_rls_context
 from app.db.id_utils import next_id
 from app.db.models import AuditLog, User
 from app.utils.time import utcnow
@@ -78,6 +79,11 @@ class AuditLogger:
         try:
             audit_session = self._new_session()
             try:
+                apply_rls_context(
+                    audit_session,
+                    resolved_clinic_id,
+                    resolved_scope == "platform" and resolved_actor_role == "platform_staff_admin",
+                )
                 log_entry = AuditLog(
                     id=next_id(audit_session, AuditLog),
                     clinic_id=resolved_clinic_id,

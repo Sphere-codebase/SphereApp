@@ -6,7 +6,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuditLoggerDep, require_platform_staff_admin
@@ -35,6 +35,18 @@ DbSessionDep = Annotated[Session, Depends(get_db)]
 AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
 
 
+def _serialize_admin_user(user: User) -> AdminUserResponse:
+    return AdminUserResponse(
+        id=user.id,
+        email=user.email,
+        full_name=user.full_name,
+        is_active=bool(user.is_active),
+        role=user.role,
+        roles=[user.role],
+        created_at=user.created_at,
+    )
+
+
 @router.get("/users", response_model=list[AdminUserResponse])
 def list_users(
     db: DbSessionDep,
@@ -52,17 +64,7 @@ def list_users(
     if role:
         stmt = stmt.where(User.role == role)
     users = db.execute(stmt.order_by(User.email.asc())).scalars().all()
-    return [
-        AdminUserResponse(
-            id=user.id,
-            email=user.email,
-            full_name=user.full_name,
-            is_active=bool(user.is_active),
-            roles=[user.role],
-            created_at=user.created_at,
-        )
-        for user in users
-    ]
+    return [_serialize_admin_user(user) for user in users]
 
 
 @router.get("/users/{user_id}", response_model=AdminUserResponse)
@@ -74,14 +76,7 @@ def get_user(
     user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    return AdminUserResponse(
-        id=user.id,
-        email=user.email,
-        full_name=user.full_name,
-        is_active=bool(user.is_active),
-        roles=[user.role],
-        created_at=user.created_at,
-    )
+    return _serialize_admin_user(user)
 
 
 @router.post("/users", response_model=AdminUserResponse, status_code=status.HTTP_201_CREATED)
@@ -128,6 +123,7 @@ def create_user(
         email=user.email,
         full_name=user.full_name,
         is_active=bool(user.is_active),
+        role=primary_role,
         roles=assigned_roles,
         created_at=user.created_at,
     )
@@ -162,21 +158,26 @@ def update_user(
     for field, value in data.items():
         if field != "roles":
             setattr(user, field, value)
+    if user.id == current_user.id and data.get("is_active") is False:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=error_payload(
+                code="SELF_DEACTIVATE_FORBIDDEN",
+                message="You cannot deactivate your own account",
+                details={"user_id": str(user.id)},
+            ),
+        )
     if "roles" in data and data["roles"] is not None:
         primary_role = resolve_primary_role(data["roles"])
-        if user.id == current_user.id and user.role == "platform_staff_admin":
-            admin_count = db.execute(
-                select(func.count()).select_from(User).where(User.role == "platform_staff_admin")
-            ).scalar_one()
-            if int(admin_count or 0) <= 1:
-                return JSONResponse(
-                    status_code=status.HTTP_409_CONFLICT,
-                    content=error_payload(
-                        code="LAST_ADMIN",
-                        message="Cannot remove the last admin",
-                        details={"user_id": str(user.id)},
-                    ),
-                )
+        if user.id == current_user.id and primary_role != current_user.role:
+            return JSONResponse(
+                status_code=status.HTTP_409_CONFLICT,
+                content=error_payload(
+                    code="SELF_ROLE_EDIT_FORBIDDEN",
+                    message="You cannot change your own role",
+                    details={"user_id": str(user.id)},
+                ),
+            )
         user.role = primary_role
         set_user_roles(db, user.id, [primary_role])
     db.add(user)
@@ -194,14 +195,7 @@ def update_user(
         diff={"fields": audit_fields},
         scope="platform",
     )
-    return AdminUserResponse(
-        id=refreshed.id,
-        email=refreshed.email,
-        full_name=refreshed.full_name,
-        is_active=bool(refreshed.is_active),
-        roles=[refreshed.role],
-        created_at=refreshed.created_at,
-    )
+    return _serialize_admin_user(refreshed)
 
 
 @router.post("/users/{user_id}/reset-password", status_code=status.HTTP_204_NO_CONTENT)

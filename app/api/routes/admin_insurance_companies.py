@@ -10,7 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import AuditLoggerDep, require_platform_staff_admin
+from app.core.config import settings
 from app.core.logging import error_payload
+from app.core.response_cache import admin_ref_response_cache
 from app.db.id_utils import next_id
 from app.db.models import InsuranceCompany, User
 from app.db.session import get_db
@@ -31,10 +33,32 @@ def list_insurance_companies(
     db: DbSessionDep,
     current_user: AdminUserDep,
 ) -> list[InsuranceCompanyResponse]:
-    companies = (
-        db.execute(select(InsuranceCompany).order_by(InsuranceCompany.name.asc())).scalars().all()
+    cache_key = (
+        "admin_ref",
+        "insurance_companies",
+        current_user.id,
+        current_user.clinic_id,
+        current_user.role,
+        current_user.role == "platform_staff_admin",
     )
-    return [InsuranceCompanyResponse.model_validate(company) for company in companies]
+
+    def _load_payload() -> list[dict[str, object]]:
+        companies = (
+            db.execute(select(InsuranceCompany).order_by(InsuranceCompany.name.asc()))
+            .scalars()
+            .all()
+        )
+        return [
+            InsuranceCompanyResponse.model_validate(company).model_dump(mode="json")
+            for company in companies
+        ]
+
+    payload = admin_ref_response_cache.get_or_set(
+        cache_key,
+        settings.admin_ref_cache_ttl_seconds,
+        _load_payload,
+    )
+    return [InsuranceCompanyResponse.model_validate(item) for item in payload]
 
 
 @router.post("", response_model=InsuranceCompanyResponse, status_code=status.HTTP_201_CREATED)
@@ -69,6 +93,7 @@ def create_insurance_company(
     db.add(company)
     db.commit()
     db.refresh(company)
+    admin_ref_response_cache.invalidate_prefix(("admin_ref", "insurance_companies"))
     audit.log_event(
         action="CREATE",
         entity="insurance_company",
@@ -141,6 +166,7 @@ def update_insurance_company(
     db.add(company)
     db.commit()
     db.refresh(company)
+    admin_ref_response_cache.invalidate_prefix(("admin_ref", "insurance_companies"))
     audit.log_event(
         action="UPDATE",
         entity="insurance_company",
@@ -169,6 +195,7 @@ def delete_insurance_company(
         )
     db.delete(company)
     db.commit()
+    admin_ref_response_cache.invalidate_prefix(("admin_ref", "insurance_companies"))
     audit.log_event(
         action="DELETE",
         entity="insurance_company",
