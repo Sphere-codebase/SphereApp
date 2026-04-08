@@ -30,7 +30,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { confirmChatAction } from "@/lib/api/chat";
 import { ApiError } from "@/lib/api/errors";
 import { ChatProvider, useChat } from "@/lib/chat/ChatContext";
-import { cn } from "@/lib/utils";
+import { cn, getInitialTheme, THEME_STORAGE_KEY, ThemeMode } from "@/lib/utils";
 import type {
   ClaimDTO,
   ClaimFinancialSummaryDTO,
@@ -39,24 +39,6 @@ import type {
   MCPCodeDTO,
 } from "@/types/claim";
 import type { PatientDetailDTO } from "@/types/patients";
-
-type ThemeMode = "light" | "dark";
-
-const THEME_STORAGE_KEY = "sphereapp-theme";
-
-function getInitialTheme(): ThemeMode {
-  if (typeof window === "undefined") {
-    return "light";
-  }
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (stored === "light" || stored === "dark") {
-    return stored;
-  }
-  const prefersDark = window.matchMedia
-    ? window.matchMedia("(prefers-color-scheme: dark)").matches
-    : false;
-  return prefersDark ? "dark" : "light";
-}
 
 function formatTime(value?: string | null): string | undefined {
   if (!value) {
@@ -109,7 +91,6 @@ function WorkspaceShell() {
   const parsedPatientId = patientIdParam ? Number(patientIdParam) : null;
   const parsedClaimId = claimIdParam ? Number(claimIdParam) : null;
   const [draft, setDraft] = useState("");
-  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [createClaimOpen, setCreateClaimOpen] = useState(false);
   const [currentClaim, setCurrentClaim] = useState<ClaimDTO | null>(null);
@@ -124,9 +105,8 @@ function WorkspaceShell() {
   const [isLoadingPatient, setIsLoadingPatient] = useState(false);
   const [isConfirmingProposal, setIsConfirmingProposal] = useState(false);
   const [proposalError, setProposalError] = useState<string | null>(null);
-  const [financialSummary, setFinancialSummary] = useState<ClaimFinancialSummaryDTO | null>(
-    null
-  );
+  const [financialSummary, setFinancialSummary] =
+    useState<ClaimFinancialSummaryDTO | null>(null);
   const [isLoadingFinancial, setIsLoadingFinancial] = useState(false);
   const [financialError, setFinancialError] = useState<string | null>(null);
   const financialKeyRef = useRef<string | null>(null);
@@ -142,11 +122,6 @@ function WorkspaceShell() {
     logout();
     navigate("/login");
   }, [logout, navigate]);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-  }, [theme]);
 
   const conversationMessages = useMemo<MessageProps[]>(
     () =>
@@ -299,7 +274,10 @@ function WorkspaceShell() {
     if (!currentClaim) {
       return null;
     }
-    const mcpKey = currentClaim.mcp_codes.map((code) => code.code).sort().join("|");
+    const mcpKey = currentClaim.mcp_codes
+      .map((code) => code.code)
+      .sort()
+      .join("|");
     const diagnosisKey = currentClaim.diagnosis_codes
       .map((code) => code.code)
       .sort()
@@ -330,7 +308,12 @@ function WorkspaceShell() {
         setIsLoadingFinancial(false);
       }
     },
-    [financialKey, getClaimFinancialSummary, handleUnauthorized, refreshClaimFinancialSummary]
+    [
+      financialKey,
+      getClaimFinancialSummary,
+      handleUnauthorized,
+      refreshClaimFinancialSummary,
+    ]
   );
 
   useEffect(() => {
@@ -483,7 +466,8 @@ function WorkspaceShell() {
       proposal.arguments && typeof proposal.arguments === "object"
         ? (proposal.arguments as Record<string, unknown>)
         : {};
-    const proposalId = typeof proposal.proposal_id === "string" ? proposal.proposal_id : null;
+    const proposalId =
+      typeof proposal.proposal_id === "string" ? proposal.proposal_id : null;
     const payload =
       proposal.proposed_changes && typeof proposal.proposed_changes === "object"
         ? (proposal.proposed_changes as Record<string, unknown>)
@@ -641,11 +625,9 @@ function WorkspaceShell() {
         <WorkspaceTopBar
           title={activeSession?.title ?? "Chat sessions"}
           subtitle={me?.clinic_name ?? "SphereApp Chat"}
-          theme={theme}
           isSending={isSending}
           showAdmin={hasRole(["platform_staff_admin", "clinic_admin", "chief_doctor"])}
           claimStatus={currentClaim?.claim_status ?? null}
-          onToggleTheme={() => setTheme(theme === "dark" ? "light" : "dark")}
           onLogout={handleUnauthorized}
         />
 
@@ -669,14 +651,11 @@ function WorkspaceShell() {
           isLoadingPatient={isLoadingPatient}
         />
 
-        <div className="grid gap-6 lg:grid-cols-[260px_1fr_260px]">
+        <div
+          className="grid gap-6 lg:grid-cols-[260px_1fr_260px]"
+          style={{ height: "80vh" }}
+        >
           <aside className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-            <Link
-              to="/app/dashboard"
-              className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:pointer-events-none disabled:opacity-50 border border-slate-200 bg-white text-slate-900 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 h-11 px-5"
-            >
-              Dashboard
-            </Link>
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
                 Sessions
@@ -824,9 +803,7 @@ function WorkspaceShell() {
                         (field.name as string) ||
                         `field_${index}`;
                       const label =
-                        (field.label as string) ||
-                        (field.question as string) ||
-                        key;
+                        (field.label as string) || (field.question as string) || key;
                       return (
                         <label key={key} className="flex flex-col gap-1 text-xs">
                           <span className="font-semibold">{label}</span>
@@ -852,7 +829,10 @@ function WorkspaceShell() {
                       size="sm"
                       variant="secondary"
                       onClick={() => {
-                        const payload = { fields: formAction.fields, answers: formResponses };
+                        const payload = {
+                          fields: formAction.fields,
+                          answers: formResponses,
+                        };
                         void sendMessage(`Form responses: ${JSON.stringify(payload)}`);
                         setFormResponses({});
                         clearUiActions();
@@ -881,8 +861,8 @@ function WorkspaceShell() {
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm text-amber-900">
                   <div className="text-sm">
-                    The following fields are still missing. You can answer here to
-                    send them back to the assistant.
+                    The following fields are still missing. You can answer here to send
+                    them back to the assistant.
                   </div>
                   <div className="space-y-2">
                     {requirements.missing.map((item) => (

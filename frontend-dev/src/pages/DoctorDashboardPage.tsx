@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 
 import { getDoctorDashboard } from "@/api/dashboard";
+import WorkspaceTopBar from "@/components/workspace/WorkspaceTopBar";
 import { createSession } from "@/lib/api/chat";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -42,7 +43,7 @@ function formatDate(value?: string | null): string {
 
 export default function DoctorDashboardPage() {
   const navigate = useNavigate();
-  const { me, logout } = useAuth();
+  const { me, logout, hasRole } = useAuth();
   const isPlatformAdmin = me?.role === "platform_staff_admin";
   const [isCreating, setIsCreating] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
@@ -91,67 +92,27 @@ export default function DoctorDashboardPage() {
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-6 py-8">
-        <header className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-              {me?.clinic_name ?? "Clinic"}
-            </p>
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-              Dashboard
-            </h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {isPlatformAdmin ? (
-              <Button type="button" onClick={() => navigate("/app/platform/clinics")}>
-                Platform Admin
-              </Button>
-            ) : (
-              <>
-                <Button type="button" onClick={handleStartNewClaim} disabled={isCreating}>
-                  {isCreating ? "Starting..." : "Start New Claim"}
-                </Button>
-                <Button type="button" variant="outline" onClick={() => navigate("/app/workspace")}>
-                  Workspace
-                </Button>
-              </>
-            )}
-          </div>
-        </header>
-
-        <nav className="flex flex-wrap gap-2 text-sm">
-          <Button type="button" variant="secondary" disabled>
-            Dashboard
-          </Button>
-          {isPlatformAdmin ? (
-            <Button type="button" variant="ghost" onClick={() => navigate("/app/platform/clinics")}>
-              Platform
+        <WorkspaceTopBar
+          title="Dashboard"
+          subtitle={me?.clinic_name ?? "Clinic"}
+          isSending={false}
+          showAdmin={hasRole(["platform_staff_admin", "clinic_admin", "chief_doctor"])}
+          claimStatus={null}
+          onLogout={handleUnauthorized}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          {!isPlatformAdmin ? (
+            <Button type="button" onClick={() => navigate("/app/platform/clinics")}>
+              Platform Admin
             </Button>
           ) : (
             <>
-              <Button type="button" variant="ghost" onClick={() => navigate("/app/workspace")}>
-                Workspace
-              </Button>
-              <Button type="button" variant="ghost" onClick={() => navigate("/app/patients")}>
-                Patients
-              </Button>
-              {me?.role && ["chief_doctor", "clinic_admin"].includes(me.role) ? (
-                <Button type="button" variant="ghost" onClick={() => navigate("/app/clinic")}>
-                  Clinic
-                </Button>
-              ) : null}
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => navigate("/app/insurance-rules")}
-              >
-                Insurance Rules
-              </Button>
-              <Button type="button" variant="ghost" onClick={() => navigate("/app/ai-history")}>
-                AI History
+              <Button type="button" onClick={handleStartNewClaim} disabled={isCreating}>
+                {isCreating ? "Starting..." : "Start New Claim"}
               </Button>
             </>
           )}
-        </nav>
+        </div>
 
         {error ? (
           <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">

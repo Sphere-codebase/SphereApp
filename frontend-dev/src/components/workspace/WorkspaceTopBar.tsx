@@ -1,31 +1,37 @@
 import { Moon, Sun } from "lucide-react";
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink } from "react-router-dom";
+
 import ChatStatusHud from "@/components/chat/ChatStatusHud";
 import { Button } from "@/components/ui/button";
+import { getInitialTheme, THEME_STORAGE_KEY } from "@/lib/utils";
 
 type ThemeMode = "light" | "dark";
 
 type WorkspaceTopBarProps = {
   title: string;
   subtitle?: string;
-  theme: ThemeMode;
   isSending: boolean;
   showAdmin: boolean;
   claimStatus?: "draft" | "final" | null;
-  onToggleTheme: () => void;
   onLogout: () => void;
 };
 
 export default function WorkspaceTopBar({
   title,
   subtitle,
-  theme,
   isSending,
   showAdmin,
   claimStatus = null,
-  onToggleTheme,
   onLogout,
 }: WorkspaceTopBarProps) {
+  const [theme, setTheme] = useState<ThemeMode>(getInitialTheme);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
+
   return (
     <header className="flex flex-wrap items-center justify-between gap-4">
       <div>
@@ -50,14 +56,43 @@ export default function WorkspaceTopBar({
             {claimStatus === "final" ? "Finalized" : "Draft"}
           </span>
         ) : null}
+        <NavLink
+          to="/app/chat"
+          className={({ isActive }) =>
+            `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-colors h-11 px-5 border ${
+              isActive
+                ? "bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900" // Активный стиль
+                : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" // Обычный стиль
+            }`
+          }
+        >
+          Chat
+        </NavLink>
+        <NavLink
+          className={({ isActive }) =>
+            `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-colors h-11 px-5 border ${
+              isActive
+                ? "bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900" // Активный стиль
+                : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" // Обычный стиль
+            }`
+          }
+          to="/app/dashboard"
+        >
+          Dashboard
+        </NavLink>
         {showAdmin ? (
-          <Link
-            className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:pointer-events-none disabled:opacity-50 border border-slate-200 bg-white text-slate-900 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800 h-11 px-5"
-            type="button"
+          <NavLink
+            className={({ isActive }) =>
+              `inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full text-sm font-medium transition-colors h-11 px-5 border ${
+                isActive
+                  ? "bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900" // Активный стиль
+                  : "bg-white text-slate-900 border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100" // Обычный стиль
+              }`
+            }
             to="/app/admin"
           >
             Admin
-          </Link>
+          </NavLink>
         ) : null}
         <Button type="button" variant="outline" onClick={onLogout}>
           Logout
@@ -66,7 +101,7 @@ export default function WorkspaceTopBar({
           type="button"
           size="sm"
           variant="outline"
-          onClick={onToggleTheme}
+          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           aria-label="Toggle theme"
         >
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}

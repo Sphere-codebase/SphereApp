@@ -8,6 +8,7 @@ import {
 } from "@/api/platformAdmin";
 import ErrorNotice from "@/components/ErrorNotice";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -16,10 +17,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { PlatformClinicDTO } from "@/types/platformAdmin";
+import Usage from "./Usage";
 
 const PAGE_LIMIT = 25;
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -31,7 +32,7 @@ function formatDate(value?: string | null): string {
   return date.toLocaleDateString();
 }
 
-export default function PlatformClinicsPage() {
+export default function Clinics() {
   const { logout } = useAuth();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
@@ -54,9 +55,14 @@ export default function PlatformClinicsPage() {
   const [country, setCountry] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
 
-  const cacheRef = useRef<Map<string, { timestamp: number; data: { items: PlatformClinicDTO[]; total: number } }>>(
-    new Map()
-  );
+  const [activeTab, setActiveTab] = useState<string>("clinics");
+
+  const cacheRef = useRef<
+    Map<
+      string,
+      { timestamp: number; data: { items: PlatformClinicDTO[]; total: number } }
+    >
+  >(new Map());
 
   const handleUnauthorized = useCallback(() => {
     logout();
@@ -77,10 +83,17 @@ export default function PlatformClinicsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const response = await listPlatformClinics({ query: query || undefined, limit: PAGE_LIMIT, offset });
+      const response = await listPlatformClinics({
+        query: query || undefined,
+        limit: PAGE_LIMIT,
+        offset,
+      });
       setItems(response.items);
       setTotal(response.total);
-      cacheRef.current.set(cacheKey, { timestamp: now, data: { items: response.items, total: response.total } });
+      cacheRef.current.set(cacheKey, {
+        timestamp: now,
+        data: { items: response.items, total: response.total },
+      });
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         handleUnauthorized();
@@ -114,16 +127,17 @@ export default function PlatformClinicsPage() {
       await createPlatformClinic({
         name: name.trim(),
         phone: phone.trim() || null,
-        address: line1 || city || state || zip || country || line2
-          ? {
-              line1: line1.trim() || null,
-              line2: line2.trim() || null,
-              city: city.trim() || null,
-              state: state.trim() || null,
-              zip: zip.trim() || null,
-              country: country.trim() || null,
-            }
-          : null,
+        address:
+          line1 || city || state || zip || country || line2
+            ? {
+                line1: line1.trim() || null,
+                line2: line2.trim() || null,
+                city: city.trim() || null,
+                state: state.trim() || null,
+                zip: zip.trim() || null,
+                country: country.trim() || null,
+              }
+            : null,
       });
       setModalOpen(false);
       setName("");
@@ -151,9 +165,7 @@ export default function PlatformClinicsPage() {
     if (!clinic.id) return;
     const nextBlocked = !clinic.is_blocked;
     const confirmed = window.confirm(
-      nextBlocked
-        ? "Block this clinic? Users will lose access."
-        : "Unblock this clinic?"
+      nextBlocked ? "Block this clinic? Users will lose access." : "Unblock this clinic?"
     );
     if (!confirmed) return;
     setSavingId(clinic.id);
@@ -177,140 +189,157 @@ export default function PlatformClinicsPage() {
   const currentPage = useMemo(() => Math.floor(offset / PAGE_LIMIT) + 1, [offset]);
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      <div className="mx-auto flex min-h-screen max-w-6xl flex-col gap-6 px-6 py-8">
-        <header className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Platform Admin
-            </p>
-            <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">Clinics</h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" onClick={() => setModalOpen(true)}>
-              Create Clinic
-            </Button>
-            <Button type="button" variant="outline" onClick={() => navigate("/app/platform/usage")}
-            >
-              Usage Overview
-            </Button>
-            <Button type="button" variant="outline" onClick={() => navigate("/app/platform/audit")}
-            >
-              Platform Audit
-            </Button>
-          </div>
-        </header>
-
-        <form
-          onSubmit={handleSearch}
-          className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-        >
-          <input
-            type="text"
-            placeholder="Search clinics by name"
-            className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          <Button type="submit" variant="secondary">
-            Search
-          </Button>
-        </form>
-
-        {error ? <ErrorNotice error={error} /> : null}
-
-        <Card className="rounded-3xl border-slate-200 shadow-sm dark:border-slate-800">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Clinic List</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {isLoading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <div
-                    key={`clinic-skeleton-${index}`}
-                    className="h-14 rounded-2xl bg-slate-100 dark:bg-slate-800"
-                  />
-                ))}
-              </div>
-            ) : items.length === 0 ? (
-              <div className="text-sm text-slate-500">No clinics found.</div>
-            ) : (
-              items.map((clinic) => (
-                <div
-                  key={clinic.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
-                >
-                  <div className="flex flex-1 flex-col gap-1">
-                    <div className="text-sm font-semibold text-slate-900 dark:text-white">
-                      {clinic.name}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      Created: {formatDate(clinic.created_at)} · Phone: {clinic.phone ?? "—"}
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      Doctors: {clinic.counters?.doctors_count ?? 0} · Patients: {clinic.counters?.patients_count ?? 0} · Claims (30d): {clinic.counters?.claims_30d ?? 0}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        clinic.is_blocked
-                          ? "bg-rose-100 text-rose-700"
-                          : "bg-emerald-100 text-emerald-700"
-                      }`}
-                    >
-                      {clinic.is_blocked ? "Blocked" : "Active"}
-                    </span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={clinic.is_blocked ? "secondary" : "outline"}
-                      onClick={() => void handleToggleBlock(clinic)}
-                      disabled={savingId === clinic.id}
-                    >
-                      {savingId === clinic.id
-                        ? "Saving..."
-                        : clinic.is_blocked
-                        ? "Unblock"
-                        : "Block"}
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
-          <div>
-            Showing {items.length} of {total} clinics
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setOffset((prev) => Math.max(0, prev - PAGE_LIMIT))}
-              disabled={offset === 0 || isLoading}
-            >
-              Previous
-            </Button>
-            <span>
-              Page {currentPage} of {totalPages || 1}
-            </span>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => setOffset((prev) => prev + PAGE_LIMIT)}
-              disabled={offset + PAGE_LIMIT >= total || isLoading}
-            >
-              Next
-            </Button>
-          </div>
+    <>
+      <section className="flex min-h-screen flex-col gap-6">
+        <div className="flex flex-wrap items-center gap-2">
+          {activeTab === "clinics" ? (
+            <>
+              <Button type="button" onClick={() => setModalOpen(true)}>
+                Create Clinic
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setActiveTab("usage")}
+              >
+                Usage Overview
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setActiveTab("clinics")}
+              >
+                Clinics
+              </Button>
+              <Button type="button" variant="default">
+                Usage Overview
+              </Button>
+            </>
+          )}
         </div>
-      </div>
+
+        {activeTab === "clinics" ? (
+          <>
+            <form
+              onSubmit={handleSearch}
+              className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900"
+            >
+              <input
+                type="text"
+                placeholder="Search clinics by name"
+                className="flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              <Button type="submit" variant="secondary">
+                Search
+              </Button>
+            </form>
+
+            {error ? <ErrorNotice error={error} /> : null}
+
+            <Card className="rounded-3xl border-slate-200 shadow-sm dark:border-slate-800">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg">Clinic List</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {isLoading ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 4 }).map((_, index) => (
+                      <div
+                        key={`clinic-skeleton-${index}`}
+                        className="h-14 rounded-2xl bg-slate-100 dark:bg-slate-800"
+                      />
+                    ))}
+                  </div>
+                ) : items.length === 0 ? (
+                  <div className="text-sm text-slate-500">No clinics found.</div>
+                ) : (
+                  items.map((clinic) => (
+                    <div
+                      key={clinic.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-200"
+                    >
+                      <div className="flex flex-1 flex-col gap-1">
+                        <div className="text-sm font-semibold text-slate-900 dark:text-white">
+                          {clinic.name}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          Created: {formatDate(clinic.created_at)} · Phone:{" "}
+                          {clinic.phone ?? "—"}
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          Doctors: {clinic.counters?.doctors_count ?? 0} · Patients:{" "}
+                          {clinic.counters?.patients_count ?? 0} · Claims (30d):{" "}
+                          {clinic.counters?.claims_30d ?? 0}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                            clinic.is_blocked
+                              ? "bg-rose-100 text-rose-700"
+                              : "bg-emerald-100 text-emerald-700"
+                          }`}
+                        >
+                          {clinic.is_blocked ? "Blocked" : "Active"}
+                        </span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={clinic.is_blocked ? "secondary" : "outline"}
+                          onClick={() => void handleToggleBlock(clinic)}
+                          disabled={savingId === clinic.id}
+                        >
+                          {savingId === clinic.id
+                            ? "Saving..."
+                            : clinic.is_blocked
+                              ? "Unblock"
+                              : "Block"}
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
+              <div>
+                Showing {items.length} of {total} clinics
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setOffset((prev) => Math.max(0, prev - PAGE_LIMIT))}
+                  disabled={offset === 0 || isLoading}
+                >
+                  Previous
+                </Button>
+                <span>
+                  Page {currentPage} of {totalPages || 1}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setOffset((prev) => prev + PAGE_LIMIT)}
+                  disabled={offset + PAGE_LIMIT >= total || isLoading}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <Usage />
+        )}
+      </section>
 
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent className="max-w-lg dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
@@ -411,6 +440,6 @@ export default function PlatformClinicsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </main>
+    </>
   );
 }

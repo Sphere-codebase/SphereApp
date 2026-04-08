@@ -277,16 +277,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         role: "user",
         content: trimmed,
         isOptimistic: true,
+        created_at: new Date().toISOString(),
       };
 
       setMessages((prev) => [...prev, optimisticMessage]);
       setIsSending(true);
       try {
-      const response = await sendChatMessage({
-        session_id: sessionId,
-        message: trimmed,
-        metadata: { client_message_id: clientMessageId },
-      });
+        const response = await sendChatMessage({
+          session_id: sessionId,
+          message: trimmed,
+          metadata: { client_message_id: clientMessageId },
+        });
         syncRequestId();
         handleChatResponse(response, clientMessageId);
         const refreshed = await listMessages(sessionId);
@@ -298,7 +299,13 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setIsSending(false);
       }
     },
-    [activeSessionId, createSessionAndSelect, handleApiError, handleChatResponse, syncRequestId]
+    [
+      activeSessionId,
+      createSessionAndSelect,
+      handleApiError,
+      handleChatResponse,
+      syncRequestId,
+    ]
   );
 
   const addLocalMessage = useCallback((role: ChatRole, content: string) => {
