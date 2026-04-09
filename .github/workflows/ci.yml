@@ -9,7 +9,7 @@ on:
 
 env:
   IMAGE_NAME: SphereApp
-  PYTHON_VERSION: "3.11"
+  PYTHON_VERSION: "3.12"
 
   # DB for runner-side steps (migrations/tests) and for container smoke test
   DATABASE_URL: "postgresql+psycopg://postgres:postgres@localhost:5432/claims_assistant"
