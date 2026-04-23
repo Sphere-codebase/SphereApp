@@ -41,13 +41,55 @@ If you prefer the virtualenv Python:
 
 The script prints the resolved non-secret config before running. Tokens and passwords are always redacted.
 
+## Interactive Menu
+
+Open the interactive launcher:
+
+```bash
+python3 tools/run_llm_menu.py
+```
+
+The menu is a thin wrapper around `tools/run_llm_regression.py`. It reads the existing cases file, lets you select what to run, shows the exact runner command it will use, asks for confirmation, and then launches the existing runner unchanged.
+
+Menu options:
+
+1. Run all cases
+2. Run failed-only from a previous run
+3. Run one case by `case_id`
+4. Run multiple selected `case_id`s
+5. Run all cases from a `session_group`
+6. Run all cases related to a tool name or tool-focused pack
+7. List available cases and exit
+8. Exit
+
+Selections can be entered by display number or exact `case_id`. Multi-case selection accepts comma-separated numbers and/or `case_id`s.
+
+For failed-only mode, the menu shows recent run directories from `artifacts/llm_regression/` and prompts for a run directory or `results.json` path. It remembers the last entered `from-run` path for the current menu session.
+
+Tool-focused packs available from the menu:
+
+- `capabilities`
+- `patients`
+- `claims`
+- `coverage_policy`
+- `claim_drafting`
+
+Equivalent non-interactive commands:
+
+```bash
+python3 tools/run_llm_regression.py
+python3 tools/run_llm_regression.py --failed-only --from-run artifacts/llm_regression/20260423_150614
+python3 tools/run_llm_regression.py --case-id open_and_summarize_claim
+python3 tools/run_llm_regression.py --case-id search_patient_by_name --case-id fetch_patient_details_after_search
+```
+
 ## Optional Overrides
 
 ```bash
 SPHERE_BASE_URL="http://localhost:8000" \
 SPHERE_CASES_PATH="tests/llm_regression/cases.json" \
 SPHERE_OUTPUT_DIR="artifacts/llm_regression" \
-SPHERE_TIMEOUT_SECONDS="120" \
+SPHERE_TIMEOUT_SECONDS="180" \
 python3 tools/run_llm_regression.py
 ```
 
@@ -56,7 +98,7 @@ CLI flags still take highest precedence:
 ```bash
 python3 tools/run_llm_regression.py \
   --base-url "http://localhost:8000" \
-  --timeout-seconds 120
+  --timeout-seconds 180
 ```
 
 ## Baseline Comparison
@@ -69,6 +111,42 @@ python3 tools/run_llm_regression.py
 ```
 
 The runner writes `compare_to_baseline.md` in the new run directory. Comparison checks per-case pass/fail changes, HTTP status changes, `action_required` changes, observed tool-call changes, proposal payload hash changes, and assistant output hash changes.
+
+The main human-readable report for each run is `summary.md`. It includes a compact per-case table, failure-only detail, and a timeout-focused section when timeout-heavy cases are present.
+
+## Failed-Only Rerun
+
+Rerun only the cases that failed in a previous run:
+
+```bash
+python3 tools/run_llm_regression.py \
+  --failed-only \
+  --from-run artifacts/llm_regression/20260423_150614
+```
+
+You can also point `--from-run` directly at a previous `results.json`.
+
+The interactive menu uses the same `--failed-only --from-run ...` flow under the hood and shows the exact command before launch.
+
+## Single-Case Rerun
+
+Rerun one or more explicit case ids:
+
+```bash
+python3 tools/run_llm_regression.py --case-id open_and_summarize_claim
+```
+
+```bash
+python3 tools/run_llm_regression.py \
+  --case-id open_and_summarize_claim \
+  --case-id coverage_explain_62323
+```
+
+`--case-id` can be combined with `--failed-only`. The runner preserves the original case order and only executes the selected subset.
+
+Failed-only and case-filtered runs are labeled explicitly in `summary.md`, along with the exact executed case ids.
+
+The interactive menu uses repeated `--case-id` flags for one-case, multi-case, session-group, tool-name, and tool-pack selections.
 
 ## Auth Modes
 
@@ -111,12 +189,19 @@ The runner resolves config in this order:
 Important mappings:
 
 - `SPHERE_BASE_URL` falls back to `.env` `VITE_API_BASE_URL`, then `http://localhost:8000`.
-- `SPHERE_TIMEOUT_SECONDS` falls back to `.env` `LLM_TIMEOUT_SECONDS`, then `120`.
+- `SPHERE_TIMEOUT_SECONDS` falls back to `.env` `LLM_TIMEOUT_SECONDS`, then `180`.
+- Default local timeout is `180` seconds unless you override it.
 - `SPHERE_OUTPUT_DIR` defaults to `artifacts/llm_regression`.
 - `SPHERE_ENABLE_CONFIRM_WRITE` defaults to `false`.
 - Auth uses CLI auth values, then `SPHERE_BEARER_TOKEN`, then `SPHERE_EMAIL` plus `SPHERE_PASSWORD`, then dev-friendly `.env` names `EMAIL`/`PASSWORD` or `DEV_EMAIL`/`DEV_PASSWORD` if present.
 
 The root `.env` loader only fills missing environment variables; it does not overwrite values already exported in your shell.
+
+## Grouped Session Failure Behavior
+
+If a grouped case fails before the runner receives a `session_id`, later cases in the same `session_group` are marked `BLOCKED` instead of starting a fresh unrelated chat. This avoids hiding upstream session-establishment failures behind downstream noise.
+
+`summary.md` surfaces those blocked cases in both the compact results table and the failure-detail section so grouped-flow breakage is obvious.
 
 ## Auth Error Example
 
@@ -148,8 +233,11 @@ Each run writes a timestamped directory under `artifacts/llm_regression/`:
 - `results.jsonl`: one normalized result per line.
 - `results.csv`: compact scan-friendly result table.
 - `summary.md`: human-readable report.
+- `summary.md` is the primary scan-friendly report. It includes run metadata, a compact table with `status`, `http_status`, `duration_ms`, `tool_steps`, `request_id`, `error_code`, `transport_error`, and `blocked_reason`, then failure detail for only non-passing cases.
 - `raw/`: per-case raw chat requests, raw chat responses, session messages, and optional confirmation payloads.
 - `compare_to_baseline.md`: only when `SPHERE_BASELINE` is set.
+
+When any timeout-like failures occur, `summary.md` also adds a `Timeout-Focused Cases` section to isolate the remaining slow multi-step failures.
 
 ## Case Expectations
 

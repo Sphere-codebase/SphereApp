@@ -218,8 +218,12 @@ def llm_unavailable_handler(request: Request, exc: LLMUnavailable) -> JSONRespon
             message="LLM service is unavailable",
             details={
                 "error": str(exc),
+                "request_id": getattr(request.state, "request_id", "-"),
                 "base_url": settings.lmstudio_base_url,
                 "timeout_seconds": settings.llm_timeout_seconds,
+                "status_code": exc.status_code,
+                "retryable": exc.retryable,
+                "response_text": exc.response_text if settings.env in {"dev", "test"} else None,
             },
         ),
     )

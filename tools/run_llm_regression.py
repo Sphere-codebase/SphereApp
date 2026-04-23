@@ -23,8 +23,7 @@ ROOT_ENV_PATH = ROOT_DIR / ".env"
 DEFAULT_BASE_URL = "http://localhost:8000"
 DEFAULT_CASES_PATH = "tests/llm_regression/cases.json"
 DEFAULT_OUTPUT_ROOT = "artifacts/llm_regression"
-DEFAULT_TIMEOUT_SECONDS = 120.0
-SPHERE_BEARER_TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwiZXhwIjoxODA4NDkyMzI4fQ.ofLL4OTu8WBMkhcf0AL-47yI8_u4zCoERPv_sUkSY_U"
+DEFAULT_TIMEOUT_SECONDS = 180.0
 EMPTY_RESULT_PHRASES = (
     "no results",
     "no matching",
@@ -50,6 +49,9 @@ class Config:
     enable_confirm_write: bool
     dotenv_path: Path
     dotenv_loaded: bool
+    failed_only: bool
+    from_run: Path | None
+    case_ids: tuple[str, ...]
 
 
 def _strip_env_quotes(value: str) -> str:
@@ -136,6 +138,22 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--baseline", default=None)
     parser.add_argument(
+        "--failed-only",
+        action="store_true",
+        help="Rerun only cases that failed in a previous results.json or run directory.",
+    )
+    parser.add_argument(
+        "--from-run",
+        default=None,
+        help="Previous results.json path or run directory used with --failed-only.",
+    )
+    parser.add_argument(
+        "--case-id",
+        action="append",
+        default=[],
+        help="Repeatable case selector. Only the listed case ids will run.",
+    )
+    parser.add_argument(
         "--enable-confirm-write",
         action="store_true",
         default=None,
@@ -220,6 +238,9 @@ def _load_config() -> Config:
         enable_confirm_write=enable_confirm_write,
         dotenv_path=ROOT_ENV_PATH,
         dotenv_loaded=bool(loaded_dotenv),
+        failed_only=bool(args.failed_only),
+        from_run=Path(args.from_run) if args.from_run else None,
+        case_ids=tuple(str(item) for item in args.case_id),
     )
 
 
@@ -243,6 +264,19 @@ def _write_json(path: Path, payload: Any) -> None:
 def _write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
+
+
+def _display_value(value: Any) -> str:
+    if value is None or value == "":
+        return "-"
+    return str(value)
+
+
+def _truncate_cell(value: Any, limit: int = 48) -> str:
+    text = _display_value(value).replace("\n", " ").replace("|", "/")
+    if text == "-" or len(text) <= limit:
+        return text
+    return f"{text[: limit - 1]}…"
 
 
 def _load_cases(path: Path) -> list[dict[str, Any]]:
@@ -399,6 +433,119 @@ def _tool_calls_from_messages(messages: list[dict[str, Any]]) -> list[dict[str, 
             }
         )
     return calls
+
+
+def _tool_steps(debug: Any) -> int | None:
+    if not isinstance(debug, dict):
+        return None
+    raw_steps = debug.get("tool_steps")
+    try:
+        return int(raw_steps) if raw_steps is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_error_fields(
+    response_payload: dict[str, Any],
+) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    body = response_payload.get("json")
+    if not isinstance(body, dict):
+        return None, None, None
+    error = body.get("error")
+    if not isinstance(error, dict):
+        return None, None, None
+    code = error.get("code") if isinstance(error.get("code"), str) else None
+    message = error.get("message") if isinstance(error.get("message"), str) else None
+    details = error.get("details") if isinstance(error.get("details"), dict) else None
+    return code, message, details
+
+
+def _extract_request_id(
+    response_payload: dict[str, Any],
+    error_details: dict[str, Any] | None,
+) -> str | None:
+    headers = response_payload.get("headers")
+    if isinstance(headers, dict):
+        request_id = headers.get("x-request-id")
+        if isinstance(request_id, str) and request_id.strip():
+            return request_id.strip()
+    if isinstance(error_details, dict):
+        request_id = error_details.get("request_id")
+        if isinstance(request_id, str) and request_id.strip():
+            return request_id.strip()
+    return None
+
+
+def _is_timeout_like(
+    transport_error: str | None,
+    error_code: str | None,
+    error_details: dict[str, Any] | None,
+) -> bool:
+    if isinstance(transport_error, str) and "timed out" in transport_error.lower():
+        return True
+    if error_code != "LLM_UNAVAILABLE" or not isinstance(error_details, dict):
+        return False
+    error_text = error_details.get("error")
+    response_text = error_details.get("response_text")
+    timeout_seconds = error_details.get("timeout_seconds")
+    haystacks = [
+        error_text if isinstance(error_text, str) else "",
+        response_text if isinstance(response_text, str) else "",
+    ]
+    if any("timed out" in value.lower() or "timeout" in value.lower() for value in haystacks):
+        return True
+    return timeout_seconds is not None and error_details.get("status_code") is None
+
+
+def _failure_hint(record: dict[str, Any]) -> str:
+    if record.get("blocked"):
+        return "session_id missing / grouped case blocked"
+    timeout_like = record.get("timeout_like")
+    if timeout_like is None:
+        timeout_like = _is_timeout_like(
+            record.get("transport_error"),
+            record.get("error_code"),
+            record.get("error_details"),
+        )
+    tool_steps = record.get("tool_steps")
+    if tool_steps is None:
+        tool_steps = _tool_steps(record.get("debug"))
+    timed_out_after_tools = record.get("timed_out_after_tools")
+    if timed_out_after_tools is None:
+        timed_out_after_tools = bool(timeout_like and (tool_steps or 0) > 0)
+    if timeout_like:
+        if timed_out_after_tools:
+            return "timed out after tool loop"
+        return "timed out before first tool call"
+    error_code = record.get("error_code")
+    http_status = record.get("http_status")
+    if http_status == 503 and error_code == "LLM_UNAVAILABLE":
+        return "backend 503 LLM_UNAVAILABLE"
+    if http_status == 500:
+        return "backend 500"
+    if http_status and int(http_status) >= 500:
+        return f"backend {http_status}"
+    if not record.get("assistant_message") and http_status == 200:
+        return "empty assistant message"
+    if record.get("transport_error"):
+        return "transport error"
+    return "validation failure"
+
+
+def _status_label(item: dict[str, Any]) -> str:
+    if item.get("blocked"):
+        return "BLOCKED"
+    return "PASS" if item.get("passed") else "FAIL"
+
+
+def _run_mode_label(config: Config) -> str:
+    if config.failed_only and config.case_ids:
+        return "failed-only + case-filtered"
+    if config.failed_only:
+        return "failed-only"
+    if config.case_ids:
+        return "case-filtered"
+    return "full"
 
 
 def _validate(case: dict[str, Any], record: dict[str, Any]) -> list[str]:
@@ -618,6 +765,12 @@ def _run_case(
         proposed_changes = response_json.get("proposed_changes")
         ui_actions_raw = response_json.get("ui_actions")
         ui_actions = ui_actions_raw if isinstance(ui_actions_raw, list) else []
+    tool_steps = _tool_steps(debug)
+    error_code, error_message, error_details = _extract_error_fields(response_payload)
+    request_id = _extract_request_id(response_payload, error_details)
+    timeout_like = _is_timeout_like(transport_error, error_code, error_details)
+    timed_out_after_tools = bool(timeout_like and (tool_steps or 0) > 0)
+    retry_heavy = bool(isinstance(error_details, dict) and error_details.get("retryable") is True)
 
     record: dict[str, Any] = {
         "case_id": case_id,
@@ -640,12 +793,21 @@ def _run_case(
         "session_id": session_id,
         "ui_actions": ui_actions,
         "debug": debug,
+        "tool_steps": tool_steps,
         "action_required": action_required,
         "proposed_changes": proposed_changes,
         "proposed_changes_hash": _hash_payload(proposed_changes) if proposed_changes else None,
         "tool_calls": tool_calls,
         "tool_call_names": [item.get("tool") for item in tool_calls],
+        "request_id": request_id,
+        "error_code": error_code,
+        "error_message": error_message,
+        "error_details": error_details,
+        "timeout_like": timeout_like,
+        "timed_out_after_tools": timed_out_after_tools,
+        "retry_heavy": retry_heavy,
     }
+    record["failure_hint"] = _failure_hint(record)
     validation_errors = _validate(case, record)
     confirmation = _maybe_confirm_action(
         client,
@@ -676,6 +838,75 @@ def _load_baseline_records(path: Path) -> dict[str, dict[str, Any]]:
         for item in results
         if isinstance(item, dict) and "case_id" in item
     }
+
+
+def _select_cases(config: Config, cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    selected_ids: set[str] = set(config.case_ids)
+    if config.failed_only:
+        if config.from_run is None:
+            raise SystemExit("--failed-only requires --from-run <results.json or run dir>")
+        baseline_records = _load_baseline_records(config.from_run)
+        failed_ids = {
+            case_id
+            for case_id, record in baseline_records.items()
+            if isinstance(record, dict) and not record.get("passed")
+        }
+        selected_ids.update(failed_ids)
+
+    if not selected_ids:
+        return cases
+
+    selected_cases = [case for case in cases if str(case.get("id")) in selected_ids]
+    if not selected_cases:
+        raise SystemExit("no cases matched the requested rerun filters")
+    return selected_cases
+
+
+def _blocked_record(
+    case: dict[str, Any],
+    reason: str,
+) -> dict[str, Any]:
+    record = {
+        "case_id": str(case["id"]),
+        "title": case.get("title"),
+        "required": bool(case.get("required", True)),
+        "session_group": case.get("session_group"),
+        "prompt": case["prompt"],
+        "started_at": _utc_iso(),
+        "ended_at": _utc_iso(),
+        "duration_ms": 0.0,
+        "http_status": None,
+        "transport_error": None,
+        "raw_request_ref": None,
+        "raw_response_ref": None,
+        "raw_messages_ref": None,
+        "messages_status": None,
+        "assistant_message": "",
+        "normalized_assistant_message": "",
+        "assistant_output_hash": _hash_payload(""),
+        "session_id": None,
+        "ui_actions": [],
+        "debug": None,
+        "tool_steps": None,
+        "action_required": False,
+        "proposed_changes": None,
+        "proposed_changes_hash": None,
+        "tool_calls": [],
+        "tool_call_names": [],
+        "request_id": None,
+        "error_code": None,
+        "error_message": None,
+        "error_details": None,
+        "timeout_like": False,
+        "timed_out_after_tools": False,
+        "retry_heavy": False,
+        "blocked": True,
+        "blocked_reason": reason,
+        "validation_errors": [reason],
+        "passed": False,
+    }
+    record["failure_hint"] = _failure_hint(record)
+    return record
 
 
 def _compare_results(
@@ -761,13 +992,15 @@ def _write_results(
     required = [item for item in results if item.get("required", True)]
     failed_required = [item for item in required if not item.get("passed")]
     passed = [item for item in results if item.get("passed")]
-    failed = [item for item in results if not item.get("passed")]
+    blocked = [item for item in results if item.get("blocked")]
+    failed = [item for item in results if not item.get("passed") and not item.get("blocked")]
     payload = {
         "generated_at": _utc_iso(),
         "summary": {
             "total": len(results),
             "passed": len(passed),
             "failed": len(failed),
+            "blocked": len(blocked),
             "required": len(required),
             "failed_required": len(failed_required),
         },
@@ -783,11 +1016,17 @@ def _write_results(
             handle,
             fieldnames=[
                 "case_id",
+                "status",
                 "passed",
                 "required",
                 "http_status",
                 "duration_ms",
+                "tool_steps",
                 "session_id",
+                "request_id",
+                "error_code",
+                "transport_error",
+                "blocked_reason",
                 "action_required",
                 "tool_call_names",
                 "validation_errors",
@@ -798,11 +1037,17 @@ def _write_results(
             writer.writerow(
                 {
                     "case_id": item.get("case_id"),
+                    "status": _status_label(item),
                     "passed": item.get("passed"),
                     "required": item.get("required"),
                     "http_status": item.get("http_status"),
                     "duration_ms": item.get("duration_ms"),
+                    "tool_steps": item.get("tool_steps"),
                     "session_id": item.get("session_id"),
+                    "request_id": item.get("request_id"),
+                    "error_code": item.get("error_code"),
+                    "transport_error": item.get("transport_error"),
+                    "blocked_reason": item.get("blocked_reason"),
                     "action_required": item.get("action_required"),
                     "tool_call_names": ", ".join(item.get("tool_call_names") or []),
                     "validation_errors": " | ".join(item.get("validation_errors") or []),
@@ -814,42 +1059,136 @@ def _write_results(
 
 
 def _summary_markdown(config: Config, cases_path: Path, payload: dict[str, Any]) -> str:
+    results = payload["results"]
     summary = payload["summary"]
+    blocked_count = summary.get("blocked")
+    if not isinstance(blocked_count, int):
+        blocked_count = sum(1 for item in results if item.get("blocked"))
+    failed_count = summary.get("failed")
+    if not isinstance(failed_count, int):
+        failed_count = sum(
+            1
+            for item in results
+            if not item.get("passed") and not item.get("blocked")
+        )
+    run_mode = _run_mode_label(config)
+    if run_mode == "full":
+        selected_cases = "all"
+    else:
+        selected_cases = ", ".join(f"`{item.get('case_id')}`" for item in results)
     lines = [
         "# LLM Regression Summary",
         "",
+        "## Run",
+        "",
         f"- Generated at: {payload['generated_at']}",
         f"- Base URL: `{config.base_url}`",
-        f"- Cases: `{cases_path}`",
         f"- Auth mode: `{config.auth_mode}`",
-        f"- Total: {summary['total']}",
+        f"- Cases file: `{cases_path}`",
+        f"- Run mode: `{run_mode}`",
+        f"- Selected cases: {selected_cases}",
+        f"- Total cases: {summary['total']}",
         f"- Passed: {summary['passed']}",
-        f"- Failed: {summary['failed']}",
+        f"- Failed: {failed_count}",
+        f"- Blocked: {blocked_count}",
         f"- Failed required: {summary['failed_required']}",
+        f"- Timeout seconds: {config.timeout_seconds:g}",
         f"- Confirm write enabled: {config.enable_confirm_write}",
+        f"- From run: `{config.from_run or '-'}`",
         "",
-        "## Cases",
+        "## Results",
         "",
-        "| Case | Status | HTTP | Tools | Errors |",
-        "|---|---:|---:|---|---|",
+        (
+            "| case_id | status | http_status | duration_ms | tool_steps | session_id | "
+            "request_id | error_code | transport_error | blocked_reason |"
+        ),
+        "|---|---|---:|---:|---:|---:|---|---|---|---|",
     ]
-    for item in payload["results"]:
-        status = "PASS" if item.get("passed") else "FAIL"
-        tools = ", ".join(item.get("tool_call_names") or [])
-        errors = "<br>".join(item.get("validation_errors") or [])
+    for item in results:
+        item_tool_steps = item.get("tool_steps")
+        if item_tool_steps is None:
+            item_tool_steps = _tool_steps(item.get("debug"))
         lines.append(
-            f"| `{item.get('case_id')}` | {status} | {item.get('http_status')} | "
-            f"{tools or '-'} | {errors or '-'} |"
+            f"| `{item.get('case_id')}` | {_status_label(item)} | "
+            f"{_display_value(item.get('http_status'))} | "
+            f"{int(round(float(item.get('duration_ms') or 0)))} | "
+            f"{_display_value(item_tool_steps)} | "
+            f"{_display_value(item.get('session_id'))} | "
+            f"{_truncate_cell(item.get('request_id'), 18)} | "
+            f"{_truncate_cell(item.get('error_code'), 24)} | "
+            f"{_truncate_cell(item.get('transport_error'))} | "
+            f"{_truncate_cell(item.get('blocked_reason'))} |"
         )
-    failed = [item for item in payload["results"] if not item.get("passed")]
-    if failed:
+    non_passing = [item for item in results if not item.get("passed")]
+    if non_passing:
         lines.extend(["", "## Failure Detail", ""])
-        for item in failed:
-            lines.append(f"### `{item.get('case_id')}`")
-            for error in item.get("validation_errors") or []:
-                lines.append(f"- {error}")
-            lines.append(f"- Raw response: `{item.get('raw_response_ref')}`")
+        for item in non_passing:
+            title = item.get("title")
+            heading = f"### `{item.get('case_id')}`"
+            if isinstance(title, str) and title.strip():
+                heading += f" — {title.strip()}"
+            lines.append(heading)
+            lines.append(f"- Status: `{_status_label(item)}`")
+            lines.append(f"- Hint: {item.get('failure_hint') or _failure_hint(item)}")
+            validation_errors = item.get("validation_errors") or []
+            if validation_errors:
+                lines.append(
+                    "- Validation errors: "
+                    + "; ".join(str(error) for error in validation_errors)
+                )
+            if item.get("transport_error"):
+                lines.append(f"- Transport error: `{item.get('transport_error')}`")
+            if item.get("error_code"):
+                lines.append(f"- Backend error code: `{item.get('error_code')}`")
+            if item.get("request_id"):
+                lines.append(f"- Request id: `{item.get('request_id')}`")
+            lines.append(f"- Raw request: `{item.get('raw_request_ref') or '-'}`")
+            lines.append(f"- Raw response: `{item.get('raw_response_ref') or '-'}`")
+            lines.append(f"- Raw messages: `{item.get('raw_messages_ref') or '-'}`")
             lines.append("")
+    timeout_cases = [
+        item
+        for item in non_passing
+        if item.get("timeout_like")
+        or _is_timeout_like(
+            item.get("transport_error"),
+            item.get("error_code"),
+            item.get("error_details"),
+        )
+    ]
+    if timeout_cases:
+        lines.extend(
+            [
+                "## Timeout-Focused Cases",
+                "",
+                (
+                    "| case_id | duration_ms | tool_steps | after_tools | retry_heavy | "
+                    "request_id | hint |"
+                ),
+                "|---|---:|---:|---|---|---|---|",
+            ]
+        )
+        for item in timeout_cases:
+            item_tool_steps = item.get("tool_steps")
+            if item_tool_steps is None:
+                item_tool_steps = _tool_steps(item.get("debug"))
+            timeout_like = item.get("timeout_like") or _is_timeout_like(
+                item.get("transport_error"),
+                item.get("error_code"),
+                item.get("error_details"),
+            )
+            timed_out_after_tools = item.get("timed_out_after_tools")
+            if timed_out_after_tools is None:
+                timed_out_after_tools = bool(timeout_like and (item_tool_steps or 0) > 0)
+            lines.append(
+                f"| `{item.get('case_id')}` | "
+                f"{int(round(float(item.get('duration_ms') or 0)))} | "
+                f"{_display_value(item_tool_steps)} | "
+                f"{'yes' if timed_out_after_tools else 'no'} | "
+                f"{'yes' if item.get('retry_heavy') else 'no'} | "
+                f"{_truncate_cell(item.get('request_id'), 18)} | "
+                f"{item.get('failure_hint') or _failure_hint(item)} |"
+            )
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -870,6 +1209,9 @@ def _write_run_config(run_dir: Path, config: Config, cases: list[dict[str, Any]]
         "enable_confirm_write": config.enable_confirm_write,
         "dotenv_path": str(config.dotenv_path),
         "dotenv_loaded": config.dotenv_loaded,
+        "failed_only": config.failed_only,
+        "from_run": str(config.from_run) if config.from_run else None,
+        "case_ids": list(config.case_ids),
     }
     _write_json(run_dir / "run_config.json", payload)
 
@@ -882,6 +1224,9 @@ def _print_resolved_config(config: Config) -> None:
     print(f"  timeout_seconds={config.timeout_seconds:g}")
     print(f"  baseline={config.baseline or '-'}")
     print(f"  enable_confirm_write={config.enable_confirm_write}")
+    print(f"  failed_only={config.failed_only}")
+    print(f"  from_run={config.from_run or '-'}")
+    print(f"  case_ids={', '.join(config.case_ids) if config.case_ids else '-'}")
     print(f"  dotenv={config.dotenv_path} loaded={config.dotenv_loaded}")
     if config.auth_mode == "bearer_token":
         print("  auth_mode=bearer_token token=<redacted>")
@@ -895,7 +1240,7 @@ def _print_resolved_config(config: Config) -> None:
 def main() -> int:
     try:
         config = _load_config()
-        cases = _load_cases(config.cases_path)
+        cases = _select_cases(config, _load_cases(config.cases_path))
     except SystemExit as exc:
         if isinstance(exc.code, int):
             return exc.code
@@ -911,11 +1256,18 @@ def main() -> int:
     timeout = httpx.Timeout(config.timeout_seconds)
     session_ids: dict[str, int] = {}
     session_message_ids: dict[int, set[int]] = {}
+    blocked_groups: dict[str, str] = {}
     results: list[dict[str, Any]] = []
     try:
         with httpx.Client(base_url=config.base_url, timeout=timeout) as client:
             token = _authenticate(client, config, raw_dir)
             for index, case in enumerate(cases, start=1):
+                session_group = case.get("session_group")
+                if isinstance(session_group, str) and session_group in blocked_groups:
+                    result = _blocked_record(case, blocked_groups[session_group])
+                    results.append(result)
+                    print(f"{index:03d} {case['id']}: BLOCKED")
+                    continue
                 result = _run_case(
                     client,
                     token,
@@ -927,7 +1279,20 @@ def main() -> int:
                     config.enable_confirm_write,
                 )
                 results.append(result)
-                status = "PASS" if result["passed"] else "FAIL"
+                if (
+                    isinstance(session_group, str)
+                    and result.get("session_id") is None
+                    and not result.get("passed")
+                ):
+                    blocked_groups[session_group] = (
+                        f"blocked: prior case in session_group '{session_group}' "
+                        "failed before a session_id was established"
+                    )
+                status = (
+                    "BLOCKED"
+                    if result.get("blocked")
+                    else ("PASS" if result["passed"] else "FAIL")
+                )
                 print(f"{index:03d} {case['id']}: {status}")
     except SystemExit as exc:
         print(exc, file=sys.stderr)

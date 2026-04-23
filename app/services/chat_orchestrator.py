@@ -78,9 +78,17 @@ class ChatOrchestrator:
             self._store_message(session.id, role="assistant", content=result.assistant_text)
 
             if not result.tool_calls:
+                assistant_message = result.assistant_text.strip()
+                if not assistant_message:
+                    logger.warning(
+                        "llm returned empty assistant message session_id=%s step=%s",
+                        session.id,
+                        step + 1,
+                    )
+                    assistant_message = "I couldn't produce a useful response. Please try again."
                 return ChatResult(
                     session_id=session.id,
-                    assistant_message=result.assistant_text,
+                    assistant_message=assistant_message,
                     ui_actions=ui_actions,
                     debug=debug if settings.env in {"dev", "test"} else None,
                 )
@@ -231,12 +239,16 @@ class ChatOrchestrator:
                     },
                 }
             )
-        return {"role": "assistant", "content": result.assistant_text, "tool_calls": tool_calls}
+        content = result.assistant_text.strip() if isinstance(result.assistant_text, str) else ""
+        return {
+            "role": "assistant",
+            "content": content or None,
+            "tool_calls": tool_calls,
+        }
 
     def _tool_result_message(self, call: ToolCall, tool_result: dict[str, Any]) -> dict[str, Any]:
         return {
             "role": "tool",
-            "name": call.name,
             "content": json.dumps(tool_result),
             "tool_call_id": call.id,
         }
