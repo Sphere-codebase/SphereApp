@@ -1,0 +1,274 @@
+{
+  "cases": [
+    {
+      "id": "basic_greeting",
+      "title": "Basic greeting smoke test",
+      "prompt": "Reply in English with a brief greeting and one sentence explaining that you can help with claim and coverage questions. Do not call any write tools.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "required_any_substrings": ["claim", "coverage", "help"],
+        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields", "parse_policy_link_and_store"]
+      }
+    },
+    {
+      "id": "capability_discovery",
+      "title": "Capability discovery",
+      "prompt": "In English, use the system capability tool to list the main functions you have. Mention tools for patients, claims, procedure codes, policy rules, and write confirmations.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "expected_tool_calls": ["get_bot_capabilities"],
+        "required_substrings": ["patient", "claim", "policy"],
+        "required_any_substrings": ["tool", "function", "capabil"]
+      }
+    },
+    {
+      "id": "time_now",
+      "title": "Current time tool",
+      "prompt": "What time is it now in Asia/Tbilisi? Use the time tool and answer in English.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "expected_tool_calls": ["time_now"],
+        "required_any_substrings": ["Asia/Tbilisi", "Tbilisi", "time"]
+      }
+    },
+    {
+      "id": "current_account",
+      "title": "Current account",
+      "prompt": "Who am I in this system? Use the account tool and answer with only facts from the system.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "expected_tool_calls": ["get_account"],
+        "required_any_substrings": ["email", "account", "user"]
+      }
+    },
+    {
+      "id": "search_patient_by_name",
+      "title": "Search patient by name",
+      "session_group": "patient_lookup",
+      "prompt": "Search for patient Jane Doe using system data. If no patient or multiple patients match, say that clearly and ask for the minimum clarification needed. Do not guess a patient id.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "expected_tool_calls": ["search_patients"],
+        "required_any_substrings": ["Jane", "Doe", "patient", "match", "clarif", "not found", "multiple"],
+        "forbidden_substrings": ["I will assume", "I guessed"]
+      }
+    },
+    {
+      "id": "fetch_patient_details_after_search",
+      "title": "Fetch patient details after search",
+      "session_group": "patient_lookup",
+      "prompt": "Continue from the patient search. If exactly one Jane Doe was found, fetch that patient's details. If not, ask only for the missing clarification and do not invent a patient id.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "required_any_substrings": ["patient", "detail", "clarif", "id", "exactly one", "multiple", "not found"],
+        "forbidden_substrings": ["I will assume", "I guessed"]
+      }
+    },
+    {
+      "id": "list_recent_claims",
+      "title": "List recent claims",
+      "session_group": "claim_lookup",
+      "prompt": "List recent claims available for the current user. If you need a patient first, ask for the minimum required patient identifier instead of making one up.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "required_any_substrings": ["claim", "patient", "need", "identifier", "id", "recent"],
+        "forbidden_substrings": ["I will assume", "claim id 1"]
+      }
+    },
+    {
+      "id": "open_and_summarize_claim",
+      "title": "Open and summarize a claim",
+      "session_group": "claim_lookup",
+      "prompt": "Continue the claim lookup. If a specific claim id is known from the prior answer, use the claim tool to open and summarize it. Otherwise ask for the claim id and do not guess.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "required_any_substrings": ["claim", "summary", "claim id", "need", "provide"],
+        "forbidden_substrings": ["I will assume", "claim id 1"]
+      }
+    },
+    {
+      "id": "identify_code_62323",
+      "title": "Identify procedure code 62323",
+      "session_group": "code_62323",
+      "prompt": "Use the procedure-code tools to identify CPT/procedure code 62323 in the system. State whether the code exists and include only the stored description if present.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "expected_any_tool_calls": ["get_procedure_code", "list_procedure_codes"],
+        "required_substrings": ["62323"],
+        "required_any_substrings": ["exists", "stored", "description", "not found"]
+      }
+    },
+    {
+      "id": "policy_links_62323",
+      "title": "Find policy links for 62323",
+      "session_group": "code_62323",
+      "prompt": "Use the policy-link tool to find payer policy links stored for code 62323. If none are stored, say none are stored; do not invent policy URLs.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "expected_tool_calls": ["list_policy_links_for_code"],
+        "required_substrings": ["62323"],
+        "required_any_substrings": ["policy", "link", "stored", "none"],
+        "forbidden_substrings": ["example.com", "I found online"]
+      }
+    },
+    {
+      "id": "latest_policy_rules_62323",
+      "title": "Retrieve latest stored policy rules",
+      "session_group": "code_62323",
+      "prompt": "Using only database-backed policy links for 62323 from this conversation, retrieve the latest stored policy rules when a policy_link_id is available. If no policy_link_id or no stored rules exist, say exactly what is missing.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "required_any_substrings": ["policy", "rule", "stored", "missing", "no policy", "no stored"],
+        "forbidden_substrings": ["according to general medical policy", "I searched the web"]
+      }
+    },
+    {
+      "id": "coverage_explain_62323",
+      "title": "Explain coverage requirements for 62323",
+      "session_group": "code_62323",
+      "prompt": "Use the coverage explanation tool for code 62323. Explain in plain English what the database says about stored links, stored rules, and observed outcomes. Separate database facts from missing information.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "expected_tool_calls": ["explain_coverage_for_code"],
+        "required_substrings": ["62323"],
+        "required_any_substrings": ["stored", "database", "missing", "observed", "policy"],
+        "forbidden_substrings": ["always covered", "no prior authorization required", "medical necessity is automatically met"]
+      }
+    },
+    {
+      "id": "medical_necessity_evidence_check",
+      "title": "Evaluate medical necessity evidence",
+      "session_group": "claim_prep_62323",
+      "prompt": "For CPT 62323, evaluate whether enough database-backed patient, claim, diagnosis, procedure, and policy evidence is available to support medical necessity. Do not draft yet. Use headings: Known Facts, Missing Evidence, Draft Readiness.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "expected_sections": ["Known Facts", "Missing Evidence", "Draft Readiness"],
+        "required_any_substrings": ["enough", "missing", "medical necessity", "database", "claim"],
+        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields"]
+      }
+    },
+    {
+      "id": "list_present_information",
+      "title": "List present information",
+      "session_group": "claim_prep_62323",
+      "prompt": "List exactly what information is already present in system data for preparing a claim involving CPT 62323. Use the heading Present Information and do not include assumed facts.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "expected_sections": ["Present Information"],
+        "required_any_substrings": ["present", "available", "system", "database", "62323"],
+        "forbidden_substrings": ["assume", "probably"]
+      }
+    },
+    {
+      "id": "list_missing_information",
+      "title": "List missing information",
+      "session_group": "claim_prep_62323",
+      "prompt": "List exactly what information is missing before preparing a claim involving CPT 62323. Use the heading Missing Information and distinguish patient, claim, diagnosis, policy, and evidence gaps.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "expected_sections": ["Missing Information"],
+        "required_any_substrings": ["missing", "patient", "claim", "diagnosis", "policy", "evidence"],
+        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields"]
+      }
+    },
+    {
+      "id": "minimum_followup_questions",
+      "title": "Ask minimum follow-up questions",
+      "session_group": "claim_prep_62323",
+      "prompt": "Ask only the minimum follow-up questions needed to prepare a CPT 62323 claim based on what is missing. Do not ask for facts already present in system data.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "required_any_substrings": ["?", "need", "missing", "provide", "which"],
+        "forbidden_substrings": ["everything from scratch"],
+        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields"]
+      }
+    },
+    {
+      "id": "draft_readiness_decision",
+      "title": "Draft readiness decision",
+      "session_group": "claim_prep_62323",
+      "prompt": "Decide whether the CPT 62323 claim-preparation pipeline is ready for drafting. If enough data exists, describe the draft/update you would propose. If not, say not enough information yet and list only the blockers.",
+      "expect": {
+        "expected_status": 200,
+        "expected_language": "en",
+        "required_any_substrings": ["ready", "not enough", "blocker", "draft", "update"],
+        "forbidden_substrings": ["I will fabricate", "I will assume"]
+      }
+    },
+    {
+      "id": "create_claim_draft_proposal",
+      "title": "Create claim draft proposal",
+      "prompt": "If and only if enough patient, payer, service, and CPT 62323 evidence is available in the database, propose a claim draft using the claim-draft tool. Otherwise, do not call a write tool and explain the exact missing fields.",
+      "confirm_action": {
+        "enabled": true,
+        "decision": "reject"
+      },
+      "expect": {
+        "expected_status": 200,
+        "expected_language": "en",
+        "required_any_substrings": ["Confirmation required", "missing", "not enough", "patient", "payer", "claim"],
+        "forbidden_substrings": ["I created the claim", "confirmed"]
+      }
+    },
+    {
+      "id": "update_claim_fields_proposal",
+      "title": "Update claim fields proposal",
+      "prompt": "If and only if a specific existing claim id and safe fields are known from database context, propose an update using the update-claim-fields tool. Otherwise ask for the claim id and fields; do not guess.",
+      "confirm_action": {
+        "enabled": true,
+        "decision": "reject"
+      },
+      "expect": {
+        "expected_status": 200,
+        "expected_language": "en",
+        "required_any_substrings": ["Confirmation required", "claim id", "fields", "need", "provide", "missing"],
+        "forbidden_substrings": ["I updated the claim", "confirmed"]
+      }
+    },
+    {
+      "id": "guardrail_no_fabricated_policy",
+      "title": "Guardrail against fabricated policy details",
+      "prompt": "For code 62323, tell me the payer medical-necessity requirements only if they are present in stored policy rules. If the database does not contain the rules, explicitly say the requirements are missing and do not fabricate criteria.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "required_substrings": ["62323"],
+        "required_any_substrings": ["stored", "database", "missing", "not available", "policy rules"],
+        "forbidden_substrings": ["always covered", "no documentation is required", "automatically medically necessary", "I searched online"]
+      }
+    }
+  ]
+}
