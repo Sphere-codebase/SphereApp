@@ -401,6 +401,34 @@ def _contains(text: str, needle: str) -> bool:
     return needle.lower() in text.lower()
 
 
+def _path_lookup(payload: Any, path: str) -> tuple[bool, Any]:
+    current = payload
+    for part in path.split("."):
+        if isinstance(current, dict):
+            if part not in current:
+                return False, None
+            current = current[part]
+            continue
+        if isinstance(current, list) and part.isdigit():
+            index = int(part)
+            if index < 0 or index >= len(current):
+                return False, None
+            current = current[index]
+            continue
+        return False, None
+    return True, current
+
+
+def _has_meaningful_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list | dict | tuple | set):
+        return len(value) > 0
+    return True
+
+
 def _looks_english(text: str) -> bool:
     letters = [char for char in text if char.isalpha()]
     if not letters:
@@ -574,6 +602,13 @@ def _validate(case: dict[str, Any], record: dict[str, Any]) -> list[str]:
         if actual is not expected:
             errors.append(f"expected proposed_changes presence={expected}, got {actual}")
 
+    if "expected_proposed_tool" in expect:
+        expected_tool = str(expect["expected_proposed_tool"])
+        proposed = record.get("proposed_changes")
+        actual_tool = proposed.get("tool") if isinstance(proposed, dict) else None
+        if actual_tool != expected_tool:
+            errors.append(f"expected proposed_changes.tool={expected_tool}, got {actual_tool}")
+
     if expect.get("expected_language") == "en" and not _looks_english(assistant):
         errors.append("expected English response, but response appears non-English")
 
@@ -627,6 +662,50 @@ def _validate(case: dict[str, Any], record: dict[str, Any]) -> list[str]:
             if phrase in lowered:
                 errors.append(f"empty-result phrase not allowed: {phrase}")
                 break
+
+    virtual_claim = record.get("virtual_claim")
+
+    if "expected_virtual_claim_present" in expect:
+        expected = bool(expect["expected_virtual_claim_present"])
+        actual = isinstance(virtual_claim, dict)
+        if actual is not expected:
+            errors.append(f"expected virtual_claim presence={expected}, got {actual}")
+
+    if "expected_virtual_claim_ready_to_draft" in expect:
+        expected = bool(expect["expected_virtual_claim_ready_to_draft"])
+        found, actual = _path_lookup(virtual_claim, "checklist.readiness.ready_to_draft")
+        if not found:
+            errors.append("missing virtual_claim path: checklist.readiness.ready_to_draft")
+        elif bool(actual) is not expected:
+            errors.append(
+                "expected virtual_claim checklist.readiness.ready_to_draft="
+                f"{expected}, got {actual}"
+            )
+
+    for path in expect.get("required_virtual_claim_paths", []) or []:
+        found, actual = _path_lookup(virtual_claim, str(path))
+        if not found or not _has_meaningful_value(actual):
+            errors.append(f"missing required virtual_claim path: {path}")
+
+    expected_virtual_values = expect.get("expected_virtual_claim_values") or {}
+    if isinstance(expected_virtual_values, dict):
+        for path, expected_value in expected_virtual_values.items():
+            found, actual = _path_lookup(virtual_claim, str(path))
+            if not found:
+                errors.append(f"missing virtual_claim path: {path}")
+                continue
+            if actual != expected_value:
+                errors.append(
+                    f"expected virtual_claim {path}={expected_value!r}, got {actual!r}"
+                )
+
+    if "max_question_marks" in expect:
+        max_questions = int(expect["max_question_marks"])
+        question_count = assistant.count("?")
+        if question_count > max_questions:
+            errors.append(
+                f"expected at most {max_questions} question mark(s), got {question_count}"
+            )
 
     return errors
 
@@ -757,12 +836,14 @@ def _run_case(
     debug = None
     action_required = False
     proposed_changes = None
+    virtual_claim = None
     ui_actions: list[Any] = []
     if isinstance(response_json, dict):
         assistant_message = str(response_json.get("assistant_message") or "")
         debug = response_json.get("debug")
         action_required = bool(response_json.get("action_required"))
         proposed_changes = response_json.get("proposed_changes")
+        virtual_claim = response_json.get("virtual_claim")
         ui_actions_raw = response_json.get("ui_actions")
         ui_actions = ui_actions_raw if isinstance(ui_actions_raw, list) else []
     tool_steps = _tool_steps(debug)
@@ -797,6 +878,8 @@ def _run_case(
         "action_required": action_required,
         "proposed_changes": proposed_changes,
         "proposed_changes_hash": _hash_payload(proposed_changes) if proposed_changes else None,
+        "virtual_claim": virtual_claim,
+        "virtual_claim_hash": _hash_payload(virtual_claim) if virtual_claim is not None else None,
         "tool_calls": tool_calls,
         "tool_call_names": [item.get("tool") for item in tool_calls],
         "request_id": request_id,
@@ -891,6 +974,8 @@ def _blocked_record(
         "action_required": False,
         "proposed_changes": None,
         "proposed_changes_hash": None,
+        "virtual_claim": None,
+        "virtual_claim_hash": None,
         "tool_calls": [],
         "tool_call_names": [],
         "request_id": None,

@@ -46,7 +46,77 @@ const virtualClaimPolicySummarySchema = z.object({
   notes_json: z.unknown().nullable().optional(),
 });
 
-const virtualClaimSchema = z.object({
+const virtualClaimChecklistValueSchema = z.object({
+  value: z.unknown().nullable().optional(),
+  status: z.enum(["missing", "present", "derived", "needs_review"]),
+  source_type: z.enum(["database", "user", "llm_extracted", "derived", "policy"]),
+  required: z.boolean(),
+  label: z.string().nullable().optional(),
+});
+
+const virtualClaimPatientChecklistSchema = z.object({
+  patient_id: virtualClaimChecklistValueSchema,
+  first_name: virtualClaimChecklistValueSchema,
+  last_name: virtualClaimChecklistValueSchema,
+  date_of_birth: virtualClaimChecklistValueSchema,
+});
+
+const virtualClaimPayerChecklistSchema = z.object({
+  insurance_company_id: virtualClaimChecklistValueSchema,
+  payer_name: virtualClaimChecklistValueSchema,
+  member_id: virtualClaimChecklistValueSchema,
+  group_number: virtualClaimChecklistValueSchema,
+  policy_number: virtualClaimChecklistValueSchema,
+});
+
+const virtualClaimServiceChecklistSchema = z.object({
+  procedure_code: virtualClaimChecklistValueSchema,
+  procedure_description: virtualClaimChecklistValueSchema,
+  service_date: virtualClaimChecklistValueSchema,
+  rendering_provider: virtualClaimChecklistValueSchema,
+  quantity: virtualClaimChecklistValueSchema,
+  modifier: virtualClaimChecklistValueSchema,
+});
+
+const virtualClaimDiagnosisChecklistSchema = z.object({
+  diagnosis_code: virtualClaimChecklistValueSchema,
+  diagnosis_description: virtualClaimChecklistValueSchema,
+});
+
+const virtualClaimPolicyChecklistSchema = z.object({
+  policy_link_id: virtualClaimChecklistValueSchema,
+  policy_url: virtualClaimChecklistValueSchema,
+  stored_rules_available: virtualClaimChecklistValueSchema,
+  radiculopathy_evidence: virtualClaimChecklistValueSchema,
+  dermatomal_distribution: virtualClaimChecklistValueSchema,
+  functional_limitation: virtualClaimChecklistValueSchema,
+  conservative_treatment_failed: virtualClaimChecklistValueSchema,
+  imaging_guidance: virtualClaimChecklistValueSchema,
+  MRI_or_CT_or_EMG_evidence: virtualClaimChecklistValueSchema,
+  neuro_exam_evidence: virtualClaimChecklistValueSchema,
+  frequency_session_limits_respected: virtualClaimChecklistValueSchema,
+  radiologic_findings_consistent: virtualClaimChecklistValueSchema.nullable().optional(),
+  initial_therapeutic_tfesi: virtualClaimChecklistValueSchema.nullable().optional(),
+  vertebral_level_limits_respected: virtualClaimChecklistValueSchema.nullable().optional(),
+});
+
+const virtualClaimReadinessChecklistSchema = z.object({
+  ready_to_draft: z.boolean(),
+  missing_fields: z.array(z.string()),
+  blocking_reasons: z.array(z.string()),
+  next_questions: z.array(z.string()),
+});
+
+const virtualClaimChecklistSchema = z.object({
+  patient: virtualClaimPatientChecklistSchema,
+  payer_insurance: virtualClaimPayerChecklistSchema,
+  service: virtualClaimServiceChecklistSchema,
+  diagnosis: virtualClaimDiagnosisChecklistSchema,
+  policy_medical_necessity: virtualClaimPolicyChecklistSchema,
+  readiness: virtualClaimReadinessChecklistSchema,
+});
+
+export const virtualClaimSchema = z.object({
   draft_id: z.number(),
   session_id: z.number(),
   status: z.enum(["open", "ready", "materialized", "archived"]),
@@ -57,6 +127,7 @@ const virtualClaimSchema = z.object({
   procedure: virtualClaimProcedureSchema.nullable().optional(),
   materialized_claim_id: z.number().nullable().optional(),
   policy_summary: virtualClaimPolicySummarySchema.nullable().optional(),
+  checklist: virtualClaimChecklistSchema,
   filled: z.array(virtualClaimFieldSchema),
   missing: z.array(virtualClaimFieldSchema),
   needs_review: z.array(virtualClaimFieldSchema),

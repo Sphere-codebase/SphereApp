@@ -70,6 +70,7 @@ function WorkspaceShell() {
     isSending,
     actionRequired,
     proposedChanges,
+    virtualClaim: chatVirtualClaim,
     uiActions,
     error,
     lastRequestId,
@@ -167,8 +168,7 @@ function WorkspaceShell() {
   const proposal = proposedChanges && typeof proposedChanges === "object" ? proposedChanges : null;
   const proposalTool = proposal && typeof proposal.tool === "string" ? proposal.tool : null;
   const showMaterializeProposal = proposalTool === "propose_materialize_virtual_claim";
-  const virtualClaim =
-    currentClaim?.id || !virtualClaimQuery.data ? null : virtualClaimQuery.data;
+  const virtualClaim = chatVirtualClaim ?? virtualClaimQuery.data ?? null;
   const virtualClaimError =
     virtualClaimQuery.error instanceof ApiError
       ? virtualClaimQuery.error.message
@@ -698,10 +698,7 @@ function WorkspaceShell() {
           isLoadingPatient={isLoadingPatient}
         />
 
-        <div
-          className="grid gap-6 lg:grid-cols-[220px_320px_1fr]"
-          style={{ height: "80vh" }}
-        >
+        <div className="grid gap-6 lg:grid-cols-[220px_360px_minmax(0,1fr)]" style={{ height: "80vh" }}>
           <aside className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-200">
@@ -770,75 +767,66 @@ function WorkspaceShell() {
             )}
           </aside>
 
-          {currentClaim ? (
-            <ClaimDraftPanel
-              currentClaim={currentClaim}
-              draftPreview={draftPreview}
-              isLoading={isLoadingClaim}
-              claimError={claimError}
-              showAdmin={hasRole(["platform_staff_admin", "clinic_admin", "chief_doctor"])}
-              onOpenUploadPdf={() => {
-                if (!isReadOnly) {
-                  setUploadOpen(true);
-                }
-              }}
-              onOpenCreateClaim={() => {
-                if (!isReadOnly) {
-                  setCreateClaimOpen(true);
-                }
-              }}
-              onAddMcpCode={(code) => {
-                void handleAddMcpCode(code);
-              }}
-              onRemoveMcpCode={(code) => {
-                void handleRemoveMcpCode(code);
-              }}
-              onAddDiagnosisCode={(code) => {
-                void handleAddDiagnosisCode(code);
-              }}
-              onRemoveDiagnosisCode={(code) => {
-                void handleRemoveDiagnosisCode(code);
-              }}
-              onFinalizeClaim={() => {
-                void handleFinalizeClaim();
-              }}
-              isFinalizing={isFinalizing}
-              onGeneratePdf={() => {
-                void handleGeneratePdf();
-              }}
-              isGeneratingPdf={isGeneratingPdf}
-              pdfPreviewUrl={pdfPreviewUrl}
-              onClosePdfPreview={() => setPdfPreviewUrl(null)}
-              financialSummary={financialSummary}
-              isLoadingFinancial={isLoadingFinancial}
-              financialError={financialError}
-              onRefreshFinancial={() => {
-                void handleRefreshFinancial();
-              }}
-              requirements={requirements}
-              isCheckingRequirements={isCheckingRequirements}
-              requirementsError={requirementsError}
-              onCheckRequirements={() => {
-                void handleCheckRequirements();
-              }}
-            />
-          ) : (
+          <div className="flex min-h-[480px] min-h-0 flex-col gap-4 overflow-y-auto">
             <VirtualClaimPanel
               virtualClaim={virtualClaim}
               isLoading={virtualClaimQuery.isLoading || virtualClaimQuery.isFetching}
               error={virtualClaimError}
-              onOpenUploadPdf={() => {
-                if (!isReadOnly) {
-                  setUploadOpen(true);
-                }
-              }}
-              onOpenCreateClaim={() => {
-                if (!isReadOnly) {
-                  setCreateClaimOpen(true);
-                }
-              }}
             />
-          )}
+            {currentClaim ? (
+              <ClaimDraftPanel
+                currentClaim={currentClaim}
+                draftPreview={draftPreview}
+                isLoading={isLoadingClaim}
+                claimError={claimError}
+                showAdmin={hasRole(["platform_staff_admin", "clinic_admin", "chief_doctor"])}
+                onOpenUploadPdf={() => {
+                  if (!isReadOnly) {
+                    setUploadOpen(true);
+                  }
+                }}
+                onOpenCreateClaim={() => {
+                  if (!isReadOnly) {
+                    setCreateClaimOpen(true);
+                  }
+                }}
+                onAddMcpCode={(code) => {
+                  void handleAddMcpCode(code);
+                }}
+                onRemoveMcpCode={(code) => {
+                  void handleRemoveMcpCode(code);
+                }}
+                onAddDiagnosisCode={(code) => {
+                  void handleAddDiagnosisCode(code);
+                }}
+                onRemoveDiagnosisCode={(code) => {
+                  void handleRemoveDiagnosisCode(code);
+                }}
+                onFinalizeClaim={() => {
+                  void handleFinalizeClaim();
+                }}
+                isFinalizing={isFinalizing}
+                onGeneratePdf={() => {
+                  void handleGeneratePdf();
+                }}
+                isGeneratingPdf={isGeneratingPdf}
+                pdfPreviewUrl={pdfPreviewUrl}
+                onClosePdfPreview={() => setPdfPreviewUrl(null)}
+                financialSummary={financialSummary}
+                isLoadingFinancial={isLoadingFinancial}
+                financialError={financialError}
+                onRefreshFinancial={() => {
+                  void handleRefreshFinancial();
+                }}
+                requirements={requirements}
+                isCheckingRequirements={isCheckingRequirements}
+                requirementsError={requirementsError}
+                onCheckRequirements={() => {
+                  void handleCheckRequirements();
+                }}
+              />
+            ) : null}
+          </div>
 
           <section className="flex min-h-[480px] min-h-0 flex-1 flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             {llmUnavailable ? (

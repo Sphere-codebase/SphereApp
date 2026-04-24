@@ -22,6 +22,7 @@ import {
 import { getLastRequestId } from "@/lib/api/client";
 import { ApiError } from "@/lib/api/errors";
 import { useAuth } from "@/lib/auth/AuthContext";
+import type { VirtualClaimDTO } from "@/types/virtualClaim";
 
 type ChatRole = "user" | "assistant" | "system";
 
@@ -43,6 +44,7 @@ export interface ChatContextValue {
   isSending: boolean;
   actionRequired: boolean;
   proposedChanges: Record<string, unknown> | null;
+  virtualClaim: VirtualClaimDTO | null;
   error: unknown;
   lastRequestId: string | null;
   llmUnavailable: boolean;
@@ -93,6 +95,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [proposedChanges, setProposedChanges] = useState<Record<string, unknown> | null>(
     null
   );
+  const [virtualClaim, setVirtualClaim] = useState<VirtualClaimDTO | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [lastRequestId, setLastRequestId] = useState<string | null>(null);
   const [llmUnavailable, setLlmUnavailable] = useState(false);
@@ -137,6 +140,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setMessages([]);
     setActionRequired(false);
     setProposedChanges(null);
+    setVirtualClaim(null);
     setUiActions([]);
     return session;
   }, [syncRequestId]);
@@ -173,6 +177,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         const data = await listMessages(sessionId);
         syncRequestId();
         setMessages(mapMessages(data));
+        setVirtualClaim(null);
         setUiActions([]);
       } catch (err) {
         handleApiError(err);
@@ -187,6 +192,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setActiveSessionId(sessionId);
     setActionRequired(false);
     setProposedChanges(null);
+    setVirtualClaim(null);
     setUiActions([]);
   }, []);
 
@@ -221,6 +227,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             await createSessionAndSelect();
           }
           setMessages([]);
+          setVirtualClaim(null);
         }
       } catch (err) {
         handleApiError(err);
@@ -235,6 +242,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     (response: ChatResponse, clientMessageId: string) => {
       setActionRequired(response.action_required);
       setProposedChanges(response.proposed_changes ?? null);
+      setVirtualClaim(response.virtual_claim ?? null);
       setUiActions(response.ui_actions ?? []);
       if (response.assistant_message) {
         setMessages((prev) => [
@@ -348,6 +356,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!activeSessionId) {
       setMessages([]);
+      setVirtualClaim(null);
       return;
     }
     void loadMessages(activeSessionId);
@@ -364,6 +373,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       isSending,
       actionRequired,
       proposedChanges,
+      virtualClaim,
       error,
       lastRequestId,
       llmUnavailable,
@@ -387,6 +397,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       isSending,
       actionRequired,
       proposedChanges,
+      virtualClaim,
       error,
       lastRequestId,
       llmUnavailable,

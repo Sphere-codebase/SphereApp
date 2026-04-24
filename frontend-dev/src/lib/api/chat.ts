@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { virtualClaimSchema } from "@/api/virtualClaims";
 import { requestJson, requestVoid } from "@/lib/api/client";
 
 const chatSessionSchema = z.object({
@@ -29,6 +30,7 @@ const chatResponseSchema = z.object({
   debug: z.record(z.string(), z.unknown()).nullable().optional(),
   action_required: z.boolean(),
   proposed_changes: z.record(z.string(), z.unknown()).nullable().optional(),
+  virtual_claim: virtualClaimSchema.nullable().optional(),
 });
 
 const chatConfirmResponseSchema = z.object({

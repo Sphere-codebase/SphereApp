@@ -54,6 +54,76 @@ export interface VirtualClaimPolicySummaryDTO {
   notes_json?: unknown;
 }
 
+export interface VirtualClaimChecklistValueDTO {
+  value?: unknown;
+  status: VirtualClaimFieldStatus;
+  source_type: VirtualClaimFieldSource;
+  required: boolean;
+  label?: string | null;
+}
+
+export interface VirtualClaimPatientChecklistDTO {
+  patient_id: VirtualClaimChecklistValueDTO;
+  first_name: VirtualClaimChecklistValueDTO;
+  last_name: VirtualClaimChecklistValueDTO;
+  date_of_birth: VirtualClaimChecklistValueDTO;
+}
+
+export interface VirtualClaimPayerChecklistDTO {
+  insurance_company_id: VirtualClaimChecklistValueDTO;
+  payer_name: VirtualClaimChecklistValueDTO;
+  member_id: VirtualClaimChecklistValueDTO;
+  group_number: VirtualClaimChecklistValueDTO;
+  policy_number: VirtualClaimChecklistValueDTO;
+}
+
+export interface VirtualClaimServiceChecklistDTO {
+  procedure_code: VirtualClaimChecklistValueDTO;
+  procedure_description: VirtualClaimChecklistValueDTO;
+  service_date: VirtualClaimChecklistValueDTO;
+  rendering_provider: VirtualClaimChecklistValueDTO;
+  quantity: VirtualClaimChecklistValueDTO;
+  modifier: VirtualClaimChecklistValueDTO;
+}
+
+export interface VirtualClaimDiagnosisChecklistDTO {
+  diagnosis_code: VirtualClaimChecklistValueDTO;
+  diagnosis_description: VirtualClaimChecklistValueDTO;
+}
+
+export interface VirtualClaimPolicyChecklistDTO {
+  policy_link_id: VirtualClaimChecklistValueDTO;
+  policy_url: VirtualClaimChecklistValueDTO;
+  stored_rules_available: VirtualClaimChecklistValueDTO;
+  radiculopathy_evidence: VirtualClaimChecklistValueDTO;
+  dermatomal_distribution: VirtualClaimChecklistValueDTO;
+  functional_limitation: VirtualClaimChecklistValueDTO;
+  conservative_treatment_failed: VirtualClaimChecklistValueDTO;
+  imaging_guidance: VirtualClaimChecklistValueDTO;
+  MRI_or_CT_or_EMG_evidence: VirtualClaimChecklistValueDTO;
+  neuro_exam_evidence: VirtualClaimChecklistValueDTO;
+  frequency_session_limits_respected: VirtualClaimChecklistValueDTO;
+  radiologic_findings_consistent?: VirtualClaimChecklistValueDTO | null;
+  initial_therapeutic_tfesi?: VirtualClaimChecklistValueDTO | null;
+  vertebral_level_limits_respected?: VirtualClaimChecklistValueDTO | null;
+}
+
+export interface VirtualClaimReadinessChecklistDTO {
+  ready_to_draft: boolean;
+  missing_fields: string[];
+  blocking_reasons: string[];
+  next_questions: string[];
+}
+
+export interface VirtualClaimChecklistDTO {
+  patient: VirtualClaimPatientChecklistDTO;
+  payer_insurance: VirtualClaimPayerChecklistDTO;
+  service: VirtualClaimServiceChecklistDTO;
+  diagnosis: VirtualClaimDiagnosisChecklistDTO;
+  policy_medical_necessity: VirtualClaimPolicyChecklistDTO;
+  readiness: VirtualClaimReadinessChecklistDTO;
+}
+
 export interface VirtualClaimDTO {
   draft_id: number;
   session_id: number;
@@ -65,6 +135,7 @@ export interface VirtualClaimDTO {
   procedure?: VirtualClaimProcedureDTO | null;
   materialized_claim_id?: number | null;
   policy_summary?: VirtualClaimPolicySummaryDTO | null;
+  checklist: VirtualClaimChecklistDTO;
   filled: VirtualClaimFieldDTO[];
   missing: VirtualClaimFieldDTO[];
   needs_review: VirtualClaimFieldDTO[];

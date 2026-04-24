@@ -1,3 +1,5 @@
+import type { VirtualClaimDTO } from "@/types/virtualClaim";
+
 export type ID = number;
 
 export interface TokenResponse {
@@ -52,6 +54,7 @@ export interface ChatResponse {
   debug?: Record<string, unknown> | null;
   action_required: boolean;
   proposed_changes?: Record<string, unknown> | null;
+  virtual_claim?: VirtualClaimDTO | null;
 }
 
 export interface ChatSessionCreateRequest {
