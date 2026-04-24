@@ -86,6 +86,7 @@ def chat(
             "action_required": result.action_required,
             "ui_actions_count": len(result.ui_actions),
             "proposed_changes_present": result.proposed_changes is not None,
+            "virtual_claim_present": result.virtual_claim is not None,
         },
     )
     if settings.env in {"dev", "test"}:
@@ -103,4 +104,5 @@ def chat(
         debug=result.debug,
         action_required=result.action_required,
         proposed_changes=result.proposed_changes,
+        virtual_claim=result.virtual_claim,
     )

@@ -68,6 +68,13 @@ class ChatSession(TimestampMixin, Base):
     doctor = relationship("User", backref="chat_sessions")
     claim = relationship("Claim", back_populates="chat_sessions")
     patient = relationship("Patient", back_populates="chat_sessions")
+    virtual_claim_draft = relationship(
+        "VirtualClaimDraft",
+        back_populates="chat_session",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        uselist=False,
+    )
     messages = relationship(
         "ChatMessage",
         back_populates="session",

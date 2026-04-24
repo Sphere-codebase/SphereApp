@@ -78,9 +78,9 @@
       }
     },
     {
-      "id": "list_recent_claims",
-      "title": "List recent claims",
-      "session_group": "claim_lookup",
+      "id": "list_recent_claims_needs_identifier",
+      "title": "List recent claims needs identifier",
+      "session_group": "claim_lookup_needs_identifier",
       "prompt": "List recent claims available for the current user. If you need a patient first, ask for the minimum required patient identifier instead of making one up.",
       "expect": {
         "expected_status": 200,
@@ -91,16 +91,38 @@
       }
     },
     {
-      "id": "open_and_summarize_claim",
-      "title": "Open and summarize a claim",
+      "id": "list_recent_claims_for_known_patient",
+      "title": "List recent claims for known patient",
       "session_group": "claim_lookup",
-      "prompt": "Continue the claim lookup. If a specific claim id is known from the prior answer, use the claim tool to open and summarize it. Otherwise ask for the claim id and do not guess.",
+      "prompt": "Use tools only. List recent claims for patient DAVID R WIENTZEN. Include claim id, patient name, payer, status, and service date if available.",
       "expect": {
         "expected_status": 200,
         "expected_action_required": false,
         "expected_language": "en",
-        "required_any_substrings": ["claim", "summary", "claim id", "need", "provide"],
-        "forbidden_substrings": ["I will assume", "claim id 1"]
+        "expected_any_tool_calls": ["search_patients", "list_claims"],
+        "required_substrings": ["DAVID", "WIENTZEN", "Aetna"],
+        "required_any_substrings": ["PAID", "claim", "service", "2024"],
+        "min_tool_steps": 1,
+        "allow_empty_results": false,
+        "forbidden_substrings": ["I will assume", "I guessed"]
+      }
+    },
+    {
+      "id": "open_and_summarize_claim",
+      "title": "Open and summarize a claim",
+      "session_group": "claim_lookup",
+      "prompt": "Use tools only.\n\nFor patient DAVID R WIENTZEN:\n1. call list_claims\n2. select one claim id from the results\n3. call get_claim with that claim id\n4. summarize the claim\n\nAnswer in English with exactly these fields:\nCLAIM_ID\nPATIENT\nPAYER\nSTATUS\nSERVICE_DATE\n\nDo not ask for a claim id.\nDo not stop before calling get_claim.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "expected_tool_calls": ["list_claims", "get_claim"],
+        "required_substrings": ["DAVID", "WIENTZEN", "Aetna"],
+        "required_any_substrings": ["PAID", "claim", "service"],
+        "expected_sections": ["CLAIM_ID", "PATIENT", "PAYER", "STATUS", "SERVICE_DATE"],
+        "min_tool_steps": 2,
+        "allow_empty_results": false,
+        "forbidden_substrings": ["I will assume", "need the claim id", "please provide the claim id", "Do not have a claim id"]
       }
     },
     {
@@ -136,13 +158,14 @@
       "id": "latest_policy_rules_62323",
       "title": "Retrieve latest stored policy rules",
       "session_group": "code_62323",
-      "prompt": "Use tools only.\nUsing the stored Aetna policy-link context for code 62323 from this conversation, retrieve the latest stored policy rules.\nThen answer in English with exactly these headings:\nSTORED_RULES\nLIMITS\nMISSING_INFORMATION\nUse only database-backed rules.\nInclude Aetna and 62323.",
+      "prompt": "Use tools only.\n\nFor code 62323:\n1. call list_policy_links_for_code\n2. select the Aetna policy link from the returned results\n3. call get_policy_rules_for_link with that policy_link_id\n4. summarize the stored rules\n\nAnswer in English with exactly these headings:\nSTORED_RULES\nLIMITS\nMISSING_INFORMATION\n\nRules:\n- Include Aetna and 62323.\n- Use only database-backed rules returned by tools.\n- If no Aetna policy link is returned, write missing under MISSING_INFORMATION.\n- Do not stop before attempting get_policy_rules_for_link when an Aetna policy link exists.",
       "expect": {
         "expected_status": 200,
         "expected_action_required": false,
         "expected_language": "en",
-        "expected_tool_calls": ["get_policy_rules_for_link"],
+        "expected_tool_calls": ["list_policy_links_for_code", "get_policy_rules_for_link"],
         "expected_sections": ["STORED_RULES", "LIMITS", "MISSING_INFORMATION"],
+        "min_tool_steps": 2,
         "required_substrings": ["Aetna", "62323", "STORED_RULES", "LIMITS", "MISSING_INFORMATION"],
         "required_any_substrings": ["radiculopathy", "fluoroscopy", "CT", "MRI", "EMG", "conservative", "physical therapy", "non-narcotic analgesics", "session", "frequency", "limit"],
         "allow_empty_results": false,
@@ -188,16 +211,16 @@
       "id": "bootstrap_claim_prep_context_62323",
       "title": "Bootstrap claim prep context for 62323",
       "session_group": "claim_prep_62323",
-      "prompt": "Use tools only.\nSearch for patient WIENTZEN in the database and resolve procedure code 62323.\nThen confirm the working context for patient DAVID R WIENTZEN, payer Aetna, and code 62323.\nDo not draft.\n\nAnswer in English with exactly these headings:\nPATIENT_CONTEXT\nPAYER_CONTEXT\nPROCEDURE_CONTEXT\n\nRules:\n- Include the literal code 62323.\n- If a fact is unresolved, write UNKNOWN.\n- Keep each section under 2 bullet points.",
+      "prompt": "Use tools only.\n1. call bootstrap_virtual_claim_context with patient_query DAVID WIENTZEN, insurance_company_name Aetna, and procedure_code 62323\n2. call get_virtual_claim\n3. confirm the working checklist context from backend state\nDo not draft.\n\nAnswer in English with exactly these headings:\nPATIENT_CONTEXT\nPAYER_CONTEXT\nPROCEDURE_CONTEXT\nCHECKLIST_STATUS\n\nRules:\n- Include the literal code 62323.\n- If a fact is unresolved, write UNKNOWN.\n- Keep each section under 2 bullet points.",
       "expect": {
         "expected_status": 200,
         "expected_action_required": false,
         "expected_language": "en",
-        "expected_tool_calls": ["search_patients", "get_procedure_code"],
-        "expected_sections": ["PATIENT_CONTEXT", "PAYER_CONTEXT", "PROCEDURE_CONTEXT"],
-        "min_tool_steps": 1,
-        "required_substrings": ["62323", "PATIENT_CONTEXT", "PAYER_CONTEXT", "PROCEDURE_CONTEXT"],
-        "required_any_substrings": ["DAVID", "WIENTZEN", "UNKNOWN", "Aetna"],
+        "expected_tool_calls": ["bootstrap_virtual_claim_context", "get_virtual_claim"],
+        "expected_sections": ["PATIENT_CONTEXT", "PAYER_CONTEXT", "PROCEDURE_CONTEXT", "CHECKLIST_STATUS"],
+        "min_tool_steps": 2,
+        "required_substrings": ["62323", "PATIENT_CONTEXT", "PAYER_CONTEXT", "PROCEDURE_CONTEXT", "CHECKLIST_STATUS"],
+        "required_any_substrings": ["DAVID", "WIENTZEN", "UNKNOWN", "Aetna", "NOT READY", "open"],
         "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields"]
       }
     },
@@ -205,31 +228,33 @@
       "id": "medical_necessity_evidence_check",
       "title": "Not-ready claim prep check for Aetna 62323",
       "session_group": "claim_prep_62323",
-      "prompt": "Use tools only.\nContinue the DAVID R WIENTZEN / Aetna / 62323 claim-prep context.\nIf the patient is not already resolved in this session, search for patient WIENTZEN.\nThen call explain_coverage_for_code for code 62323.\nCheck whether a new Aetna claim draft for 62323 is ready using only database-backed facts currently available.\nDo not create or update a claim draft.\n\nAnswer in English with exactly these headings:\nKNOWN_FACTS\nMISSING_CLINICAL_EVIDENCE\nFOLLOW_UP_QUESTIONS\nREADY_TO_DRAFT\n\nRules:\n- If a fact is missing, write UNKNOWN.\n- READY_TO_DRAFT must be NO when clinical medical-necessity facts are incomplete.\n- Ask no more than 3 follow-up questions.",
+      "prompt": "Use tools only.\n1. call get_virtual_claim\n2. call explain_virtual_claim_policy\n3. call list_missing_claim_fields\n4. call evaluate_claim_readiness\nCheck whether the session-backed Aetna 62323 checklist is ready to draft using only stored checklist state and stored policy rules.\nDo not create or update a real claim.\n\nAnswer in English with exactly these headings:\nKNOWN_FACTS\nMISSING_CLINICAL_EVIDENCE\nFOLLOW_UP_QUESTIONS\nREADY_TO_DRAFT\n\nRules:\n- If a fact is missing, write UNKNOWN.\n- READY_TO_DRAFT must match the backend readiness result.\n- Ask no more than 3 follow-up questions.",
       "expect": {
         "expected_status": 200,
         "expected_action_required": false,
         "expected_language": "en",
-        "expected_tool_calls": ["explain_coverage_for_code"],
-        "expected_any_tool_calls": ["search_patients", "get_patient"],
+        "expected_tool_calls": ["get_virtual_claim", "list_missing_claim_fields", "evaluate_claim_readiness"],
+        "expected_any_tool_calls": ["explain_virtual_claim_policy"],
         "expected_sections": ["KNOWN_FACTS", "MISSING_CLINICAL_EVIDENCE", "FOLLOW_UP_QUESTIONS", "READY_TO_DRAFT"],
-        "min_tool_steps": 1,
+        "min_tool_steps": 3,
         "required_substrings": ["Aetna", "62323", "KNOWN_FACTS", "MISSING_CLINICAL_EVIDENCE", "FOLLOW_UP_QUESTIONS", "READY_TO_DRAFT"],
         "required_any_substrings": ["NO", "not ready", "UNKNOWN", "missing clinical", "medical necessity"],
         "allow_empty_results": false,
         "forbidden_substrings": ["I couldn't produce a useful response", "<|start|>", "<|channel|>", "Reached max tool steps without resolution."],
-        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields"]
+        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields", "propose_materialize_virtual_claim"]
       }
     },
     {
       "id": "list_present_information",
       "title": "List present information",
       "session_group": "claim_prep_62323",
-      "prompt": "Continue the DAVID R WIENTZEN / Aetna / 62323 claim-prep context. List only the database-backed facts already present for a new Aetna 62323 claim. Use the heading Present Information and do not include assumed facts.",
+      "prompt": "Use tools only.\nFirst call get_virtual_claim.\nThen list only the database-backed facts already present for the current Aetna 62323 virtual claim. Use the heading Present Information and do not include assumed facts.",
       "expect": {
         "expected_status": 200,
         "expected_action_required": false,
         "expected_language": "en",
+        "expected_tool_calls": ["get_virtual_claim"],
+        "min_tool_steps": 1,
         "expected_sections": ["Present Information"],
         "required_any_substrings": ["present", "available", "system", "database", "62323", "Aetna", "WIENTZEN"],
         "forbidden_substrings": ["assume", "probably"]
@@ -239,65 +264,71 @@
       "id": "list_missing_information",
       "title": "List missing information",
       "session_group": "claim_prep_62323",
-      "prompt": "Continue the DAVID R WIENTZEN / Aetna / 62323 claim-prep context. List exactly what is still missing before preparing a new Aetna claim for code 62323. Use the heading Missing Information and distinguish clinical evidence gaps from claim-field gaps.",
+      "prompt": "Use tools only.\nFirst call list_missing_claim_fields.\nThen list exactly what is still missing before materializing the current Aetna 62323 virtual claim. Use the heading Missing Information and distinguish clinical evidence gaps from claim-field gaps.",
       "expect": {
         "expected_status": 200,
         "expected_action_required": false,
         "expected_language": "en",
+        "expected_tool_calls": ["list_missing_claim_fields"],
+        "min_tool_steps": 1,
         "expected_sections": ["Missing Information"],
         "required_any_substrings": ["missing", "claim", "policy", "evidence", "clinical", "Aetna", "62323"],
-        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields"]
+        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields", "propose_materialize_virtual_claim"]
       }
     },
     {
       "id": "minimum_followup_questions",
       "title": "Ask minimum follow-up questions",
       "session_group": "claim_prep_62323",
-      "prompt": "Continue the DAVID R WIENTZEN / Aetna / 62323 claim-prep context. Ask only the minimum follow-up questions needed to prepare a new Aetna 62323 claim based on what is still missing. Do not ask for facts already present in system data. Ask no more than 3 questions.",
+      "prompt": "Use tools only.\nFirst call list_missing_claim_fields.\nThen ask only the minimum follow-up questions needed to complete the current Aetna 62323 virtual claim. Do not ask for facts already present in the checklist. Ask no more than 3 questions.",
       "expect": {
         "expected_status": 200,
         "expected_action_required": false,
         "expected_language": "en",
+        "expected_tool_calls": ["list_missing_claim_fields"],
+        "min_tool_steps": 1,
         "required_any_substrings": ["?", "need", "missing", "provide", "which", "clinical", "Aetna"],
         "forbidden_substrings": ["everything from scratch"],
-        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields"]
+        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields", "propose_materialize_virtual_claim"]
       }
     },
     {
       "id": "draft_readiness_decision",
       "title": "Draft readiness decision",
       "session_group": "claim_prep_62323",
-      "prompt": "Continue the DAVID R WIENTZEN / Aetna / 62323 claim-prep context. Decide whether the pipeline is ready for a new draft. Answer with exactly these headings:\nREADY_TO_DRAFT\nBLOCKERS\nIf it is not ready, say NO and list only the blockers. Do not create or update a claim.",
+      "prompt": "Use tools only.\n1. call evaluate_claim_readiness\n2. use the backend readiness result\nDecide whether the session-backed virtual claim is ready to draft. Answer with exactly these headings:\nREADY_TO_DRAFT\nBLOCKERS\nIf it is not ready, say NO and list only the blockers. Do not create or update a real claim.",
       "expect": {
         "expected_status": 200,
         "expected_language": "en",
+        "expected_tool_calls": ["evaluate_claim_readiness"],
+        "min_tool_steps": 1,
         "expected_sections": ["READY_TO_DRAFT", "BLOCKERS"],
         "required_any_substrings": ["ready", "NO", "blocker", "draft", "Aetna", "62323"],
         "forbidden_substrings": ["I will fabricate", "I will assume"],
-        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields"]
+        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields", "propose_materialize_virtual_claim"]
       }
     },
     {
       "id": "ready_after_facts_claim_draft_62323",
       "title": "Ready after facts claim draft proposal for Aetna 62323",
       "session_group": "claim_prep_62323",
-      "prompt": "Use tools only.\nContinue the DAVID R WIENTZEN / Aetna / 62323 claim-prep context.\nIf needed, search for patient WIENTZEN and use existing claims to recover the patient_id and Aetna insurance_company_id before drafting.\nThen propose a new claim draft for code 62323 using these facts:\n- service_date: 2025-05-27\n- diagnosis: M54.16 lumbar radiculopathy with dermatomal symptoms and significant functional limitation\n- failed physical therapy and non-narcotic analgesics\n- MRI within 12 months shows nerve root compression consistent with symptoms\n- neuro exam within 3 months shows altered sensation and diminished reflexes\n- initial therapeutic TFESI\n- imaging guidance: fluoroscopy\n- quantity 1, one level, frequency/session limits respected\nDo not confirm the write.",
+      "prompt": "Use tools only.\n1. call update_virtual_claim to set these checklist facts for the current DAVID R WIENTZEN / Aetna / 62323 session:\n- service_date = 2025-05-27\n- diagnosis.code = M54.16\n- clinical.radiculopathy = true\n- clinical.functional_limitation = true\n- clinical.conservative_treatment = true\n- clinical.imaging_guidance = true\n- clinical.radiology_consistency = true\n- clinical.neuro_exam = true\n- clinical.mri_or_emg = true\n- treatment.initial_tfesi = true\n- utilization.level_limit_ok = true\n- utilization.frequency_limit_ok = true\n2. call evaluate_claim_readiness\n3. call propose_materialize_virtual_claim\nDo not confirm the write.",
       "expect": {
         "expected_status": 200,
         "expected_action_required": true,
         "expected_proposed_changes": true,
         "expected_language": "en",
-        "expected_tool_calls": ["create_claim_draft"],
-        "expected_any_tool_calls": ["search_patients", "list_claims", "get_claim"],
+        "expected_tool_calls": ["update_virtual_claim", "evaluate_claim_readiness", "propose_materialize_virtual_claim"],
+        "min_tool_steps": 3,
         "required_any_substrings": ["Confirmation required", "confirmation required", "confirm"],
         "forbidden_substrings": ["I created the claim", "confirmed"],
-        "forbidden_tool_calls": ["update_claim_fields"]
+        "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields"]
       }
     },
     {
       "id": "create_claim_draft_proposal",
       "title": "Create claim draft proposal",
-      "prompt": "If and only if enough patient, payer, service, and CPT 62323 evidence is available in the database, propose a claim draft using the claim-draft tool. Otherwise, do not call a write tool and explain the exact missing fields.",
+      "prompt": "Use tools only.\nFirst call evaluate_claim_readiness.\nIf and only if the backend readiness result shows ready_to_draft true and enough patient, payer, service, and CPT 62323 evidence is available, propose a claim draft using the claim-draft tool. Otherwise, do not call a write tool and explain the exact missing fields.",
       "confirm_action": {
         "enabled": true,
         "decision": "reject"
@@ -305,6 +336,7 @@
       "expect": {
         "expected_status": 200,
         "expected_language": "en",
+        "expected_any_tool_calls": ["evaluate_claim_readiness"],
         "required_any_substrings": ["Confirmation required", "missing", "not enough", "patient", "payer", "claim"],
         "forbidden_substrings": ["I created the claim", "confirmed"]
       }

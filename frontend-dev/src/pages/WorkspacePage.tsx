@@ -1,6 +1,7 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import {
   addDiagnosisCode,
@@ -15,22 +16,25 @@ import {
   refreshClaimFinancialSummary,
 } from "@/api/claims";
 import { getPatient } from "@/api/patients";
+import { ensureVirtualClaim } from "@/api/virtualClaims";
 import { Conversation } from "@/components/ai/conversation";
 import type { MessageProps } from "@/components/ai/message";
 import { PromptInput } from "@/components/ai/prompt-input";
 import ErrorNotice from "@/components/ErrorNotice";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import ClaimDraftPanel from "@/components/workspace/ClaimDraftPanel";
-import WorkspaceTopBar from "@/components/workspace/WorkspaceTopBar";
+import MaterializeClaimActionCard from "@/components/workspace/MaterializeClaimActionCard";
 import CreateClaimTool from "@/components/workspace/tools/CreateClaimTool";
 import UploadPdfTool from "@/components/workspace/tools/UploadPdfTool";
 import type { ClaimDraftPreview } from "@/components/workspace/types";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAuth } from "@/lib/auth/AuthContext";
+import VirtualClaimPanel from "@/components/workspace/VirtualClaimPanel";
+import WorkspaceTopBar from "@/components/workspace/WorkspaceTopBar";
 import { confirmChatAction } from "@/lib/api/chat";
 import { ApiError } from "@/lib/api/errors";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { ChatProvider, useChat } from "@/lib/chat/ChatContext";
-import { cn, getInitialTheme, THEME_STORAGE_KEY, ThemeMode } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import type {
   ClaimDTO,
   ClaimFinancialSummaryDTO,
@@ -39,6 +43,7 @@ import type {
   MCPCodeDTO,
 } from "@/types/claim";
 import type { PatientDetailDTO } from "@/types/patients";
+import type { VirtualClaimDTO } from "@/types/virtualClaim";
 
 function formatTime(value?: string | null): string | undefined {
   if (!value) {
@@ -81,6 +86,7 @@ function WorkspaceShell() {
   } = useChat();
   const { logout, me, hasRole } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { sessionId: routeSessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
   const openCreateClaim = searchParams.get("openCreateClaim") === "1";
@@ -123,6 +129,27 @@ function WorkspaceShell() {
     navigate("/login");
   }, [logout, navigate]);
 
+  const virtualClaimQuery = useQuery<VirtualClaimDTO>({
+    queryKey: ["virtual-claim", activeSessionId, parsedPatientId ?? null],
+    queryFn: async () => {
+      if (!activeSessionId) {
+        throw new Error("Missing session id");
+      }
+      try {
+        return await ensureVirtualClaim(activeSessionId, {
+          patient_id: parsedPatientId ?? undefined,
+        });
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          handleUnauthorized();
+        }
+        throw err;
+      }
+    },
+    enabled: Boolean(activeSessionId),
+    retry: false,
+  });
+
   const conversationMessages = useMemo<MessageProps[]>(
     () =>
       messages.map((message) => {
@@ -137,6 +164,17 @@ function WorkspaceShell() {
   const activeSession =
     sessions.find((session) => session.id === activeSessionId) ?? null;
   const isReadOnly = currentClaim?.claim_status === "final";
+  const proposal = proposedChanges && typeof proposedChanges === "object" ? proposedChanges : null;
+  const proposalTool = proposal && typeof proposal.tool === "string" ? proposal.tool : null;
+  const showMaterializeProposal = proposalTool === "propose_materialize_virtual_claim";
+  const virtualClaim =
+    currentClaim?.id || !virtualClaimQuery.data ? null : virtualClaimQuery.data;
+  const virtualClaimError =
+    virtualClaimQuery.error instanceof ApiError
+      ? virtualClaimQuery.error.message
+      : virtualClaimQuery.error instanceof Error
+        ? virtualClaimQuery.error.message
+        : null;
 
   useEffect(() => {
     if (isReadOnly) {
@@ -152,6 +190,13 @@ function WorkspaceShell() {
     }
     setProposalError(null);
   }, [actionRequired, proposedChanges]);
+
+  useEffect(() => {
+    if (!activeSessionId || !lastRequestId) {
+      return;
+    }
+    void queryClient.invalidateQueries({ queryKey: ["virtual-claim", activeSessionId] });
+  }, [activeSessionId, lastRequestId, queryClient]);
 
   useEffect(() => {
     if (!parsedRouteSessionId || !Number.isFinite(parsedRouteSessionId)) {
@@ -248,27 +293,30 @@ function WorkspaceShell() {
     void sendMessage(trimmed);
   };
 
-  const loadClaim = async (claimId: number) => {
-    setIsLoadingClaim(true);
-    setClaimError(null);
-    try {
-      const claim = await getClaim(claimId);
-      setCurrentClaim(claim);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 401) {
-        handleUnauthorized();
-        return;
+  const loadClaim = useCallback(
+    async (claimId: number) => {
+      setIsLoadingClaim(true);
+      setClaimError(null);
+      try {
+        const claim = await getClaim(claimId);
+        setCurrentClaim(claim);
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+        if (err instanceof ApiError && err.status === 404) {
+          setClaimError("Claim not found.");
+        } else {
+          setClaimError("Unable to load claim.");
+        }
+        setCurrentClaim(null);
+      } finally {
+        setIsLoadingClaim(false);
       }
-      if (err instanceof ApiError && err.status === 404) {
-        setClaimError("Claim not found.");
-      } else {
-        setClaimError("Unable to load claim.");
-      }
-      setCurrentClaim(null);
-    } finally {
-      setIsLoadingClaim(false);
-    }
-  };
+    },
+    [handleUnauthorized]
+  );
 
   const financialKey = useMemo(() => {
     if (!currentClaim) {
@@ -308,12 +356,7 @@ function WorkspaceShell() {
         setIsLoadingFinancial(false);
       }
     },
-    [
-      financialKey,
-      getClaimFinancialSummary,
-      handleUnauthorized,
-      refreshClaimFinancialSummary,
-    ]
+    [financialKey, handleUnauthorized]
   );
 
   useEffect(() => {
@@ -350,7 +393,7 @@ function WorkspaceShell() {
     setDraftPreview({});
     setCreateClaimOpen(false);
     setUploadOpen(false);
-  }, [activeSessionId, activeSession?.claim_id, parsedClaimId]);
+  }, [activeSessionId, activeSession?.claim_id, loadClaim, parsedClaimId]);
 
   useEffect(() => {
     if (!currentClaim) {
@@ -378,6 +421,7 @@ function WorkspaceShell() {
       service_date: claim.service_date ?? "",
     });
     void loadSessions();
+    void queryClient.invalidateQueries({ queryKey: ["virtual-claim", activeSessionId] });
   };
 
   const handleFinalizeClaim = async () => {
@@ -456,7 +500,7 @@ function WorkspaceShell() {
       setProposalError("Missing proposal details.");
       return;
     }
-    const proposal = proposedChanges as Record<string, unknown>;
+    const proposal = proposedChanges;
     const tool = typeof proposal.tool === "string" ? proposal.tool : null;
     if (!tool) {
       setProposalError("Missing proposal tool information.");
@@ -507,6 +551,9 @@ function WorkspaceShell() {
           await loadClaim(claimId);
         }
         await loadSessions();
+        await queryClient.invalidateQueries({
+          queryKey: ["virtual-claim", activeSessionId],
+        });
       }
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
@@ -652,7 +699,7 @@ function WorkspaceShell() {
         />
 
         <div
-          className="grid gap-6 lg:grid-cols-[260px_1fr_260px]"
+          className="grid gap-6 lg:grid-cols-[220px_320px_1fr]"
           style={{ height: "80vh" }}
         >
           <aside className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -723,6 +770,76 @@ function WorkspaceShell() {
             )}
           </aside>
 
+          {currentClaim ? (
+            <ClaimDraftPanel
+              currentClaim={currentClaim}
+              draftPreview={draftPreview}
+              isLoading={isLoadingClaim}
+              claimError={claimError}
+              showAdmin={hasRole(["platform_staff_admin", "clinic_admin", "chief_doctor"])}
+              onOpenUploadPdf={() => {
+                if (!isReadOnly) {
+                  setUploadOpen(true);
+                }
+              }}
+              onOpenCreateClaim={() => {
+                if (!isReadOnly) {
+                  setCreateClaimOpen(true);
+                }
+              }}
+              onAddMcpCode={(code) => {
+                void handleAddMcpCode(code);
+              }}
+              onRemoveMcpCode={(code) => {
+                void handleRemoveMcpCode(code);
+              }}
+              onAddDiagnosisCode={(code) => {
+                void handleAddDiagnosisCode(code);
+              }}
+              onRemoveDiagnosisCode={(code) => {
+                void handleRemoveDiagnosisCode(code);
+              }}
+              onFinalizeClaim={() => {
+                void handleFinalizeClaim();
+              }}
+              isFinalizing={isFinalizing}
+              onGeneratePdf={() => {
+                void handleGeneratePdf();
+              }}
+              isGeneratingPdf={isGeneratingPdf}
+              pdfPreviewUrl={pdfPreviewUrl}
+              onClosePdfPreview={() => setPdfPreviewUrl(null)}
+              financialSummary={financialSummary}
+              isLoadingFinancial={isLoadingFinancial}
+              financialError={financialError}
+              onRefreshFinancial={() => {
+                void handleRefreshFinancial();
+              }}
+              requirements={requirements}
+              isCheckingRequirements={isCheckingRequirements}
+              requirementsError={requirementsError}
+              onCheckRequirements={() => {
+                void handleCheckRequirements();
+              }}
+            />
+          ) : (
+            <VirtualClaimPanel
+              virtualClaim={virtualClaim}
+              isLoading={virtualClaimQuery.isLoading || virtualClaimQuery.isFetching}
+              error={virtualClaimError}
+              onOpenUploadPdf={() => {
+                if (!isReadOnly) {
+                  setUploadOpen(true);
+                }
+              }}
+              onOpenCreateClaim={() => {
+                if (!isReadOnly) {
+                  setCreateClaimOpen(true);
+                }
+              }}
+            />
+          )}
+
           <section className="flex min-h-[480px] min-h-0 flex-1 flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             {llmUnavailable ? (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-200">
@@ -733,49 +850,60 @@ function WorkspaceShell() {
             {error ? <ErrorNotice error={error} /> : null}
 
             {actionRequired ? (
-              <Card className="border-amber-200 bg-amber-50">
-                <CardHeader>
-                  <CardTitle>Action required</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-amber-900">
-                    Review the proposed changes below before continuing.
-                  </p>
-                  <pre className="mt-3 max-h-40 overflow-auto rounded-2xl bg-white p-3 text-xs text-slate-700">
-                    {JSON.stringify(proposedChanges ?? {}, null, 2)}
-                  </pre>
-                  {proposalError ? (
-                    <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                      {proposalError}
-                    </div>
-                  ) : null}
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => void handleProposalDecision("confirm")}
-                      disabled={isReadOnly || isConfirmingProposal}
-                    >
-                      {isConfirmingProposal ? "Confirming..." : "Confirm"}
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      onClick={() => void handleProposalDecision("reject")}
-                      disabled={isReadOnly || isConfirmingProposal}
-                    >
-                      Reject
-                    </Button>
-                    {isReadOnly ? (
-                      <span className="text-xs text-amber-700">
-                        Claim is finalized. Proposals are locked.
-                      </span>
+              showMaterializeProposal && proposal ? (
+                <MaterializeClaimActionCard
+                  proposal={proposal}
+                  proposalError={proposalError}
+                  isConfirming={isConfirmingProposal}
+                  isReadOnly={isReadOnly}
+                  onConfirm={() => void handleProposalDecision("confirm")}
+                  onReject={() => void handleProposalDecision("reject")}
+                />
+              ) : (
+                <Card className="border-amber-200 bg-amber-50">
+                  <CardHeader>
+                    <CardTitle>Action required</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-amber-900">
+                      Review the proposed changes below before continuing.
+                    </p>
+                    <pre className="mt-3 max-h-40 overflow-auto rounded-2xl bg-white p-3 text-xs text-slate-700">
+                      {JSON.stringify(proposedChanges ?? {}, null, 2)}
+                    </pre>
+                    {proposalError ? (
+                      <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                        {proposalError}
+                      </div>
                     ) : null}
-                  </div>
-                </CardContent>
-              </Card>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void handleProposalDecision("confirm")}
+                        disabled={isReadOnly || isConfirmingProposal}
+                      >
+                        {isConfirmingProposal ? "Confirming..." : "Confirm"}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void handleProposalDecision("reject")}
+                        disabled={isReadOnly || isConfirmingProposal}
+                      >
+                        Reject
+                      </Button>
+                      {isReadOnly ? (
+                        <span className="text-xs text-amber-700">
+                          Claim is finalized. Proposals are locked.
+                        </span>
+                      ) : null}
+                    </div>
+                  </CardContent>
+                </Card>
+              )
             ) : null}
 
             <div className="min-h-0 flex-1">
@@ -937,42 +1065,6 @@ function WorkspaceShell() {
               <div className="mt-2">{lastRequestId ?? "No requests yet."}</div>
             </details>
           </section>
-
-          <ClaimDraftPanel
-            currentClaim={currentClaim}
-            draftPreview={draftPreview}
-            isLoading={isLoadingClaim}
-            claimError={claimError}
-            showAdmin={hasRole(["platform_staff_admin", "clinic_admin", "chief_doctor"])}
-            onOpenUploadPdf={() => {
-              if (!isReadOnly) {
-                setUploadOpen(true);
-              }
-            }}
-            onOpenCreateClaim={() => {
-              if (!isReadOnly) {
-                setCreateClaimOpen(true);
-              }
-            }}
-            onAddMcpCode={handleAddMcpCode}
-            onRemoveMcpCode={handleRemoveMcpCode}
-            onAddDiagnosisCode={handleAddDiagnosisCode}
-            onRemoveDiagnosisCode={handleRemoveDiagnosisCode}
-            onFinalizeClaim={handleFinalizeClaim}
-            isFinalizing={isFinalizing}
-            onGeneratePdf={handleGeneratePdf}
-            isGeneratingPdf={isGeneratingPdf}
-            pdfPreviewUrl={pdfPreviewUrl}
-            onClosePdfPreview={() => setPdfPreviewUrl(null)}
-            financialSummary={financialSummary}
-            isLoadingFinancial={isLoadingFinancial}
-            financialError={financialError}
-            onRefreshFinancial={handleRefreshFinancial}
-            requirements={requirements}
-            isCheckingRequirements={isCheckingRequirements}
-            requirementsError={requirementsError}
-            onCheckRequirements={handleCheckRequirements}
-          />
         </div>
       </div>
     </main>

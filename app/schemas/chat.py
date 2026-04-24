@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.virtual_claims import VirtualClaimResponse
+
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1)
@@ -20,6 +22,7 @@ class ChatResponse(BaseModel):
     debug: dict[str, Any] | None = None
     action_required: bool = False
     proposed_changes: dict[str, Any] | None = None
+    virtual_claim: VirtualClaimResponse | None = None
 
 
 class ChatConfirmRequest(BaseModel):

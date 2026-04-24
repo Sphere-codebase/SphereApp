@@ -7,6 +7,13 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class RequestFormField(BaseModel):
+    name: str = Field(..., min_length=1)
+    label: str = Field(..., min_length=1)
+    type: str = Field(..., min_length=1)
+    required: bool = False
+
+
 class SearchPatientsArgs(BaseModel):
     query: str = Field(..., min_length=1)
 
@@ -24,12 +31,78 @@ class ListClaimsArgs(BaseModel):
 
 
 class RequestFormArgs(BaseModel):
-    fields: list[dict[str, Any]]
+    fields: list[RequestFormField]
 
 
 class CreateClaimDraftArgs(BaseModel):
     patient_id: int
     fields: dict[str, Any]
+    confirm: bool = False
+
+
+class GetVirtualClaimArgs(BaseModel):
+    pass
+
+
+class GetVirtualClaimChecklistArgs(BaseModel):
+    pass
+
+
+class BootstrapVirtualClaimContextArgs(BaseModel):
+    patient_id: int | None = None
+    patient_query: str | None = None
+    insurance_company_id: int | None = None
+    insurance_company_name: str | None = None
+    procedure_code: str | None = None
+
+
+class VirtualClaimFieldUpdate(BaseModel):
+    key: str = Field(
+        ...,
+        description=(
+            "Supported keys include insurance.member_id, insurance.group_number, "
+            "insurance.policy_number, service_date, service.rendering_provider, "
+            "service.quantity, service.modifier, diagnosis.code, diagnosis.description, "
+            "clinical.radiculopathy, clinical.functional_limitation, "
+            "clinical.conservative_treatment, clinical.imaging_guidance, "
+            "clinical.radiology_consistency, clinical.neuro_exam, clinical.mri_or_emg, "
+            "treatment.initial_tfesi, utilization.level_limit_ok, "
+            "utilization.frequency_limit_ok."
+        ),
+    )
+    value: Any = None
+
+
+class UpdateVirtualClaimFieldsArgs(BaseModel):
+    fields: list[VirtualClaimFieldUpdate] = Field(default_factory=list, min_length=1)
+    source_type: str = Field(default="llm_extracted", pattern="^(user|llm_extracted)$")
+
+
+class UpdateVirtualClaimArgs(BaseModel):
+    patient_id: int | None = None
+    insurance_company_id: int | None = None
+    procedure_code: str | None = None
+    fields: list[VirtualClaimFieldUpdate] = Field(default_factory=list)
+    source_type: str = Field(default="llm_extracted", pattern="^(user|llm_extracted)$")
+
+
+class EvaluateClaimReadinessArgs(BaseModel):
+    pass
+
+
+class ListMissingClaimFieldsArgs(BaseModel):
+    pass
+
+
+class ListMissingVirtualClaimFieldsArgs(BaseModel):
+    pass
+
+
+class ExplainVirtualClaimPolicyArgs(BaseModel):
+    pass
+
+
+class ProposeMaterializeVirtualClaimArgs(BaseModel):
     confirm: bool = False
 
 

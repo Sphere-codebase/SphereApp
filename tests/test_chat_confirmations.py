@@ -5,10 +5,28 @@ from sqlalchemy.orm import Session
 from app.api.routes.chat import get_llm_client
 from app.core.security import create_access_token, get_password_hash
 from app.db.id_utils import next_id
-from app.db.models import Claim, Clinic, InsuranceCompany, Patient, Role, User, UserRole
+from app.db.models import (
+    ChatSession,
+    Claim,
+    Clinic,
+    DiagnosisCode,
+    InsuranceCompany,
+    McpCode,
+    Patient,
+    PolicyLink,
+    PolicyRule,
+    Role,
+    User,
+    UserRole,
+)
 from app.db.session import get_db
 from app.llm.client import ChatCompletionResult, ToolCall
 from app.main import app
+from app.services.claims.virtual_claims import (
+    bootstrap_virtual_claim_context,
+    ensure_virtual_claim_draft,
+    update_virtual_claim_fields,
+)
 from app.utils.time import utcnow
 
 
@@ -199,5 +217,237 @@ def test_other_user_update_returns_404(db_session: Session) -> None:
             headers={"Authorization": f"Bearer {token}"},
         )
         assert response.status_code == 404
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_virtual_claim_materialize_confirmation_writes(db_session: Session) -> None:
+    doctor_role = db_session.execute(select(Role).where(Role.code == "doctor")).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
+
+    user = User(
+        id=next_id(db_session, User),
+        email="doctor-virtual@example.com",
+        password_hash=get_password_hash("secret"),
+        is_active=True,
+        clinic_id=1,
+        created_at=utcnow(),
+    )
+    company = InsuranceCompany(id=next_id(db_session, InsuranceCompany), name="Aetna")
+    patient = Patient(
+        id=next_id(db_session, Patient),
+        doctor_id=user.id,
+        clinic_id=1,
+        first_name="DAVID R",
+        last_name="WIENTZEN",
+        created_at=utcnow(),
+    )
+    mcp = McpCode(
+        code="62323",
+        description="Injection(s), of diagnostic or therapeutic substance(s)",
+    )
+    diagnosis = DiagnosisCode(code="M54.16", description="Radiculopathy, lumbar region")
+    policy_link = PolicyLink(
+        id=next_id(db_session, PolicyLink),
+        insurance_company_id=company.id,
+        mcp_code=mcp.code,
+        policy_url="https://example.com/aetna-62323",
+        created_at=utcnow(),
+    )
+    policy_rule = PolicyRule(
+        id=next_id(db_session, PolicyRule),
+        policy_link_id=policy_link.id,
+        extracted_at=utcnow(),
+        title="Aetna 62323 Medical Necessity",
+        rules_json=(
+            '{"criteria": ["radiculopathy", "functional limitation", "fluoroscopy", '
+            '"physical therapy", "neuro exam", "radiologic findings", "mri", "session limit"]}'
+        ),
+    )
+    session = ChatSession(
+        id=next_id(db_session, ChatSession),
+        doctor_id=user.id,
+        clinic_id=1,
+        created_at=utcnow(),
+    )
+    db_session.add_all(
+        [
+            user,
+            UserRole(user_id=user.id, role_id=doctor_role.id),
+            company,
+            patient,
+            mcp,
+            diagnosis,
+            policy_link,
+            policy_rule,
+            session,
+        ]
+    )
+    db_session.commit()
+
+    bootstrap_virtual_claim_context(
+        db_session,
+        session,
+        patient_id=patient.id,
+        insurance_company_id=company.id,
+        procedure_code="62323",
+    )
+    draft = ensure_virtual_claim_draft(db_session, session)
+    update_virtual_claim_fields(
+        db_session,
+        draft,
+        field_updates=[
+            ("service_date", "2025-05-27"),
+            ("diagnosis.code", "M54.16"),
+            ("clinical.radiculopathy", True),
+            ("clinical.functional_limitation", True),
+            ("clinical.conservative_treatment", True),
+            ("clinical.imaging_guidance", True),
+            ("clinical.radiology_consistency", True),
+            ("clinical.neuro_exam", True),
+            ("clinical.mri_or_emg", True),
+            ("utilization.frequency_limit_ok", True),
+        ],
+    )
+
+    token = create_access_token(str(user.id))
+    responses = [
+        ChatCompletionResult(
+            assistant_text="Materialize the draft",
+            tool_calls=[
+                ToolCall(
+                    id="call-1",
+                    name="propose_materialize_virtual_claim",
+                    arguments={},
+                )
+            ],
+        )
+    ]
+    fake_llm = FakeLLMClient(responses)
+
+    def override_get_db():
+        yield db_session
+
+    def override_llm_client():
+        return fake_llm
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_llm_client] = override_llm_client
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/chat",
+            json={"message": "Create the claim draft", "session_id": session.id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["action_required"] is True
+        assert payload["proposed_changes"]["tool"] == "propose_materialize_virtual_claim"
+
+        confirm = client.post(
+            "/api/chat/confirm-action",
+            json={
+                "session_id": session.id,
+                "proposal_id": payload["proposed_changes"]["proposal_id"],
+                "decision": "confirm",
+                "tool": "propose_materialize_virtual_claim",
+                "arguments": {},
+                "payload": payload["proposed_changes"]["proposed_changes"],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert confirm.status_code == 200
+        confirmed = confirm.json()
+        claim_id = confirmed["result"]["claim_id"]
+        assert isinstance(claim_id, int)
+        db_session.refresh(session)
+        assert session.claim_id == claim_id
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_response_includes_virtual_claim_after_bootstrap_tool(db_session: Session) -> None:
+    doctor_role = db_session.execute(select(Role).where(Role.code == "doctor")).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
+
+    user = User(
+        id=next_id(db_session, User),
+        email="doctor-virtual-bootstrap@example.com",
+        password_hash=get_password_hash("secret"),
+        is_active=True,
+        clinic_id=1,
+        created_at=utcnow(),
+    )
+    company = InsuranceCompany(id=next_id(db_session, InsuranceCompany), name="Aetna")
+    patient = Patient(
+        id=next_id(db_session, Patient),
+        doctor_id=user.id,
+        clinic_id=1,
+        first_name="DAVID R",
+        last_name="WIENTZEN",
+        created_at=utcnow(),
+    )
+    mcp = McpCode(
+        code="62323",
+        description="Injection(s), of diagnostic or therapeutic substance(s)",
+    )
+    session = ChatSession(
+        id=next_id(db_session, ChatSession),
+        doctor_id=user.id,
+        clinic_id=1,
+        created_at=utcnow(),
+    )
+    db_session.add_all(
+        [user, UserRole(user_id=user.id, role_id=doctor_role.id), company, patient, mcp, session]
+    )
+    db_session.commit()
+
+    token = create_access_token(str(user.id))
+    responses = [
+        ChatCompletionResult(
+            assistant_text="Bootstrapping the checklist",
+            tool_calls=[
+                ToolCall(
+                    id="call-1",
+                    name="bootstrap_virtual_claim_context",
+                    arguments={
+                        "patient_id": patient.id,
+                        "insurance_company_id": company.id,
+                        "procedure_code": "62323",
+                    },
+                )
+            ],
+        ),
+        ChatCompletionResult(assistant_text="Checklist initialized", tool_calls=[]),
+    ]
+    fake_llm = FakeLLMClient(responses)
+
+    def override_get_db():
+        yield db_session
+
+    def override_llm_client():
+        return fake_llm
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_llm_client] = override_llm_client
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/chat",
+            json={"message": "Prepare a claim checklist", "session_id": session.id},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["virtual_claim"] is not None
+        assert payload["virtual_claim"]["checklist"]["service"]["procedure_code"]["value"] == "62323"
+        assert any(action["type"] == "virtual_claim_update" for action in payload["ui_actions"])
     finally:
         app.dependency_overrides.clear()

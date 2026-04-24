@@ -21,6 +21,11 @@ from app.db.id_utils import next_id
 from app.db.models import ChatMessage, ChatSession, User
 from app.llm.client import ChatCompletionResult, LLMClient, ToolCall
 from app.llm.tools import ToolContext, execute_tool, list_tool_schemas
+from app.schemas.virtual_claims import VirtualClaimResponse
+from app.services.claims.virtual_claims import (
+    get_virtual_claim_state,
+    hydrate_virtual_claim_from_tool_result,
+)
 from app.utils.time import utcnow
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -47,6 +52,7 @@ class ChatResult:
     debug: dict[str, Any] | None
     action_required: bool = False
     proposed_changes: dict[str, Any] | None = None
+    virtual_claim: VirtualClaimResponse | None = None
 
 
 class ChatOrchestrator:
@@ -72,6 +78,7 @@ class ChatOrchestrator:
         allowed_tools = {tool["function"]["name"] for tool in tools}
         ui_actions: list[dict[str, Any]] = []
         debug: dict[str, Any] = {"tool_steps": 0}
+        virtual_claim = self._load_virtual_claim(session.id)
 
         for step in range(settings.llm_max_steps):
             result = self.llm_client.chat_complete(messages=messages, tools=tools)
@@ -89,8 +96,9 @@ class ChatOrchestrator:
                 return ChatResult(
                     session_id=session.id,
                     assistant_message=assistant_message,
-                    ui_actions=ui_actions,
+                    ui_actions=self._append_virtual_claim_action(ui_actions, virtual_claim),
                     debug=debug if settings.env in {"dev", "test"} else None,
+                    virtual_claim=virtual_claim,
                 )
 
             debug["tool_steps"] = step + 1
@@ -98,8 +106,9 @@ class ChatOrchestrator:
                 return ChatResult(
                     session_id=session.id,
                     assistant_message="Reached max tool steps without resolution.",
-                    ui_actions=ui_actions,
+                    ui_actions=self._append_virtual_claim_action(ui_actions, virtual_claim),
                     debug=debug if settings.env in {"dev", "test"} else None,
+                    virtual_claim=virtual_claim,
                 )
 
             tool_context = ToolContext(
@@ -137,7 +146,26 @@ class ChatOrchestrator:
                             "details": exc.errors(),
                         }
                     }
+                except HTTPException:
+                    raise
+                except Exception as exc:
+                    logger.exception(
+                        "tool execution failed session_id=%s tool=%s",
+                        session.id,
+                        tool_call.name,
+                    )
+                    tool_result = {
+                        "error": {
+                            "code": "TOOL_EXECUTION_ERROR",
+                            "message": "Tool execution failed",
+                            "details": {
+                                "tool": tool_call.name,
+                                "error": str(exc),
+                            },
+                        }
+                    }
                 self._store_tool_result(session.id, tool_call.name, tool_result)
+                virtual_claim = self._hydrate_virtual_claim(session.id, tool_call.name, tool_result)
                 log_chat_event(
                     "tool_result",
                     {
@@ -162,18 +190,20 @@ class ChatOrchestrator:
                     return ChatResult(
                         session_id=session.id,
                         assistant_message="Confirmation required to proceed.",
-                        ui_actions=ui_actions,
+                        ui_actions=self._append_virtual_claim_action(ui_actions, virtual_claim),
                         debug=debug if settings.env in {"dev", "test"} else None,
                         action_required=True,
                         proposed_changes=proposal_payload,
+                        virtual_claim=virtual_claim,
                     )
                 messages.append(self._tool_result_message(tool_call, tool_result))
 
         return ChatResult(
             session_id=session.id,
             assistant_message="Unable to complete request.",
-            ui_actions=ui_actions,
+            ui_actions=self._append_virtual_claim_action(ui_actions, virtual_claim),
             debug=debug if settings.env in {"dev", "test"} else None,
+            virtual_claim=virtual_claim,
         )
 
     def _get_or_create_session(self, session_id: int | None) -> ChatSession:
@@ -322,3 +352,45 @@ class ChatOrchestrator:
             role=self.user.role,
             session_id=session_id,
         )
+
+    def _load_virtual_claim(self, session_id: int) -> VirtualClaimResponse | None:
+        return get_virtual_claim_state(
+            self.db,
+            session_id=session_id,
+            doctor_id=self.user.id,
+            clinic_id=self.user.clinic_id,
+            create_if_missing=False,
+        )
+
+    def _hydrate_virtual_claim(
+        self,
+        session_id: int,
+        tool_name: str,
+        tool_result: dict[str, Any],
+    ) -> VirtualClaimResponse | None:
+        return hydrate_virtual_claim_from_tool_result(
+            self.db,
+            session_id=session_id,
+            doctor_id=self.user.id,
+            clinic_id=self.user.clinic_id,
+            tool_name=tool_name,
+            tool_result=tool_result,
+        )
+
+    def _append_virtual_claim_action(
+        self,
+        ui_actions: list[dict[str, Any]],
+        virtual_claim: VirtualClaimResponse | None,
+    ) -> list[dict[str, Any]]:
+        if virtual_claim is None:
+            return ui_actions
+        actions = [
+            action for action in ui_actions if action.get("type") != "virtual_claim_update"
+        ]
+        actions.append(
+            {
+                "type": "virtual_claim_update",
+                "virtual_claim": virtual_claim.model_dump(mode="json"),
+            }
+        )
+        return actions

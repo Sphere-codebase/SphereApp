@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Iterator
+from typing import Literal
 
 from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -27,12 +28,39 @@ def _is_sqlite(url: str) -> bool:
     return url.lower().startswith("sqlite")
 
 
+def _is_psycopg_postgres(url: str) -> bool:
+    return url.lower().startswith("postgresql+psycopg://")
+
+
+def _uses_transaction_pooler(url: str) -> bool:
+    lowered = url.lower()
+    return (
+        "pooler.supabase.com" in lowered
+        or ":6543/" in lowered
+        or "pgbouncer=true" in lowered
+        or "pool_mode=transaction" in lowered
+    )
+
+
+def _psycopg_connect_args(url: str, env: Literal["dev", "test", "prod"]) -> dict[str, object]:
+    # Psycopg automatic prepared statements can break behind transaction poolers
+    # such as Supabase/PgBouncer. Disable them for dev/test and for known pooler URLs.
+    if not _is_psycopg_postgres(url):
+        return {}
+    if env in {"dev", "test"} or _uses_transaction_pooler(url):
+        return {"prepare_threshold": None}
+    return {}
+
+
 def get_engine(database_url: str | None = None) -> Engine:
     url = database_url or settings.database_url
     engine_kwargs: dict[str, object] = {
         "pool_pre_ping": settings.db_pool_pre_ping,
         "future": True,
     }
+    connect_args = _psycopg_connect_args(url, settings.env)
+    if connect_args:
+        engine_kwargs["connect_args"] = connect_args
     if not _is_sqlite(url):
         engine_kwargs.update(
             {

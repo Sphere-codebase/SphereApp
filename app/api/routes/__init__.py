@@ -13,6 +13,7 @@ from app.api.routes.auth import router as auth_router
 from app.api.routes.chat import router as chat_router
 from app.api.routes.chat_actions import router as chat_actions_router
 from app.api.routes.chat_sessions import router as chat_sessions_router
+from app.api.routes.chat_virtual_claims import router as chat_virtual_claims_router
 from app.api.routes.claims import router as claims_router
 from app.api.routes.clinic_admin import router as clinic_admin_router
 from app.api.routes.codes import router as codes_router
@@ -39,6 +40,7 @@ __all__ = [
     "chat_actions_router",
     "clinic_admin_router",
     "chat_sessions_router",
+    "chat_virtual_claims_router",
     "codes_router",
     "claims_router",
     "dashboard_router",

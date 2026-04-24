@@ -207,7 +207,13 @@ __marimo__/
 /.idea
 exampleLog.txt
 AGENT_INSTRUCTIONS.md
-docs/
+docs/*
+!docs/API.md
+!docs/ARCHITECTURE.md
+!docs/DOMAIN_MODEL.md
+!docs/PROMPTS_AND_LLM.md
+!docs/system_rules.md
+!docs/developer_policy.md
 .codex
 logs/
 artifacts/

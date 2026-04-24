@@ -18,7 +18,11 @@ from app.schemas.chat import ChatConfirmRequest, ChatConfirmResponse
 router = APIRouter(prefix="/api/chat", tags=["chat_actions"])
 DbSessionDep = Annotated[Session, Depends(get_db)]
 
-CONFIRMABLE_TOOLS = {"create_claim_draft", "update_claim_fields"}
+CONFIRMABLE_TOOLS = {
+    "create_claim_draft",
+    "update_claim_fields",
+    "propose_materialize_virtual_claim",
+}
 
 
 @router.post("/confirm-action", response_model=ChatConfirmResponse)

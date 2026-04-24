@@ -28,6 +28,7 @@ from app.db.models.policy_rule import PolicyRule
 from app.db.models.role import Role
 from app.db.models.user import User
 from app.db.models.user_role import UserRole
+from app.db.models.virtual_claim import VirtualClaimDraft, VirtualClaimField, VirtualClaimQuestion
 
 __all__ = [
     "Base",
@@ -60,4 +61,7 @@ __all__ = [
     "Role",
     "User",
     "UserRole",
+    "VirtualClaimDraft",
+    "VirtualClaimField",
+    "VirtualClaimQuestion",
 ]

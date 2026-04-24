@@ -13,6 +13,7 @@ from app.db.models.base import Base, TimestampMixin
 if TYPE_CHECKING:
     from app.db.models.chat import ChatSession
     from app.db.models.claim_pdf import ClaimPDF
+    from app.db.models.virtual_claim import VirtualClaimDraft
 
 
 class Claim(TimestampMixin, Base):
@@ -61,4 +62,8 @@ class Claim(TimestampMixin, Base):
     claim_pdfs: Mapped[list[ClaimPDF]] = relationship(
         "ClaimPDF",
         back_populates="claim",
+    )
+    materialized_virtual_claim_drafts: Mapped[list[VirtualClaimDraft]] = relationship(
+        "VirtualClaimDraft",
+        foreign_keys="VirtualClaimDraft.materialized_claim_id",
     )

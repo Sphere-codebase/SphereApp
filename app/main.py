@@ -28,6 +28,7 @@ from app.api.routes import (
     chat_actions_router,
     chat_router,
     chat_sessions_router,
+    chat_virtual_claims_router,
     claims_router,
     clinic_admin_router,
     codes_router,
@@ -141,6 +142,7 @@ app.include_router(chat_router)
 app.include_router(chat_actions_router)
 app.include_router(clinic_admin_router)
 app.include_router(chat_sessions_router)
+app.include_router(chat_virtual_claims_router)
 app.include_router(codes_router)
 app.include_router(dashboard_router)
 app.include_router(files_router)

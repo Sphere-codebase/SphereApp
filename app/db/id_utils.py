@@ -6,12 +6,23 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 
+def _lock_next_id_namespace(db: Session, model: type) -> None:
+    bind = db.get_bind()
+    if bind is None or bind.dialect.name != "postgresql":
+        return
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+        {"lock_key": model.__table__.fullname},
+    )
+
+
 def next_id(db: Session, model: type) -> int:
     prev = db.execute(
         text("SELECT current_setting('app.is_platform_admin', true)")
     ).scalar_one_or_none()
     db.execute(text("SELECT set_config('app.is_platform_admin', 'true', true)"))
     try:
+        _lock_next_id_namespace(db, model)
         value = db.execute(select(func.coalesce(func.max(model.id), 0))).scalar_one()
     finally:
         restore = prev if prev is not None else "false"

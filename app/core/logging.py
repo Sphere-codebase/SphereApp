@@ -268,7 +268,9 @@ def unhandled_exception_handler(
     logger.error("unhandled exception", exc_info=exc)
     details: dict[str, Any] = {}
     if settings.env in {"dev", "test"}:
-        details["traceback"] = traceback.format_exc()
+        details["traceback"] = "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        )
     return JSONResponse(
         status_code=500,
         content=error_payload(
