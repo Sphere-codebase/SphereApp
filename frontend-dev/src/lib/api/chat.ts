@@ -92,7 +92,10 @@ export async function createSession(
   const data = await requestJson<unknown>("/api/chat/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title: title ?? null, claim_id: claimId ?? null }),
+    body: JSON.stringify({
+      title: title ?? "Session " + new Date().toISOString(),
+      claim_id: claimId ?? null,
+    }),
   });
   return parseWithSchema(chatSessionSchema, data, "create session");
 }

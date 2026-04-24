@@ -42,8 +42,7 @@ const FIELD_LABELS: Record<string, string> = {
   "policy_medical_necessity.neuro_exam_evidence": "Neuro exam evidence",
   "policy_medical_necessity.frequency_session_limits_respected":
     "Frequency / session limits",
-  "policy_medical_necessity.vertebral_level_limits_respected":
-    "Vertebral level limits",
+  "policy_medical_necessity.vertebral_level_limits_respected": "Vertebral level limits",
   "policy_medical_necessity.radiologic_findings_consistent":
     "Radiology findings consistent with symptoms",
 };
@@ -112,11 +111,13 @@ function humanizeText(value: string): string {
 }
 
 function toFields(
-  entries: Array<[key: string, label: string, field: VirtualClaimChecklistValueDTO | null | undefined]>
+  entries: Array<
+    [key: string, label: string, field: VirtualClaimChecklistValueDTO | null | undefined]
+  >
 ): ChecklistSectionField[] {
   return entries
     .filter(([, , field]) => Boolean(field))
-      .map(([key, label, field]) => ({
+    .map(([key, label, field]) => ({
       key,
       label,
       field: field as VirtualClaimChecklistValueDTO,
@@ -137,9 +138,13 @@ function synthesizeField(
 
 function isAetna62323(virtualClaim: VirtualClaimDTO): boolean {
   const payerName =
-    virtualClaim.checklist.payer_insurance.payer_name.value ?? virtualClaim.payer?.name ?? "";
+    virtualClaim.checklist.payer_insurance.payer_name.value ??
+    virtualClaim.payer?.name ??
+    "";
   const procedureCode =
-    virtualClaim.checklist.service.procedure_code.value ?? virtualClaim.procedure?.code ?? "";
+    virtualClaim.checklist.service.procedure_code.value ??
+    virtualClaim.procedure?.code ??
+    "";
   return (
     typeof payerName === "string" &&
     payerName.toLowerCase().includes("aetna") &&
@@ -212,7 +217,11 @@ export default function VirtualClaimPanel({
     ["payer_name", "Payer", virtualClaim.checklist.payer_insurance.payer_name],
     ["member_id", "Member ID", virtualClaim.checklist.payer_insurance.member_id],
     ["group_number", "Group number", virtualClaim.checklist.payer_insurance.group_number],
-    ["policy_number", "Policy number", virtualClaim.checklist.payer_insurance.policy_number],
+    [
+      "policy_number",
+      "Policy number",
+      virtualClaim.checklist.payer_insurance.policy_number,
+    ],
   ]);
 
   const serviceFields = toFields([
@@ -244,7 +253,8 @@ export default function VirtualClaimPanel({
   const payerKnown =
     virtualClaim.checklist.payer_insurance.payer_name.status !== "missing" ||
     virtualClaim.checklist.payer_insurance.insurance_company_id.status !== "missing";
-  const procedureKnown = virtualClaim.checklist.service.procedure_code.status !== "missing";
+  const procedureKnown =
+    virtualClaim.checklist.service.procedure_code.status !== "missing";
   const showMedicalNecessity = payerKnown && procedureKnown;
 
   const medicalNecessityFields = toFields([
@@ -349,7 +359,9 @@ export default function VirtualClaimPanel({
           .map((item) => humanizeText(item));
   const blockingReasons =
     virtualClaim.checklist.readiness.blocking_reasons.length > 0
-      ? virtualClaim.checklist.readiness.blocking_reasons.map((item) => humanizeText(item))
+      ? virtualClaim.checklist.readiness.blocking_reasons.map((item) =>
+          humanizeText(item)
+        )
       : virtualClaim.checklist.readiness.missing_fields.map(
           (item) => `Missing: ${labelForKey(item)}`
         );
@@ -372,7 +384,7 @@ export default function VirtualClaimPanel({
   ];
 
   return (
-    <aside className="flex min-h-[480px] min-h-0 flex-col gap-4 overflow-y-auto rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+    <aside className="flex min-h-[480px] min-h-0 flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
@@ -384,179 +396,202 @@ export default function VirtualClaimPanel({
         </div>
         <ReadinessBadge ready={virtualClaim.checklist.readiness.ready_to_draft} />
       </div>
-
-      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-        <div className="flex flex-wrap gap-2 text-sm">
-          <div className="rounded-full bg-white px-3 py-2 font-medium text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-            Patient: {patientName(virtualClaim)}
+      <div className="flex-1 overflow-y-auto px-4 gap-4 flex flex-col">
+        <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex flex-wrap gap-2 text-sm">
+            <div className="rounded-full bg-white px-3 py-2 font-medium text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+              Patient: {patientName(virtualClaim)}
+            </div>
+            <div className="rounded-full bg-white px-3 py-2 font-medium text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+              DOB:{" "}
+              {formatChecklistValue(
+                "date_of_birth",
+                virtualClaim.checklist.patient.date_of_birth.value
+              )}
+            </div>
+            <div className="rounded-full bg-white px-3 py-2 font-medium text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+              Payer:{" "}
+              {formatChecklistValue(
+                "payer_name",
+                virtualClaim.checklist.payer_insurance.payer_name.value
+              )}
+            </div>
+            <div className="rounded-full bg-white px-3 py-2 font-medium text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+              CPT{" "}
+              {formatChecklistValue(
+                "procedure_code",
+                virtualClaim.checklist.service.procedure_code.value
+              )}
+            </div>
+            <div className="rounded-full bg-white px-3 py-2 font-medium text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+              Service date:{" "}
+              {formatChecklistValue(
+                "service_date",
+                virtualClaim.checklist.service.service_date.value
+              )}
+            </div>
+            <div className="rounded-full bg-white px-3 py-2 font-medium text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+              Updated: {formatDate(virtualClaim.updated_at)}
+            </div>
           </div>
-          <div className="rounded-full bg-white px-3 py-2 font-medium text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-            DOB: {formatChecklistValue("date_of_birth", virtualClaim.checklist.patient.date_of_birth.value)}
-          </div>
-          <div className="rounded-full bg-white px-3 py-2 font-medium text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-            Payer: {formatChecklistValue("payer_name", virtualClaim.checklist.payer_insurance.payer_name.value)}
-          </div>
-          <div className="rounded-full bg-white px-3 py-2 font-medium text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-            CPT {formatChecklistValue("procedure_code", virtualClaim.checklist.service.procedure_code.value)}
-          </div>
-          <div className="rounded-full bg-white px-3 py-2 font-medium text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-            Service date: {formatChecklistValue("service_date", virtualClaim.checklist.service.service_date.value)}
-          </div>
-          <div className="rounded-full bg-white px-3 py-2 font-medium text-slate-900 dark:bg-slate-900 dark:text-slate-100">
-            Updated: {formatDate(virtualClaim.updated_at)}
-          </div>
+          {virtualClaim.readiness_reason ? (
+            <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
+              {humanizeText(virtualClaim.readiness_reason)}
+            </div>
+          ) : null}
         </div>
-        {virtualClaim.readiness_reason ? (
-          <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-            {humanizeText(virtualClaim.readiness_reason)}
+
+        {error ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+            {error}
           </div>
         ) : null}
-      </div>
 
-      {error ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
-          {error}
-        </div>
-      ) : null}
+        <ChecklistSection title="Patient" fields={patientFields} />
+        <ChecklistSection title="Payer / Insurance" fields={payerFields} />
+        <ChecklistSection title="Service" fields={serviceFields} />
+        <ChecklistSection title="Diagnosis" fields={diagnosisFields} />
 
-      <ChecklistSection title="Patient" fields={patientFields} />
-      <ChecklistSection title="Payer / Insurance" fields={payerFields} />
-      <ChecklistSection title="Service" fields={serviceFields} />
-      <ChecklistSection title="Diagnosis" fields={diagnosisFields} />
-
-      {showMedicalNecessity ? (
-        <>
-          <ChecklistSection
-            title="Medical Necessity"
-            fields={medicalNecessityFields}
-            emptyLabel="No medical necessity checklist available yet."
-          />
-          {isAetna62323(virtualClaim) ? (
-            <section className="space-y-3 rounded-3xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-500/30 dark:bg-sky-500/10">
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700 dark:text-sky-300">
-                  Aetna 62323 Policy Cheat-Sheet
-                </div>
-                <div className="mt-1 text-sm text-sky-900 dark:text-sky-100">
-                  Quick checklist for the current payer + CPT combination.
-                </div>
-              </div>
-              <div className="space-y-2">
-                {cheatSheetFields.map((item) => (
-                  <div
-                    key={item.key}
-                    className={cn(
-                      "rounded-2xl border px-3 py-2 text-sm",
-                      item.field.status === "missing"
-                        ? "border-rose-200 bg-white text-rose-800 dark:border-rose-500/30 dark:bg-slate-900 dark:text-rose-200"
-                        : "border-emerald-200 bg-white text-slate-700 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
-                    )}
-                  >
-                    <div className="font-medium">{item.label}</div>
-                    <div className="mt-1 text-xs opacity-80">
-                      {formatChecklistValue(item.key, item.field.value)}
-                    </div>
+        {showMedicalNecessity ? (
+          <>
+            <ChecklistSection
+              title="Medical Necessity"
+              fields={medicalNecessityFields}
+              emptyLabel="No medical necessity checklist available yet."
+            />
+            {isAetna62323(virtualClaim) ? (
+              <section className="space-y-3 rounded-3xl border border-sky-200 bg-sky-50 p-4 dark:border-sky-500/30 dark:bg-sky-500/10">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.18em] text-sky-700 dark:text-sky-300">
+                    Aetna 62323 Policy Cheat-Sheet
                   </div>
-                ))}
+                  <div className="mt-1 text-sm text-sky-900 dark:text-sky-100">
+                    Quick checklist for the current payer + CPT combination.
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {cheatSheetFields.map((item) => (
+                    <div
+                      key={item.key}
+                      className={cn(
+                        "rounded-2xl border px-3 py-2 text-sm",
+                        item.field.status === "missing"
+                          ? "border-rose-200 bg-white text-rose-800 dark:border-rose-500/30 dark:bg-slate-900 dark:text-rose-200"
+                          : "border-emerald-200 bg-white text-slate-700 dark:border-emerald-500/30 dark:bg-slate-900 dark:text-slate-100"
+                      )}
+                    >
+                      <div className="font-medium">{item.label}</div>
+                      <div className="mt-1 text-xs opacity-80">
+                        {formatChecklistValue(item.key, item.field.value)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </>
+        ) : (
+          <section className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em]">
+              Medical Necessity
+            </div>
+            <div className="mt-2">
+              This checklist appears once payer and CPT code are known.
+            </div>
+          </section>
+        )}
+
+        <section className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                Readiness
               </div>
-            </section>
-          ) : null}
-        </>
-      ) : (
-        <section className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-          <div className="text-xs font-semibold uppercase tracking-[0.18em]">
-            Medical Necessity
+              <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                Missing required fields: {missingCount}
+              </div>
+            </div>
+            <ReadinessBadge ready={virtualClaim.checklist.readiness.ready_to_draft} />
           </div>
-          <div className="mt-2">
-            This checklist appears once payer and CPT code are known.
+
+          <div className="grid gap-3">
+            <div className="min-w-0 w-full rounded-2xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                Blocking reasons
+              </div>
+              {blockingReasons.length === 0 ? (
+                <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                  No blockers.
+                </div>
+              ) : (
+                <ul className="mt-2 space-y-2 text-sm text-slate-700 dark:text-slate-200 break-words overflow-hidden">
+                  {blockingReasons.map((reason) => (
+                    <li key={reason} className="flex gap-2">
+                      <span className="shrink-0">•</span>
+                      <span className="min-w-0 flex-1">{reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
+              <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                Suggested next questions
+              </div>
+              {suggestedQuestions.length === 0 ? (
+                <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+                  No follow-up questions suggested.
+                </div>
+              ) : (
+                <ul className="mt-2 space-y-2 text-sm text-slate-700 dark:text-slate-200">
+                  {suggestedQuestions.map((question) => (
+                    <li key={question} className="list-inside list-disc">
+                      {question}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </section>
-      )}
 
-      <section className="space-y-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-              Readiness
-            </div>
-            <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-              Missing required fields: {missingCount}
-            </div>
-          </div>
-          <ReadinessBadge ready={virtualClaim.checklist.readiness.ready_to_draft} />
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+          Filled fields:{" "}
+          {patientFields.length +
+            payerFields.length +
+            serviceFields.length +
+            diagnosisFields.length +
+            medicalNecessityFields.length -
+            (sectionCount(patientFields) +
+              sectionCount(payerFields) +
+              sectionCount(serviceFields) +
+              sectionCount(diagnosisFields) +
+              sectionCount(medicalNecessityFields))}{" "}
+          · Missing fields:{" "}
+          {sectionCount(patientFields) +
+            sectionCount(payerFields) +
+            sectionCount(serviceFields) +
+            sectionCount(diagnosisFields) +
+            sectionCount(medicalNecessityFields)}
         </div>
 
-        <div className="grid gap-3">
-          <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-              Blocking reasons
-            </div>
-            {blockingReasons.length === 0 ? (
-              <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                No blockers.
+        <details className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
+          <summary className="cursor-pointer select-none font-semibold text-slate-700 dark:text-slate-200">
+            Technical details
+          </summary>
+          <div className="mt-3 space-y-2">
+            {technicalDetails.map(([label, value]) => (
+              <div key={label} className="break-all">
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  {label}
+                </span>
+                : {value}
               </div>
-            ) : (
-              <ul className="mt-2 space-y-2 text-sm text-slate-700 dark:text-slate-200">
-                {blockingReasons.map((reason) => (
-                  <li key={reason} className="list-inside list-disc">
-                    {reason}
-                  </li>
-                ))}
-              </ul>
-            )}
+            ))}
           </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white px-3 py-3 dark:border-slate-800 dark:bg-slate-900">
-            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-              Suggested next questions
-            </div>
-            {suggestedQuestions.length === 0 ? (
-              <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-                No follow-up questions suggested.
-              </div>
-            ) : (
-              <ul className="mt-2 space-y-2 text-sm text-slate-700 dark:text-slate-200">
-                {suggestedQuestions.map((question) => (
-                  <li key={question} className="list-inside list-disc">
-                    {question}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      </section>
-
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-        Filled fields:{" "}
-        {patientFields.length + payerFields.length + serviceFields.length + diagnosisFields.length + medicalNecessityFields.length - (
-          sectionCount(patientFields) +
-          sectionCount(payerFields) +
-          sectionCount(serviceFields) +
-          sectionCount(diagnosisFields) +
-          sectionCount(medicalNecessityFields)
-        )}{" "}
-        · Missing fields:{" "}
-        {sectionCount(patientFields) +
-          sectionCount(payerFields) +
-          sectionCount(serviceFields) +
-          sectionCount(diagnosisFields) +
-          sectionCount(medicalNecessityFields)}
+        </details>
       </div>
-
-      <details className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-400">
-        <summary className="cursor-pointer select-none font-semibold text-slate-700 dark:text-slate-200">
-          Technical details
-        </summary>
-        <div className="mt-3 space-y-2">
-          {technicalDetails.map(([label, value]) => (
-            <div key={label} className="break-all">
-              <span className="font-medium text-slate-700 dark:text-slate-200">{label}</span>:{" "}
-              {value}
-            </div>
-          ))}
-        </div>
-      </details>
     </aside>
   );
 }
