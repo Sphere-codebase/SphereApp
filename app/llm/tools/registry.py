@@ -30,20 +30,21 @@ from app.db.models import (
     User,
 )
 from app.llm.tools import schemas
-from app.services.policy.rules_refresh import parse_policy_link_and_store
+from app.services.claims.normalization import normalize_procedure_code
 from app.services.claims.virtual_claims import (
     bootstrap_virtual_claim_context,
     ensure_virtual_claim_draft,
     explain_virtual_claim_policy,
-    get_virtual_claim_state,
     get_scoped_chat_session,
+    get_virtual_claim_state,
     list_missing_virtual_claim_fields,
     materialize_virtual_claim,
     recompute_virtual_claim,
     recompute_virtual_claim_readiness,
-    update_virtual_claim_state,
     update_virtual_claim_fields,
+    update_virtual_claim_state,
 )
+from app.services.policy.rules_refresh import parse_policy_link_and_store
 from app.utils.time import utcnow
 
 BOT_CAPABILITIES_VERSION = "1.0"
@@ -347,8 +348,74 @@ def _list_claims(ctx: ToolContext, args: schemas.ListClaimsArgs) -> dict[str, An
     return {"claims": claims}
 
 
-def _request_form(_: ToolContext, args: schemas.RequestFormArgs) -> dict[str, Any]:
-    return {"type": "form", "fields": [field.model_dump() for field in args.fields]}
+def _request_form(ctx: ToolContext, args: schemas.RequestFormArgs) -> dict[str, Any]:
+    filtered_fields = [field.model_dump() for field in args.fields]
+    session = _require_chat_session(ctx)
+    if session is not None and ctx.user_id is not None and ctx.clinic_id is not None:
+        active_virtual_claim = get_virtual_claim_state(
+            ctx.db,
+            session_id=session.id,
+            doctor_id=ctx.user_id,
+            clinic_id=ctx.clinic_id,
+            create_if_missing=False,
+        )
+        if active_virtual_claim is not None:
+            active_virtual_claim_payload = active_virtual_claim.model_dump(mode="json")
+            skipped: list[str] = []
+            retained: list[dict[str, Any]] = []
+            for field in filtered_fields:
+                name = field.get("name")
+                if isinstance(name, str) and _virtual_claim_already_has_form_field(
+                    active_virtual_claim_payload, name
+                ):
+                    skipped.append(name)
+                    continue
+                retained.append(field)
+            if not retained:
+                return _tool_error(
+                    "REQUEST_FORM_FIELDS_ALREADY_PRESENT",
+                    "Requested form fields are already present in the current virtual claim.",
+                    {"skipped_fields": skipped},
+                )
+            filtered_fields = retained
+    return {"type": "form", "fields": filtered_fields}
+
+
+def _virtual_claim_already_has_form_field(virtual_claim: dict[str, Any], field_name: str) -> bool:
+    normalized = field_name.strip().lower().replace("-", "_")
+    patient = virtual_claim.get("patient") or {}
+    payer = virtual_claim.get("payer") or {}
+    procedure = virtual_claim.get("procedure") or {}
+    checklist = virtual_claim.get("checklist") or {}
+    patient_section = checklist.get("patient") or {}
+    payer_section = checklist.get("payer_insurance") or {}
+    service_section = checklist.get("service") or {}
+
+    def _present(value: Any) -> bool:
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return value.strip() != ""
+        return True
+
+    if normalized in {"patient_id", "patient_name", "patient"}:
+        return _present(patient.get("id")) or _present(patient.get("name")) or _present(
+            (patient_section.get("patient_id") or {}).get("value")
+        )
+    if normalized in {
+        "insurance_company_id",
+        "insurance_company_name",
+        "payer",
+        "payer_name",
+    }:
+        return _present(payer.get("id")) or _present(payer.get("name")) or _present(
+            (payer_section.get("insurance_company_id") or {}).get("value")
+        )
+    if normalized in {"procedure_code", "cpt", "cpt_code"}:
+        return _present(procedure.get("code")) or _present(
+            (service_section.get("procedure_code") or {}).get("value")
+        )
+    return False
 
 
 def _get_account(ctx: ToolContext, _: schemas.GetAccountArgs) -> dict[str, Any]:
@@ -395,6 +462,16 @@ def _resolve_insurance_company_id_by_name(ctx: ToolContext, name: str) -> int | 
     return match.id if match is not None else None
 
 
+def _coerce_optional_int_like(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
+
+
 def _get_virtual_claim_checklist(
     ctx: ToolContext,
     _: schemas.GetVirtualClaimChecklistArgs,
@@ -433,20 +510,41 @@ def _bootstrap_virtual_claim_context(
     if session is None:
         return _tool_error("MISSING_SESSION", "Chat session context is required")
 
-    patient_id = args.patient_id
+    patient_id = _coerce_optional_int_like(args.patient_id)
     if patient_id is None and args.patient_query:
         result = _search_patients(ctx, schemas.SearchPatientsArgs(query=args.patient_query))
         patients = result.get("patients") or []
-        if patients:
+        if len(patients) == 1:
             first = patients[0]
             resolved_id = first.get("id")
             if isinstance(resolved_id, int):
                 patient_id = resolved_id
+        elif len(patients) > 1:
+            return _tool_error(
+                "PATIENT_AMBIGUOUS",
+                "Multiple patients match the supplied name. Ask the user to choose.",
+                {
+                    "candidates": [
+                        {
+                            "id": item.get("id"),
+                            "name": item.get("name"),
+                            "date_of_birth": item.get("date_of_birth"),
+                        }
+                        for item in patients[:5]
+                        if isinstance(item, dict)
+                    ]
+                },
+            )
 
-    insurance_company_id = args.insurance_company_id
-    if insurance_company_id is None and args.insurance_company_name:
+    insurance_company_id = _coerce_optional_int_like(args.insurance_company_id)
+    insurance_company_name = args.insurance_company_name
+    if insurance_company_id is None and isinstance(args.insurance_company_id, str):
+        fallback_name = args.insurance_company_id.strip()
+        if fallback_name and not fallback_name.isdigit() and not insurance_company_name:
+            insurance_company_name = fallback_name
+    if insurance_company_id is None and insurance_company_name:
         insurance_company_id = _resolve_insurance_company_id_by_name(
-            ctx, args.insurance_company_name
+            ctx, insurance_company_name
         )
 
     response = bootstrap_virtual_claim_context(
@@ -454,6 +552,7 @@ def _bootstrap_virtual_claim_context(
         session,
         patient_id=patient_id,
         insurance_company_id=insurance_company_id,
+        insurance_company_name=insurance_company_name,
         procedure_code=args.procedure_code,
     )
     return response.model_dump(mode="json")
@@ -474,6 +573,7 @@ def _update_virtual_claim(
         patch={
             "patient_id": args.patient_id,
             "insurance_company_id": args.insurance_company_id,
+            "insurance_company_name": args.insurance_company_name,
             "procedure_code": args.procedure_code,
             "fields": [field.model_dump(mode="json") for field in args.fields],
         },
@@ -535,7 +635,8 @@ def _list_missing_claim_fields(
     response = list_missing_virtual_claim_fields(ctx.db, draft)
     response["answer_hint"] = (
         "Only ask for the fields still missing from the virtual claim. "
-        "Do not ask for facts that already exist in database facts or user-provided checklist fields."
+        "Do not ask for facts that already exist in database facts "
+        "or user-provided checklist fields."
     )
     return response
 
@@ -609,7 +710,8 @@ def _create_claim_draft(ctx: ToolContext, args: schemas.CreateClaimDraftArgs) ->
         readiness = active_virtual_claim.checklist.readiness
         return _tool_error(
             "VIRTUAL_CLAIM_NOT_READY",
-            "The session virtual claim is not ready to draft. Use readiness and missing-fields tools first.",
+            "The session virtual claim is not ready to draft. "
+            "Use readiness and missing-fields tools first.",
             {
                 "ready_to_draft": readiness.ready_to_draft,
                 "missing_fields": readiness.missing_fields,
@@ -778,7 +880,10 @@ def _list_procedure_codes(ctx: ToolContext, args: schemas.ListProcedureCodesArgs
     query = (args.query or "").strip()
     stmt = select(McpCode)
     if query:
-        if query.isdigit():
+        normalized_code = normalize_procedure_code(query)
+        if normalized_code is not None:
+            stmt = stmt.where(McpCode.code.ilike(f"{normalized_code}%"))
+        elif query.isdigit():
             stmt = stmt.where(McpCode.code.ilike(f"{query}%"))
         else:
             stmt = stmt.where(McpCode.description.ilike(f"%{query}%"))
@@ -788,7 +893,7 @@ def _list_procedure_codes(ctx: ToolContext, args: schemas.ListProcedureCodesArgs
 
 
 def _get_procedure_code(ctx: ToolContext, args: schemas.GetProcedureCodeArgs) -> dict[str, Any]:
-    code = args.code.strip()
+    code = normalize_procedure_code(args.code) or args.code.strip()
     row = ctx.db.execute(select(McpCode).where(McpCode.code == code)).scalar_one_or_none()
     if row is None:
         return {"code": code, "description": None, "exists": False}
@@ -798,7 +903,8 @@ def _get_procedure_code(ctx: ToolContext, args: schemas.GetProcedureCodeArgs) ->
 def _list_policy_links_for_code(
     ctx: ToolContext, args: schemas.ListPolicyLinksForCodeArgs
 ) -> dict[str, Any]:
-    stmt = select(PolicyLink).where(PolicyLink.mcp_code == args.code)
+    code = normalize_procedure_code(args.code) or args.code.strip()
+    stmt = select(PolicyLink).where(PolicyLink.mcp_code == code)
     if args.insurance_company_id is not None:
         stmt = stmt.where(PolicyLink.insurance_company_id == args.insurance_company_id)
     rows = ctx.db.execute(
@@ -812,7 +918,7 @@ def _list_policy_links_for_code(
         }
         for row in rows
     ]
-    return {"code": args.code, "links": links}
+    return {"code": code, "links": links}
 
 
 def _get_policy_rules_for_link(
@@ -863,6 +969,7 @@ def _explain_coverage_for_code(
     ctx: ToolContext, args: schemas.ExplainCoverageForCodeArgs
 ) -> dict[str, Any]:
     policy_user = _policy_user(ctx)
+    normalized_code = normalize_procedure_code(args.code) or args.code.strip()
 
     claim_context = {"claim_id": None, "insurance_company_id": None, "service_date": None}
     claim = None
@@ -880,7 +987,7 @@ def _explain_coverage_for_code(
 
     links = ctx.db.execute(
         select(PolicyLink)
-        .where(PolicyLink.mcp_code == args.code)
+        .where(PolicyLink.mcp_code == normalized_code)
         .order_by(PolicyLink.insurance_company_id.asc(), PolicyLink.policy_url.asc())
     ).scalars()
     link_items = [
@@ -1014,7 +1121,7 @@ def _explain_coverage_for_code(
     answer_hint = " ".join(hint_parts)
 
     return {
-        "code": args.code,
+        "code": normalized_code,
         "claim_context": claim_context,
         "policy": {"links": link_items, "latest_rules": latest_rules},
         "observed_coverage": {
@@ -1169,7 +1276,10 @@ TOOLS: dict[str, ToolDefinition] = {
     ),
     "get_patient": ToolDefinition(
         name="get_patient",
-        description="Get database-backed patient facts by patient_id. Do not use it to guess missing facts.",
+        description=(
+            "Get database-backed patient facts by patient_id. "
+            "Do not use it to guess missing facts."
+        ),
         args_model=schemas.GetPatientArgs,
         handler=_get_patient,
     ),
@@ -1181,7 +1291,10 @@ TOOLS: dict[str, ToolDefinition] = {
     ),
     "list_claims": ToolDefinition(
         name="list_claims",
-        description="List real claims for a resolved patient_id. Use it before get_claim when claim_id is not known.",
+        description=(
+            "List real claims for a resolved patient_id. "
+            "Use it before get_claim when claim_id is not known."
+        ),
         args_model=schemas.ListClaimsArgs,
         handler=_list_claims,
     ),
@@ -1196,7 +1309,10 @@ TOOLS: dict[str, ToolDefinition] = {
     ),
     "get_virtual_claim_checklist": ToolDefinition(
         name="get_virtual_claim_checklist",
-        description="Legacy alias for get_virtual_claim. Read the current session's virtual claim checklist.",
+        description=(
+            "Legacy alias for get_virtual_claim. "
+            "Read the current session's virtual claim checklist."
+        ),
         args_model=schemas.GetVirtualClaimChecklistArgs,
         handler=_get_virtual_claim_checklist,
     ),
@@ -1204,7 +1320,13 @@ TOOLS: dict[str, ToolDefinition] = {
         name="bootstrap_virtual_claim_context",
         description=(
             "Resolve and store the current session's patient, payer, and procedure code "
-            "for the virtual claim checklist. Use this to initialize claim-prep context."
+            "for the virtual claim checklist. Use it to bootstrap missing base identifiers "
+            "only. If the virtual claim already has patient, payer, or procedure code, "
+            "preserve that state and update clinical facts with update_virtual_claim instead. "
+            "Use patient_id as a numeric database id, insurance_company_id as a numeric "
+            "database id only, insurance_company_name when the payer id is unknown, and "
+            "procedure_code as a numeric CPT/procedure code only such as 62323 without "
+            "a CPT prefix."
         ),
         args_model=schemas.BootstrapVirtualClaimContextArgs,
         handler=_bootstrap_virtual_claim_context,
@@ -1212,8 +1334,10 @@ TOOLS: dict[str, ToolDefinition] = {
     "update_virtual_claim": ToolDefinition(
         name="update_virtual_claim",
         description=(
-            "Apply structured user-provided or extracted facts to the current session's virtual claim. "
-            "Use it to update checklist fields after the user provides facts. Do not write guesses."
+            "Apply structured user-provided or extracted facts to the current session's "
+            "virtual claim. Prefer this over request_form when the user already provided "
+            "clinical facts. Reuse the session virtual claim as the source of truth and do "
+            "not ask again for patient, payer, or procedure code when they are already filled."
         ),
         args_model=schemas.UpdateVirtualClaimArgs,
         handler=_update_virtual_claim,
@@ -1263,14 +1387,19 @@ TOOLS: dict[str, ToolDefinition] = {
         name="propose_materialize_virtual_claim",
         description=(
             "Propose or confirm materializing the current virtual claim checklist as a real claim. "
-            "Use it only after evaluate_claim_readiness shows ready_to_draft true. Confirmation is required."
+            "Use it only after evaluate_claim_readiness shows ready_to_draft true. "
+            "Confirmation is required."
         ),
         args_model=schemas.ProposeMaterializeVirtualClaimArgs,
         handler=_propose_materialize_virtual_claim,
     ),
     "request_form": ToolDefinition(
         name="request_form",
-        description="Request structured form fields from the user.",
+        description=(
+            "Request structured form fields from the user only for facts still missing from "
+            "the current session virtual claim. Never request patient, payer, or procedure "
+            "code again when get_virtual_claim already shows them as filled."
+        ),
         args_model=schemas.RequestFormArgs,
         handler=_request_form,
     ),
@@ -1328,7 +1457,8 @@ TOOLS: dict[str, ToolDefinition] = {
     "create_claim_draft": ToolDefinition(
         name="create_claim_draft",
         description=(
-            "Create a real claim draft. Use it only when the virtual claim is already ready_to_draft "
+            "Create a real claim draft. "
+            "Use it only when the virtual claim is already ready_to_draft "
             "or when there is no virtual-claim workflow in use. Confirmation is required."
         ),
         args_model=schemas.CreateClaimDraftArgs,

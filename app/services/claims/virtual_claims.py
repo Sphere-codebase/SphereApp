@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.id_utils import next_id
+from app.db.id_utils import next_id, next_ids
 from app.db.models import (
     ChatSession,
     Claim,
@@ -48,10 +51,11 @@ from app.schemas.virtual_claims import (
     VirtualClaimResponse,
     VirtualClaimServiceChecklist,
 )
+from app.services.claims.normalization import normalize_procedure_code
 from app.utils.time import utcnow
 
-
 SourceType = Literal["database", "user", "llm_extracted", "derived", "policy"]
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -137,6 +141,14 @@ CHECKLIST_FIELDS: dict[str, ChecklistFieldDefinition] = {
         value_type="bool",
         constraint="Document radiculopathy with dermatomal pain or symptoms.",
         keywords=("radiculopathy", "dermatomal", "radicular pain"),
+    ),
+    "clinical.dermatomal_distribution": ChecklistFieldDefinition(
+        key="clinical.dermatomal_distribution",
+        label="Dermatomal distribution",
+        question="What dermatomal distribution is documented?",
+        value_type="bool",
+        constraint="Document dermatomal symptom distribution.",
+        keywords=("dermatomal", "distribution", "radicular pain"),
     ),
     "clinical.functional_limitation": ChecklistFieldDefinition(
         key="clinical.functional_limitation",
@@ -231,6 +243,7 @@ CHECKLIST_EXTERNAL_KEY_MAP = {
     "policy.link": "policy_medical_necessity.policy_link_id",
     "policy.rule": "policy_medical_necessity.stored_rules_available",
     "clinical.radiculopathy": "policy_medical_necessity.radiculopathy_evidence",
+    "clinical.dermatomal_distribution": "policy_medical_necessity.dermatomal_distribution",
     "clinical.functional_limitation": "policy_medical_necessity.functional_limitation",
     "clinical.conservative_treatment": (
         "policy_medical_necessity.conservative_treatment_failed"
@@ -272,27 +285,34 @@ def ensure_virtual_claim_draft(db: Session, session: ChatSession) -> VirtualClai
     draft = db.execute(
         select(VirtualClaimDraft).where(VirtualClaimDraft.chat_session_id == session.id)
     ).scalar_one_or_none()
-    if draft is not None:
-        return draft
+    if draft is None:
+        draft = VirtualClaimDraft(
+            id=next_id(db, VirtualClaimDraft),
+            chat_session_id=session.id,
+            doctor_id=session.doctor_id,
+            clinic_id=session.clinic_id,
+            patient_id=session.patient_id,
+            materialized_claim_id=session.claim_id,
+            status="materialized" if session.claim_id else "open",
+            readiness=bool(session.claim_id),
+            readiness_reason="Attached to an existing claim." if session.claim_id else None,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        db.add(draft)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            draft = db.execute(
+                select(VirtualClaimDraft).where(VirtualClaimDraft.chat_session_id == session.id)
+            ).scalar_one_or_none()
+            if draft is None:
+                raise
+        else:
+            db.refresh(draft)
 
-    draft = VirtualClaimDraft(
-        id=next_id(db, VirtualClaimDraft),
-        chat_session_id=session.id,
-        doctor_id=session.doctor_id,
-        clinic_id=session.clinic_id,
-        patient_id=session.patient_id,
-        materialized_claim_id=session.claim_id,
-        status="materialized" if session.claim_id else "open",
-        readiness=bool(session.claim_id),
-        readiness_reason="Attached to an existing claim." if session.claim_id else None,
-        created_at=utcnow(),
-        updated_at=utcnow(),
-    )
-    db.add(draft)
-    db.commit()
-    db.refresh(draft)
-
-    if session.claim_id:
+    if session.claim_id and draft.materialized_claim_id != session.claim_id:
         _seed_virtual_claim_from_claim(db, draft, session.claim_id)
     return draft
 
@@ -340,8 +360,10 @@ def update_virtual_claim_state(
     response = bootstrap_virtual_claim_context(
         db,
         session,
-        patient_id=_coerce_optional_int(patch.get("patient_id")),
-        insurance_company_id=_coerce_optional_int(patch.get("insurance_company_id")),
+        patient_id=patch.get("patient_id"),
+        patient_query=_coerce_optional_str(patch.get("patient_query")),
+        insurance_company_id=patch.get("insurance_company_id"),
+        insurance_company_name=_coerce_optional_str(patch.get("insurance_company_name")),
         procedure_code=_coerce_optional_str(patch.get("procedure_code")),
     )
     draft = ensure_virtual_claim_draft(db, session)
@@ -437,7 +459,7 @@ def hydrate_virtual_claim_from_tool_result(
         if changed:
             db.add(session)
             db.commit()
-        response = bootstrap_virtual_claim_context(
+        bootstrap_virtual_claim_context(
             db,
             session,
             patient_id=patient_id if isinstance(patient_id, int) else None,
@@ -513,46 +535,56 @@ def bootstrap_virtual_claim_context(
     db: Session,
     session: ChatSession,
     *,
-    patient_id: int | None = None,
-    insurance_company_id: int | None = None,
+    patient_id: int | str | None = None,
+    patient_query: str | None = None,
+    insurance_company_id: int | str | None = None,
+    insurance_company_name: str | None = None,
     procedure_code: str | None = None,
 ) -> VirtualClaimResponse:
     draft = ensure_virtual_claim_draft(db, session)
+    draft = _lock_virtual_claim_draft(db, draft.id)
     changed = False
 
-    if patient_id is not None:
+    resolved_patient_id = _coerce_optional_int(patient_id)
+    if resolved_patient_id is None and patient_query:
+        resolved_patient_id = _resolve_patient_id_from_query(
+            db,
+            clinic_id=session.clinic_id,
+            patient_query=patient_query,
+        )
+    if resolved_patient_id is not None:
         patient = db.execute(
             select(Patient).where(
-                Patient.id == patient_id,
+                Patient.id == resolved_patient_id,
                 Patient.clinic_id == session.clinic_id,
             )
         ).scalar_one_or_none()
-        if patient is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patient not found")
-        draft.patient_id = patient.id
-        session.patient_id = patient.id
-        changed = True
+        if patient is not None and draft.patient_id != patient.id:
+            draft.patient_id = patient.id
+            session.patient_id = patient.id
+            changed = True
 
-    if insurance_company_id is not None:
-        company = db.get(InsuranceCompany, insurance_company_id)
-        if company is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Insurance company not found",
-            )
-        draft.insurance_company_id = company.id
-        changed = True
+    resolved_company_id = _resolve_insurance_company_id(
+        db,
+        insurance_company_id=insurance_company_id,
+        insurance_company_name=insurance_company_name,
+    )
+    if resolved_company_id is not None:
+        if draft.insurance_company_id != resolved_company_id:
+            draft.insurance_company_id = resolved_company_id
+            changed = True
 
     if procedure_code is not None:
-        code = procedure_code.strip()
-        mcp = db.execute(select(McpCode).where(McpCode.code == code)).scalar_one_or_none()
-        if mcp is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Procedure code not found",
-            )
-        draft.procedure_code = mcp.code
-        changed = True
+        normalized_code = normalize_procedure_code(procedure_code)
+        mcp = (
+            db.execute(select(McpCode).where(McpCode.code == normalized_code)).scalar_one_or_none()
+            if normalized_code is not None
+            else None
+        )
+        if mcp is not None:
+            if draft.procedure_code != mcp.code:
+                draft.procedure_code = mcp.code
+                changed = True
 
     if changed:
         draft.updated_at = utcnow()
@@ -569,6 +601,30 @@ def update_virtual_claim_fields(
     field_updates: list[tuple[str, Any]],
     source_type: Literal["user", "llm_extracted"] = "user",
 ) -> VirtualClaimResponse:
+    draft = _lock_virtual_claim_draft(db, draft.id)
+    unique_keys = list(dict.fromkeys(key for key, _raw_value in field_updates))
+    persisted_field_keys = set(
+        db.execute(
+            select(VirtualClaimField.field_key).where(
+                VirtualClaimField.draft_id == draft.id,
+                VirtualClaimField.field_key.in_(unique_keys),
+            )
+        ).scalars()
+    )
+    pending_field_keys = {field.field_key for field in draft.fields}
+    keys_requiring_ids = [
+        key
+        for key in unique_keys
+        if key not in persisted_field_keys and key not in pending_field_keys
+    ]
+    allocated_field_ids = dict(
+        zip(
+            keys_requiring_ids,
+            next_ids(db, VirtualClaimField, len(keys_requiring_ids)),
+            strict=False,
+        )
+    )
+
     for key, raw_value in field_updates:
         definition = CHECKLIST_FIELDS.get(key)
         if definition is None:
@@ -577,13 +633,16 @@ def update_virtual_claim_fields(
                 detail=f"Unsupported virtual claim field: {key}",
             )
         normalized_value, field_status = _normalize_field_value(definition, raw_value)
-        field = _get_or_create_field(db, draft, key)
-        field.value_json = normalized_value
-        field.status = field_status
-        field.source_type = source_type
-        field.source_ref_json = None
-        field.updated_at = utcnow()
-        db.add(field)
+        set_virtual_claim_field(
+            db,
+            draft,
+            key=key,
+            value=normalized_value,
+            status=field_status,
+            source_type=source_type,
+            source_ref_json=None,
+            allocated_id=allocated_field_ids.get(key),
+        )
 
     draft.updated_at = utcnow()
     db.add(draft)
@@ -592,9 +651,15 @@ def update_virtual_claim_fields(
 
 
 def recompute_virtual_claim(db: Session, draft: VirtualClaimDraft) -> VirtualClaimResponse:
+    started = time.monotonic()
+    draft = _lock_virtual_claim_draft(db, draft.id)
     hydrate_virtual_claim_from_records(db, draft)
     patient = db.get(Patient, draft.patient_id) if draft.patient_id else None
-    payer = db.get(InsuranceCompany, draft.insurance_company_id) if draft.insurance_company_id else None
+    payer = (
+        db.get(InsuranceCompany, draft.insurance_company_id)
+        if draft.insurance_company_id
+        else None
+    )
     doctor = db.get(User, draft.doctor_id) if draft.doctor_id else None
     procedure = (
         db.execute(select(McpCode).where(McpCode.code == draft.procedure_code)).scalar_one_or_none()
@@ -733,21 +798,34 @@ def recompute_virtual_claim(db: Session, draft: VirtualClaimDraft) -> VirtualCla
             )
         )
 
-    db.execute(delete(VirtualClaimQuestion).where(VirtualClaimQuestion.draft_id == draft.id))
-    for question in follow_up_questions:
-        db.add(
-            VirtualClaimQuestion(
-                id=next_id(db, VirtualClaimQuestion),
-                draft_id=draft.id,
-                clinic_id=draft.clinic_id,
-                question_key=question.question_key,
-                prompt=question.prompt,
-                status=question.status,
-                answer_json=question.answer,
-                created_at=utcnow(),
-                updated_at=utcnow(),
-            )
+    existing_questions = _list_virtual_claim_questions(db, draft)
+    existing_questions_by_key: dict[str, VirtualClaimQuestion] = {}
+    for question in existing_questions:
+        retained = existing_questions_by_key.setdefault(question.question_key, question)
+        if retained is not question:
+            db.delete(question)
+
+    desired_question_keys = [question.question_key for question in follow_up_questions]
+    question_ids = iter(
+        next_ids(
+            db,
+            VirtualClaimQuestion,
+            sum(1 for key in desired_question_keys if key not in existing_questions_by_key),
         )
+    )
+    for question in follow_up_questions:
+        set_virtual_claim_question(
+            db,
+            draft,
+            question_key=question.question_key,
+            prompt=question.prompt,
+            status=question.status,
+            answer_json=question.answer,
+            existing=existing_questions_by_key.pop(question.question_key, None),
+            allocated_id=next(question_ids, None),
+        )
+    for stale_question in existing_questions_by_key.values():
+        db.delete(stale_question)
 
     if draft.materialized_claim_id is not None:
         draft.status = "materialized"
@@ -783,7 +861,7 @@ def recompute_virtual_claim(db: Session, draft: VirtualClaimDraft) -> VirtualCla
         follow_up_questions=follow_up_questions,
     )
 
-    return VirtualClaimResponse(
+    response = VirtualClaimResponse(
         draft_id=draft.id,
         session_id=draft.chat_session_id,
         status=draft.status,  # type: ignore[arg-type]
@@ -821,6 +899,15 @@ def recompute_virtual_claim(db: Session, draft: VirtualClaimDraft) -> VirtualCla
         follow_up_questions=follow_up_questions,
         updated_at=draft.updated_at,
     )
+    logger.info(
+        "virtual_claim_recompute draft_id=%s session_id=%s duration_ms=%s missing=%s ready=%s",
+        draft.id,
+        draft.chat_session_id,
+        round((time.monotonic() - started) * 1000, 2),
+        len(response.missing_fields),
+        response.checklist.readiness.ready_to_draft,
+    )
+    return response
 
 
 def list_missing_virtual_claim_fields(db: Session, draft: VirtualClaimDraft) -> dict[str, Any]:
@@ -831,7 +918,9 @@ def list_missing_virtual_claim_fields(db: Session, draft: VirtualClaimDraft) -> 
         "readiness_reason": response.readiness_reason,
         "virtual_claim": response.model_dump(mode="json"),
         "missing_fields": [item.model_dump(mode="json") for item in response.missing_fields],
-        "follow_up_questions": [item.model_dump(mode="json") for item in response.follow_up_questions],
+        "follow_up_questions": [
+            item.model_dump(mode="json") for item in response.follow_up_questions
+        ],
     }
 
 
@@ -846,7 +935,9 @@ def explain_virtual_claim_policy(db: Session, draft: VirtualClaimDraft) -> dict[
         "policy_summary": response.policy_summary.model_dump(mode="json")
         if response.policy_summary
         else None,
-        "policy_constraints": [item.model_dump(mode="json") for item in response.policy_constraints],
+        "policy_constraints": [
+            item.model_dump(mode="json") for item in response.policy_constraints
+        ],
         "missing_information": [item.model_dump(mode="json") for item in response.missing_fields],
         "answer_hint": (
             "Use only stored policy rules linked to the current virtual claim. "
@@ -957,6 +1048,7 @@ def materialize_virtual_claim(
 
 
 def _seed_virtual_claim_from_claim(db: Session, draft: VirtualClaimDraft, claim_id: int) -> None:
+    draft = _lock_virtual_claim_draft(db, draft.id)
     claim = db.execute(select(Claim).where(Claim.id == claim_id)).scalar_one_or_none()
     if claim is None:
         return
@@ -975,12 +1067,15 @@ def _seed_virtual_claim_from_claim(db: Session, draft: VirtualClaimDraft, claim_
     if mcp_code:
         draft.procedure_code = mcp_code
 
-    service_date_field = _get_or_create_field(db, draft, "service_date")
-    service_date_field.value_json = claim.service_date.isoformat() if claim.service_date else None
-    service_date_field.status = "present" if claim.service_date else "missing"
-    service_date_field.source_type = "database"
-    service_date_field.updated_at = utcnow()
-    db.add(service_date_field)
+    set_virtual_claim_field(
+        db,
+        draft,
+        key="service_date",
+        value=claim.service_date.isoformat() if claim.service_date else None,
+        status="present" if claim.service_date else "missing",
+        source_type="database",
+        source_ref_json=None,
+    )
 
     diagnosis_code = (
         db.execute(
@@ -990,12 +1085,15 @@ def _seed_virtual_claim_from_claim(db: Session, draft: VirtualClaimDraft, claim_
         .first()
     )
     if diagnosis_code:
-        diagnosis_field = _get_or_create_field(db, draft, "diagnosis.code")
-        diagnosis_field.value_json = diagnosis_code
-        diagnosis_field.status = "present"
-        diagnosis_field.source_type = "database"
-        diagnosis_field.updated_at = utcnow()
-        db.add(diagnosis_field)
+        set_virtual_claim_field(
+            db,
+            draft,
+            key="diagnosis.code",
+            value=diagnosis_code,
+            status="present",
+            source_type="database",
+            source_ref_json=None,
+        )
 
     draft.updated_at = utcnow()
     db.add(draft)
@@ -1023,11 +1121,6 @@ def _policy_summary_response(
 def hydrate_virtual_claim_from_records(db: Session, draft: VirtualClaimDraft) -> None:
     patient = db.get(Patient, draft.patient_id) if draft.patient_id else None
     doctor = db.get(User, draft.doctor_id) if draft.doctor_id else None
-    procedure = (
-        db.execute(select(McpCode).where(McpCode.code == draft.procedure_code)).scalar_one_or_none()
-        if draft.procedure_code
-        else None
-    )
     patient_policy = _get_patient_policy(
         db,
         patient_id=draft.patient_id,
@@ -1372,7 +1465,12 @@ def _get_patient_policy(
     if insurance_company_id is not None:
         stmt = stmt.where(PatientInsurancePolicy.insurance_company_id == insurance_company_id)
     return (
-        db.execute(stmt.order_by(PatientInsurancePolicy.priority.asc(), PatientInsurancePolicy.id.asc()))
+        db.execute(
+            stmt.order_by(
+                PatientInsurancePolicy.priority.asc(),
+                PatientInsurancePolicy.id.asc(),
+            )
+        )
         .scalars()
         .first()
     )
@@ -1397,21 +1495,30 @@ def _set_database_field(db: Session, draft: VirtualClaimDraft, key: str, value: 
     if definition is None:
         return
     normalized_value, field_status = _normalize_field_value(definition, value)
-    field = _get_or_create_field(db, draft, key)
+    field = _find_virtual_claim_field(db, draft, key)
     if (
-        field.source_type == "database"
+        field is not None
+        and field.source_type == "database"
         and field.value_json == normalized_value
         and field.status == field_status
     ):
         return
-    if field.source_type not in {"database", "derived"} and not _is_blank(field.value_json):
+    if (
+        field is not None
+        and field.source_type not in {"database", "derived"}
+        and not _is_blank(field.value_json)
+    ):
         return
-    field.value_json = normalized_value
-    field.status = field_status
-    field.source_type = "database"
-    field.source_ref_json = None
-    field.updated_at = utcnow()
-    db.add(field)
+    set_virtual_claim_field(
+        db,
+        draft,
+        key=key,
+        value=normalized_value,
+        status=field_status,
+        source_type="database",
+        source_ref_json=None,
+        existing=field,
+    )
 
 
 def _sync_policy_references(
@@ -1614,7 +1721,13 @@ def _evaluate_stored_requirement(
     )
 
 
-def _get_or_create_field(db: Session, draft: VirtualClaimDraft, key: str) -> VirtualClaimField:
+def _get_or_create_field(
+    db: Session,
+    draft: VirtualClaimDraft,
+    key: str,
+    *,
+    allocated_id: int | None = None,
+) -> VirtualClaimField:
     for field in draft.fields:
         if field.field_key == key:
             return field
@@ -1627,7 +1740,7 @@ def _get_or_create_field(db: Session, draft: VirtualClaimDraft, key: str) -> Vir
     if field is not None:
         return field
     field = VirtualClaimField(
-        id=next_id(db, VirtualClaimField),
+        id=allocated_id if allocated_id is not None else next_id(db, VirtualClaimField),
         draft_id=draft.id,
         clinic_id=draft.clinic_id,
         field_key=key,
@@ -1636,6 +1749,125 @@ def _get_or_create_field(db: Session, draft: VirtualClaimDraft, key: str) -> Vir
     )
     draft.fields.append(field)
     return field
+
+
+def _lock_virtual_claim_draft(db: Session, draft_id: int) -> VirtualClaimDraft:
+    return db.execute(
+        select(VirtualClaimDraft).where(VirtualClaimDraft.id == draft_id).with_for_update()
+    ).scalar_one()
+
+
+def _list_virtual_claim_fields(
+    db: Session,
+    draft: VirtualClaimDraft,
+    key: str,
+) -> list[VirtualClaimField]:
+    fields_by_id: dict[int, VirtualClaimField] = {}
+    for field in draft.fields:
+        if field.field_key == key:
+            fields_by_id[field.id] = field
+    for field in db.execute(
+        select(VirtualClaimField)
+        .where(
+            VirtualClaimField.draft_id == draft.id,
+            VirtualClaimField.field_key == key,
+        )
+        .order_by(VirtualClaimField.id.asc())
+    ).scalars():
+        fields_by_id[field.id] = field
+    return [fields_by_id[field_id] for field_id in sorted(fields_by_id)]
+
+
+def _find_virtual_claim_field(
+    db: Session,
+    draft: VirtualClaimDraft,
+    key: str,
+) -> VirtualClaimField | None:
+    fields = _list_virtual_claim_fields(db, draft, key)
+    if not fields:
+        return None
+    retained = fields[0]
+    for duplicate in fields[1:]:
+        db.delete(duplicate)
+    return retained
+
+
+def set_virtual_claim_field(
+    db: Session,
+    draft: VirtualClaimDraft,
+    *,
+    key: str,
+    value: Any,
+    status: Literal["missing", "present", "derived", "needs_review"],
+    source_type: SourceType,
+    source_ref_json: dict[str, Any] | None,
+    existing: VirtualClaimField | None = None,
+    allocated_id: int | None = None,
+) -> VirtualClaimField:
+    field = existing or _find_virtual_claim_field(db, draft, key)
+    if field is None:
+        field = VirtualClaimField(
+            id=allocated_id if allocated_id is not None else next_id(db, VirtualClaimField),
+            draft_id=draft.id,
+            clinic_id=draft.clinic_id,
+            field_key=key,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        draft.fields.append(field)
+    field.value_json = value
+    field.status = status
+    field.source_type = source_type
+    field.source_ref_json = source_ref_json
+    field.updated_at = utcnow()
+    db.add(field)
+    return field
+
+
+def _list_virtual_claim_questions(
+    db: Session,
+    draft: VirtualClaimDraft,
+) -> list[VirtualClaimQuestion]:
+    questions_by_id: dict[int, VirtualClaimQuestion] = {}
+    for question in draft.questions:
+        questions_by_id[question.id] = question
+    for question in db.execute(
+        select(VirtualClaimQuestion)
+        .where(VirtualClaimQuestion.draft_id == draft.id)
+        .order_by(VirtualClaimQuestion.id.asc())
+    ).scalars():
+        questions_by_id[question.id] = question
+    return [questions_by_id[question_id] for question_id in sorted(questions_by_id)]
+
+
+def set_virtual_claim_question(
+    db: Session,
+    draft: VirtualClaimDraft,
+    *,
+    question_key: str,
+    prompt: str,
+    status: Literal["open", "answered", "dismissed"],
+    answer_json: Any,
+    existing: VirtualClaimQuestion | None = None,
+    allocated_id: int | None = None,
+) -> VirtualClaimQuestion:
+    question = existing
+    if question is None:
+        question = VirtualClaimQuestion(
+            id=allocated_id if allocated_id is not None else next_id(db, VirtualClaimQuestion),
+            draft_id=draft.id,
+            clinic_id=draft.clinic_id,
+            question_key=question_key,
+            created_at=utcnow(),
+            updated_at=utcnow(),
+        )
+        draft.questions.append(question)
+    question.prompt = prompt
+    question.status = status
+    question.answer_json = answer_json
+    question.updated_at = utcnow()
+    db.add(question)
+    return question
 
 
 def _normalize_field_value(
@@ -1654,9 +1886,13 @@ def _normalize_field_value(
         if _is_blank(value):
             return None, "missing"
         coerced = _coerce_booleanish(value)
-        if coerced is None:
-            return str(value), "needs_review"
-        return coerced, "present" if coerced else "needs_review"
+        if coerced is not None:
+            return coerced, "present" if coerced else "needs_review"
+        if isinstance(value, str):
+            rendered = value.strip()
+            if rendered:
+                return rendered, "present"
+        return str(value), "needs_review"
 
     if definition.value_type == "number":
         if _is_blank(value):
@@ -1677,7 +1913,7 @@ def _normalize_field_value(
 def _coerce_booleanish(value: Any) -> bool | None:
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return bool(value)
     if not isinstance(value, str):
         return None
@@ -1729,6 +1965,95 @@ def _coerce_optional_int(value: Any) -> int | None:
     return None
 
 
+def _resolve_insurance_company_id(
+    db: Session,
+    *,
+    insurance_company_id: int | str | None,
+    insurance_company_name: str | None,
+) -> int | None:
+    resolved_id = _coerce_optional_int(insurance_company_id)
+    if resolved_id is not None:
+        company = db.get(InsuranceCompany, resolved_id)
+        return company.id if company is not None else None
+
+    fallback_name = insurance_company_name
+    if fallback_name is None and isinstance(insurance_company_id, str):
+        stripped = insurance_company_id.strip()
+        if stripped and not stripped.isdigit():
+            fallback_name = stripped
+    normalized_name = _coerce_optional_str(fallback_name)
+    if normalized_name is None:
+        return None
+
+    exact_match = (
+        db.execute(
+            select(InsuranceCompany)
+            .where(InsuranceCompany.name.ilike(normalized_name))
+            .order_by(InsuranceCompany.id.asc())
+        )
+        .scalars()
+        .first()
+    )
+    if exact_match is not None:
+        return exact_match.id
+
+    partial_match = (
+        db.execute(
+            select(InsuranceCompany)
+            .where(InsuranceCompany.name.ilike(f"%{normalized_name}%"))
+            .order_by(InsuranceCompany.id.asc())
+        )
+        .scalars()
+        .first()
+    )
+    return partial_match.id if partial_match is not None else None
+
+
+def _resolve_patient_id_from_query(
+    db: Session,
+    *,
+    clinic_id: int,
+    patient_query: str,
+) -> int | None:
+    stripped = patient_query.strip()
+    if not stripped:
+        return None
+    tokens = [token for token in stripped.split() if token]
+    query = f"%{stripped}%"
+    filters = [
+        Patient.first_name.ilike(query),
+        Patient.last_name.ilike(query),
+    ]
+    if tokens:
+        filters.append(Patient.first_name.ilike(f"%{tokens[0]}%"))
+    rows = (
+        db.execute(
+            select(Patient)
+            .where(
+                Patient.clinic_id == clinic_id,
+                or_(*filters),
+            )
+            .order_by(Patient.id.asc())
+        )
+        .scalars()
+        .all()
+    )
+    if len(rows) == 1:
+        return rows[0].id
+    if len(tokens) >= 2:
+        exact_matches = [
+            patient
+            for patient in rows
+            if all(
+                token.lower() in f"{patient.first_name} {patient.last_name}".lower()
+                for token in tokens
+            )
+        ]
+        if len(exact_matches) == 1:
+            return exact_matches[0].id
+    return None
+
+
 def _coerce_optional_str(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
@@ -1741,7 +2066,7 @@ def _is_blank(value: Any) -> bool:
         return True
     if isinstance(value, str):
         return value.strip() == "" or value.strip().lower() in {"unknown", "missing", "none"}
-    if isinstance(value, (list, dict)):
+    if isinstance(value, list | dict):
         return len(value) == 0
     return False
 

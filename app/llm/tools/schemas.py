@@ -49,11 +49,23 @@ class GetVirtualClaimChecklistArgs(BaseModel):
 
 
 class BootstrapVirtualClaimContextArgs(BaseModel):
-    patient_id: int | None = None
-    patient_query: str | None = None
-    insurance_company_id: int | None = None
-    insurance_company_name: str | None = None
-    procedure_code: str | None = None
+    patient_id: int | str | None = Field(
+        default=None,
+        description="Numeric database patient id.",
+    )
+    patient_query: str | None = Field(default=None)
+    insurance_company_id: int | str | None = Field(
+        default=None,
+        description="Numeric database id only.",
+    )
+    insurance_company_name: str | None = Field(
+        default=None,
+        description="Use payer name such as Aetna if id is unknown.",
+    )
+    procedure_code: str | None = Field(
+        default=None,
+        description="Numeric CPT/procedure code only, e.g. 62323. Do not include CPT prefix.",
+    )
 
 
 class VirtualClaimFieldUpdate(BaseModel):
@@ -63,7 +75,8 @@ class VirtualClaimFieldUpdate(BaseModel):
             "Supported keys include insurance.member_id, insurance.group_number, "
             "insurance.policy_number, service_date, service.rendering_provider, "
             "service.quantity, service.modifier, diagnosis.code, diagnosis.description, "
-            "clinical.radiculopathy, clinical.functional_limitation, "
+            "clinical.radiculopathy, clinical.dermatomal_distribution, "
+            "clinical.functional_limitation, "
             "clinical.conservative_treatment, clinical.imaging_guidance, "
             "clinical.radiology_consistency, clinical.neuro_exam, clinical.mri_or_emg, "
             "treatment.initial_tfesi, utilization.level_limit_ok, "
@@ -79,9 +92,28 @@ class UpdateVirtualClaimFieldsArgs(BaseModel):
 
 
 class UpdateVirtualClaimArgs(BaseModel):
-    patient_id: int | None = None
-    insurance_company_id: int | None = None
-    procedure_code: str | None = None
+    patient_id: int | str | None = Field(
+        default=None,
+        description=(
+            "Numeric database patient id. Leave unset when the session virtual claim "
+            "already has the patient."
+        ),
+    )
+    insurance_company_id: int | str | None = Field(
+        default=None,
+        description=(
+            "Numeric database payer id only. Leave unset when the session virtual claim "
+            "already has the payer."
+        ),
+    )
+    insurance_company_name: str | None = Field(
+        default=None,
+        description="Use payer name such as Aetna if the numeric payer id is unknown.",
+    )
+    procedure_code: str | None = Field(
+        default=None,
+        description="Numeric CPT/procedure code only, e.g. 62323. Do not include CPT prefix.",
+    )
     fields: list[VirtualClaimFieldUpdate] = Field(default_factory=list)
     source_type: str = Field(default="llm_extracted", pattern="^(user|llm_extracted)$")
 

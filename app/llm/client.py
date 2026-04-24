@@ -152,6 +152,7 @@ class LLMClient:
     def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
         last_error: LLMUnavailable | None = None
         for attempt in range(1, self._max_attempts + 1):
+            started = time.monotonic()
             try:
                 response = self._client.post("/chat/completions", json=payload)
             except httpx.RequestError as exc:
@@ -228,6 +229,12 @@ class LLMClient:
                     status_code=response.status_code,
                     retryable=False,
                 )
+            logger.info(
+                "llm_http_round status=%s attempt=%s duration_ms=%s",
+                response.status_code,
+                attempt,
+                round((time.monotonic() - started) * 1000, 2),
+            )
             return cast(dict[str, Any], data)
 
         raise last_error or LLMUnavailable("LLM request failed", retryable=True)

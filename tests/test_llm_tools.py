@@ -315,6 +315,177 @@ def test_virtual_claim_tools_bootstrap_and_materialize(db_session) -> None:
     assert proposal["proposal"]["summary"]["procedure_code"] == "62323"
 
 
+def test_bootstrap_virtual_claim_context_normalizes_live_style_args(db_session) -> None:
+    doctor_role = db_session.execute(select(Role).where(Role.code == "doctor")).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
+
+    user = User(
+        id=next_id(db_session, User),
+        email="virtual-normalize@example.com",
+        password_hash="hashed",
+        is_active=True,
+        clinic_id=1,
+        created_at=utcnow(),
+    )
+    company = InsuranceCompany(id=next_id(db_session, InsuranceCompany), name="Aetna")
+    patient = Patient(
+        id=next_id(db_session, Patient),
+        doctor_id=user.id,
+        clinic_id=1,
+        first_name="DAVID R",
+        last_name="WIENTZEN",
+        created_at=utcnow(),
+    )
+    mcp = McpCode(
+        code="62323",
+        description="Injection(s), of diagnostic or therapeutic substance(s)",
+    )
+    session = ChatSession(
+        id=next_id(db_session, ChatSession),
+        doctor_id=user.id,
+        clinic_id=1,
+        created_at=utcnow(),
+    )
+    db_session.add_all(
+        [
+            user,
+            UserRole(user_id=user.id, role_id=doctor_role.id),
+            company,
+            patient,
+            mcp,
+            session,
+        ]
+    )
+    db_session.commit()
+
+    ctx = ToolContext(
+        db=db_session,
+        user_id=user.id,
+        clinic_id=1,
+        role="doctor",
+        chat_session_id=session.id,
+    )
+
+    bootstrapped = execute_tool(
+        "bootstrap_virtual_claim_context",
+        {
+            "patient_id": str(patient.id),
+            "insurance_company_id": "Aetna",
+            "procedure_code": "CPT62323",
+        },
+        ctx,
+    )
+
+    assert bootstrapped["patient"]["name"] == "DAVID R WIENTZEN"
+    assert bootstrapped["payer"]["name"] == "Aetna"
+    assert bootstrapped["procedure"]["code"] == "62323"
+    assert bootstrapped["checklist"]["service"]["procedure_code"]["value"] == "62323"
+
+
+def test_request_form_skips_base_fields_already_present_in_virtual_claim(db_session) -> None:
+    doctor_role = db_session.execute(select(Role).where(Role.code == "doctor")).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
+
+    user = User(
+        id=next_id(db_session, User),
+        email="virtual-request-form@example.com",
+        password_hash="hashed",
+        is_active=True,
+        clinic_id=1,
+        created_at=utcnow(),
+    )
+    company = InsuranceCompany(id=next_id(db_session, InsuranceCompany), name="Aetna")
+    patient = Patient(
+        id=next_id(db_session, Patient),
+        doctor_id=user.id,
+        clinic_id=1,
+        first_name="DAVID R",
+        last_name="WIENTZEN",
+        created_at=utcnow(),
+    )
+    mcp = McpCode(
+        code="62323",
+        description="Injection(s), of diagnostic or therapeutic substance(s)",
+    )
+    session = ChatSession(
+        id=next_id(db_session, ChatSession),
+        doctor_id=user.id,
+        clinic_id=1,
+        created_at=utcnow(),
+    )
+    db_session.add_all(
+        [
+            user,
+            UserRole(user_id=user.id, role_id=doctor_role.id),
+            company,
+            patient,
+            mcp,
+            session,
+        ]
+    )
+    db_session.commit()
+
+    ctx = ToolContext(
+        db=db_session,
+        user_id=user.id,
+        clinic_id=1,
+        role="doctor",
+        chat_session_id=session.id,
+    )
+    execute_tool(
+        "bootstrap_virtual_claim_context",
+        {
+            "patient_id": patient.id,
+            "insurance_company_name": "Aetna",
+            "procedure_code": "62323",
+        },
+        ctx,
+    )
+
+    result = execute_tool(
+        "request_form",
+        {
+            "fields": [
+                {
+                    "name": "patient_name",
+                    "label": "Patient",
+                    "type": "text",
+                    "required": True,
+                },
+                {
+                    "name": "insurance_company_name",
+                    "label": "Payer",
+                    "type": "text",
+                    "required": True,
+                },
+                {
+                    "name": "procedure_code",
+                    "label": "CPT",
+                    "type": "text",
+                    "required": True,
+                },
+                {
+                    "name": "service_date",
+                    "label": "Service date",
+                    "type": "date",
+                    "required": True,
+                },
+            ]
+        },
+        ctx,
+    )
+
+    assert result["type"] == "form"
+    returned_names = [field["name"] for field in result["fields"]]
+    assert returned_names == ["service_date"]
+
+
 def test_create_claim_draft_is_blocked_until_virtual_claim_is_ready(db_session) -> None:
     doctor_role = db_session.execute(select(Role).where(Role.code == "doctor")).scalar_one_or_none()
     if doctor_role is None:

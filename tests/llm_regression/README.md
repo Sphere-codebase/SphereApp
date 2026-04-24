@@ -83,6 +83,20 @@ python3 tools/run_llm_regression.py --case-id open_and_summarize_claim
 python3 tools/run_llm_regression.py --case-id search_patient_by_name --case-id fetch_patient_details_after_search
 ```
 
+Focused Virtual Claim runs:
+
+```bash
+python3 tools/run_llm_regression.py --case-id bootstrap_virtual_claim_62323_aetna_david
+```
+
+```bash
+python3 tools/run_llm_regression.py --case-id virtual_claim_clinical_facts_preserve_context
+```
+
+```bash
+python3 tools/run_llm_regression.py --case-id ready_after_facts_claim_draft_62323
+```
+
 ## Optional Overrides
 
 ```bash

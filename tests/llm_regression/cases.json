@@ -182,19 +182,19 @@
       "id": "bootstrap_virtual_claim_62323_aetna_david",
       "title": "Bootstrap virtual claim for DAVID R WIENTZEN / Aetna / 62323",
       "session_group": "virtual_claim_base_62323",
-      "prompt": "Use tools only.\n1. Call bootstrap_virtual_claim_context with patient_query DAVID R WIENTZEN, insurance_company_name Aetna, and procedure_code 62323.\n2. Call get_virtual_claim.\n\nAnswer in English with exactly these headings:\nPATIENT\nPAYER\nSERVICE\nREADINESS\n\nIf any fact is unresolved, write UNKNOWN.",
+      "prompt": "I want to prepare a new Aetna claim for patient DAVID R WIENTZEN for CPT 62323. Planned service date is 2025-05-27.",
       "expect": {
         "expected_status": 200,
         "expected_action_required": false,
         "expected_language": "en",
-        "expected_tool_calls": ["bootstrap_virtual_claim_context", "get_virtual_claim"],
-        "expected_sections": ["PATIENT", "PAYER", "SERVICE", "READINESS"],
+        "expected_sections": ["UPDATED", "STILL MISSING", "READY TO DRAFT"],
         "expected_virtual_claim_present": true,
         "expected_virtual_claim_ready_to_draft": false,
         "expected_virtual_claim_values": {
           "patient.name": "DAVID R WIENTZEN",
           "payer.name": "Aetna",
           "procedure.code": "62323",
+          "checklist.service.service_date.value": "2025-05-27",
           "readiness": false,
           "checklist.readiness.ready_to_draft": false
         },
@@ -203,11 +203,12 @@
           "payer.name",
           "procedure.code",
           "checklist.patient.patient_id.value",
-          "checklist.service.procedure_code.value"
+          "checklist.service.procedure_code.value",
+          "policy_summary.policy_link_id",
+          "policy_summary.policy_rule_id"
         ],
-        "required_substrings": ["DAVID", "WIENTZEN", "Aetna", "62323"],
-        "required_any_substrings": ["NO", "not ready", "UNKNOWN", "open", "missing"],
-        "min_tool_steps": 2
+        "required_substrings": ["Aetna", "62323"],
+        "required_any_substrings": ["Service date", "still missing", "READY TO DRAFT: NO"]
       }
     },
     {
@@ -271,6 +272,42 @@
         "max_question_marks": 3,
         "min_tool_steps": 3,
         "forbidden_tool_calls": ["create_claim_draft", "update_claim_fields", "propose_materialize_virtual_claim"]
+      }
+    },
+    {
+      "id": "virtual_claim_clinical_facts_preserve_context",
+      "title": "Clinical facts update the existing virtual claim without re-asking base identifiers",
+      "session_group": "virtual_claim_base_62323",
+      "prompt": "The current session already has a virtual claim for DAVID R WIENTZEN with payer Aetna and CPT 62323 from the earlier bootstrap in this session.\n\nUpdate that existing virtual claim with these user-provided facts instead of asking again for patient, payer, or procedure code:\nThe diagnosis is M54.16 lumbar radiculopathy. The patient has dermatomal lumbar radicular pain with significant functional limitation. Physical therapy and non-narcotic analgesics failed. Fluoroscopy guidance will be used. MRI within 12 months shows nerve root compression consistent with symptoms. Neuro exam within 3 months shows altered sensation and diminished reflexes. This is the initial therapeutic TFESI, quantity 1, one level, and session/frequency limits are respected.\n\nUse tools as needed, then answer in English with exactly these headings:\nADDED_TO_VIRTUAL_CLAIM\nSTILL_MISSING\nREADY_TO_DRAFT\n\nDo not ask again for patient, payer, or procedure code.",
+      "expect": {
+        "expected_status": 200,
+        "expected_action_required": false,
+        "expected_language": "en",
+        "expected_any_tool_calls": ["get_virtual_claim", "update_virtual_claim", "evaluate_claim_readiness"],
+        "forbidden_tool_calls": ["request_form"],
+        "expected_sections": ["ADDED_TO_VIRTUAL_CLAIM", "STILL_MISSING", "READY_TO_DRAFT"],
+        "expected_virtual_claim_present": true,
+        "expected_virtual_claim_values": {
+          "patient.name": "DAVID R WIENTZEN",
+          "payer.name": "Aetna",
+          "procedure.code": "62323",
+          "checklist.diagnosis.diagnosis_code.value": "M54.16",
+          "checklist.service.quantity.value": 1
+        },
+        "required_virtual_claim_paths": [
+          "checklist.policy_medical_necessity.radiculopathy_evidence.value",
+          "checklist.policy_medical_necessity.dermatomal_distribution.value",
+          "checklist.policy_medical_necessity.functional_limitation.value",
+          "checklist.policy_medical_necessity.conservative_treatment_failed.value",
+          "checklist.policy_medical_necessity.imaging_guidance.value",
+          "checklist.policy_medical_necessity.MRI_or_CT_or_EMG_evidence.value",
+          "checklist.policy_medical_necessity.neuro_exam_evidence.value",
+          "checklist.policy_medical_necessity.initial_therapeutic_tfesi.value",
+          "checklist.policy_medical_necessity.frequency_session_limits_respected.value",
+          "checklist.policy_medical_necessity.vertebral_level_limits_respected.value"
+        ],
+        "required_substrings": ["M54.16", "lumbar radiculopathy"],
+        "required_any_substrings": ["updated", "added", "virtual claim", "remaining", "missing"]
       }
     },
     {

@@ -300,12 +300,15 @@ test("renders structured virtual claim checklist and readiness", () => {
   expect(screen.getByText("Virtual Claim")).toBeInTheDocument();
   expect(screen.getAllByText(/Ready to draft: NO/i).length).toBeGreaterThan(0);
   expect(screen.getAllByText("DAVID R WIENTZEN").length).toBeGreaterThan(0);
-  expect(screen.getAllByText("Aetna").length).toBeGreaterThan(0);
+  expect(screen.getByText("Payer: Aetna")).toBeInTheDocument();
+  expect(screen.getByText("CPT 62323")).toBeInTheDocument();
   expect(screen.getAllByText("Patient").length).toBeGreaterThan(0);
   expect(screen.getByText("Payer / Insurance")).toBeInTheDocument();
   expect(screen.getByText("Medical Necessity")).toBeInTheDocument();
   expect(screen.getByText("Aetna 62323 Policy Cheat-Sheet")).toBeInTheDocument();
   expect(screen.getAllByText("Neuro exam evidence").length).toBeGreaterThan(0);
+  expect(screen.queryByText("Insurance company ID")).not.toBeInTheDocument();
+  expect(screen.queryByText("Policy link ID")).not.toBeInTheDocument();
   expect(
     screen.getByText("What neuro exam findings within the prior 3 months are documented?")
   ).toBeInTheDocument();

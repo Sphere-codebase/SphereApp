@@ -16,7 +16,7 @@ import {
   refreshClaimFinancialSummary,
 } from "@/api/claims";
 import { getPatient } from "@/api/patients";
-import { ensureVirtualClaim } from "@/api/virtualClaims";
+import { ensureVirtualClaim, getVirtualClaim } from "@/api/virtualClaims";
 import { Conversation } from "@/components/ai/conversation";
 import type { MessageProps } from "@/components/ai/message";
 import { PromptInput } from "@/components/ai/prompt-input";
@@ -137,10 +137,13 @@ function WorkspaceShell() {
         throw new Error("Missing session id");
       }
       try {
-        return await ensureVirtualClaim(activeSessionId, {
-          patient_id: parsedPatientId ?? undefined,
-        });
+        return await getVirtualClaim(activeSessionId);
       } catch (err) {
+        if (err instanceof ApiError && err.status === 404) {
+          return await ensureVirtualClaim(activeSessionId, {
+            patient_id: parsedPatientId ?? undefined,
+          });
+        }
         if (err instanceof ApiError && err.status === 401) {
           handleUnauthorized();
         }
@@ -149,6 +152,8 @@ function WorkspaceShell() {
     },
     enabled: Boolean(activeSessionId),
     retry: false,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
   });
 
   const conversationMessages = useMemo<MessageProps[]>(
@@ -192,11 +197,11 @@ function WorkspaceShell() {
   }, [actionRequired, proposedChanges]);
 
   useEffect(() => {
-    if (!activeSessionId || !lastRequestId) {
+    if (!activeSessionId || !chatVirtualClaim) {
       return;
     }
-    void queryClient.invalidateQueries({ queryKey: ["virtual-claim", activeSessionId] });
-  }, [activeSessionId, lastRequestId, queryClient]);
+    queryClient.setQueryData(["virtual-claim", activeSessionId, parsedPatientId ?? null], chatVirtualClaim);
+  }, [activeSessionId, chatVirtualClaim, parsedPatientId, queryClient]);
 
   useEffect(() => {
     if (!parsedRouteSessionId || !Number.isFinite(parsedRouteSessionId)) {

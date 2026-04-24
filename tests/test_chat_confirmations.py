@@ -447,7 +447,239 @@ def test_chat_response_includes_virtual_claim_after_bootstrap_tool(db_session: S
         assert response.status_code == 200
         payload = response.json()
         assert payload["virtual_claim"] is not None
-        assert payload["virtual_claim"]["checklist"]["service"]["procedure_code"]["value"] == "62323"
+        assert (
+            payload["virtual_claim"]["checklist"]["service"]["procedure_code"]["value"]
+            == "62323"
+        )
         assert any(action["type"] == "virtual_claim_update" for action in payload["ui_actions"])
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_message_service_date_is_applied_to_virtual_claim(db_session: Session) -> None:
+    doctor_role = db_session.execute(select(Role).where(Role.code == "doctor")).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
+
+    user = User(
+        id=next_id(db_session, User),
+        email="doctor-virtual-service-date@example.com",
+        password_hash=get_password_hash("secret"),
+        is_active=True,
+        clinic_id=1,
+        created_at=utcnow(),
+    )
+    company = InsuranceCompany(id=next_id(db_session, InsuranceCompany), name="Aetna")
+    patient = Patient(
+        id=next_id(db_session, Patient),
+        doctor_id=user.id,
+        clinic_id=1,
+        first_name="DAVID R",
+        last_name="WIENTZEN",
+        created_at=utcnow(),
+    )
+    mcp = McpCode(
+        code="62323",
+        description="Injection(s), of diagnostic or therapeutic substance(s)",
+    )
+    session = ChatSession(
+        id=next_id(db_session, ChatSession),
+        doctor_id=user.id,
+        clinic_id=1,
+        created_at=utcnow(),
+    )
+    db_session.add_all(
+        [user, UserRole(user_id=user.id, role_id=doctor_role.id), company, patient, mcp, session]
+    )
+    db_session.commit()
+
+    token = create_access_token(str(user.id))
+    responses = [ChatCompletionResult(assistant_text="unused", tool_calls=[])]
+    fake_llm = FakeLLMClient(responses)
+
+    def override_get_db():
+        yield db_session
+
+    def override_llm_client():
+        return fake_llm
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_llm_client] = override_llm_client
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/chat",
+            json={
+                "message": (
+                    "I want to prepare a new Aetna claim for patient DAVID R WIENTZEN "
+                    "for CPT 62323. Planned service date is 2025-05-27."
+                ),
+                "session_id": session.id,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert fake_llm.calls == 0
+        assert payload["virtual_claim"] is not None
+        assert payload["virtual_claim"]["patient"]["name"] == "DAVID R WIENTZEN"
+        assert payload["virtual_claim"]["payer"]["name"] == "Aetna"
+        assert payload["virtual_claim"]["procedure"]["code"] == "62323"
+        assert payload["virtual_claim"]["checklist"]["service"]["service_date"]["value"] == (
+            "2025-05-27"
+        )
+        assert "UPDATED" in payload["assistant_message"]
+        assert "STILL MISSING" in payload["assistant_message"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_chat_clinical_facts_update_existing_virtual_claim_without_duplicate_base_form(
+    db_session: Session,
+) -> None:
+    doctor_role = db_session.execute(select(Role).where(Role.code == "doctor")).scalar_one_or_none()
+    if doctor_role is None:
+        doctor_role = Role(id=next_id(db_session, Role), code="doctor", description="Doctor")
+        db_session.add(doctor_role)
+        db_session.flush()
+
+    user = User(
+        id=next_id(db_session, User),
+        email="doctor-virtual-clinical@example.com",
+        password_hash=get_password_hash("secret"),
+        is_active=True,
+        clinic_id=1,
+        created_at=utcnow(),
+    )
+    company = InsuranceCompany(id=next_id(db_session, InsuranceCompany), name="Aetna")
+    patient = Patient(
+        id=next_id(db_session, Patient),
+        doctor_id=user.id,
+        clinic_id=1,
+        first_name="DAVID R",
+        last_name="WIENTZEN",
+        created_at=utcnow(),
+    )
+    mcp = McpCode(
+        code="62323",
+        description="Injection(s), of diagnostic or therapeutic substance(s)",
+    )
+    diagnosis = DiagnosisCode(code="M54.16", description="Radiculopathy, lumbar region")
+    policy_link = PolicyLink(
+        id=next_id(db_session, PolicyLink),
+        insurance_company_id=company.id,
+        mcp_code=mcp.code,
+        policy_url="https://example.com/aetna-62323",
+        created_at=utcnow(),
+    )
+    policy_rule = PolicyRule(
+        id=next_id(db_session, PolicyRule),
+        policy_link_id=policy_link.id,
+        extracted_at=utcnow(),
+        title="Aetna 62323 Medical Necessity",
+        rules_json=(
+            '{"criteria": ["radiculopathy", "dermatomal", "functional limitation", '
+            '"fluoroscopy", "physical therapy", "neuro exam", "radiologic findings", '
+            '"mri", "session limit", "level limits"]}'
+        ),
+    )
+    session = ChatSession(
+        id=next_id(db_session, ChatSession),
+        doctor_id=user.id,
+        clinic_id=1,
+        created_at=utcnow(),
+    )
+    db_session.add_all(
+        [
+            user,
+            UserRole(user_id=user.id, role_id=doctor_role.id),
+            company,
+            patient,
+            mcp,
+            diagnosis,
+            policy_link,
+            policy_rule,
+            session,
+        ]
+    )
+    db_session.commit()
+
+    bootstrap_virtual_claim_context(
+        db_session,
+        session,
+        patient_id=patient.id,
+        insurance_company_name="Aetna",
+        procedure_code="62323",
+    )
+
+    token = create_access_token(str(user.id))
+    responses = [ChatCompletionResult(assistant_text="unused", tool_calls=[])]
+    fake_llm = FakeLLMClient(responses)
+
+    def override_get_db():
+        yield db_session
+
+    def override_llm_client():
+        return fake_llm
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_llm_client] = override_llm_client
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/chat",
+            json={
+                "message": (
+                    "The diagnosis is M54.16 lumbar radiculopathy. The patient has dermatomal "
+                    "lumbar radicular pain with significant functional limitation. Physical "
+                    "therapy and non-narcotic analgesics failed. Fluoroscopy guidance will be "
+                    "used. MRI within 12 months shows nerve root compression consistent with "
+                    "symptoms. Neuro exam within 3 months shows altered sensation and diminished "
+                    "reflexes. This is the initial therapeutic TFESI, quantity 1, one level, "
+                    "and session/frequency limits are respected."
+                ),
+                "session_id": session.id,
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert fake_llm.calls == 0
+        assert payload["virtual_claim"] is not None
+        assert payload["virtual_claim"]["patient"]["name"] == "DAVID R WIENTZEN"
+        assert payload["virtual_claim"]["payer"]["name"] == "Aetna"
+        assert payload["virtual_claim"]["procedure"]["code"] == "62323"
+        assert payload["virtual_claim"]["checklist"]["diagnosis"]["diagnosis_code"]["value"] == (
+            "M54.16"
+        )
+        assert payload["virtual_claim"]["checklist"]["diagnosis"]["diagnosis_description"][
+            "value"
+        ] == "Lumbar radiculopathy"
+        assert (
+            payload["virtual_claim"]["checklist"]["policy_medical_necessity"][
+                "dermatomal_distribution"
+            ]["value"]
+            == (
+                "The patient has dermatomal lumbar radicular pain with significant "
+                "functional limitation."
+            )
+        )
+        assert (
+            payload["virtual_claim"]["checklist"]["policy_medical_necessity"][
+                "initial_therapeutic_tfesi"
+            ]["value"]
+            == (
+                "This is the initial therapeutic TFESI, quantity 1, one level, and "
+                "session/frequency limits are respected."
+            )
+        )
+        assert payload["virtual_claim"]["checklist"]["service"]["quantity"]["value"] == 1
+        rendered = payload["assistant_message"].lower()
+        assert "patient" not in rendered
+        assert "payer" not in rendered
+        assert "cpt" not in rendered
+        assert all(action.get("type") != "form" for action in payload["ui_actions"])
     finally:
         app.dependency_overrides.clear()

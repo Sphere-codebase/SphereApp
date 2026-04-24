@@ -5,6 +5,7 @@ from app.db.id_utils import next_id
 from app.db.models import Claim, Clinic, InsuranceCompany, McpCode, Patient, Role, User, UserRole
 from app.llm.tools import execute_tool
 from app.llm.tools.registry import ToolContext
+from app.services.claims.normalization import normalize_procedure_code
 from app.utils.time import utcnow
 
 
@@ -82,6 +83,31 @@ def test_list_procedure_codes_respects_limit(db_session: Session) -> None:
 
     assert result["count"] == 2
     assert [item["code"] for item in result["items"]] == ["10000", "10001"]
+
+
+def test_normalize_procedure_code_common_variants() -> None:
+    assert normalize_procedure_code("62323") == "62323"
+    assert normalize_procedure_code("CPT 62323") == "62323"
+    assert normalize_procedure_code("CPT62323") == "62323"
+    assert normalize_procedure_code("CTP 62323") == "62323"
+    assert normalize_procedure_code("СТP 62323") == "62323"
+    assert normalize_procedure_code("code: 62323.") == "62323"
+
+
+def test_get_procedure_code_normalizes_common_cpt_variants(db_session: Session) -> None:
+    db_session.add(
+        McpCode(
+            code="62323",
+            description="Injection(s), of diagnostic or therapeutic substance(s)",
+        )
+    )
+    db_session.commit()
+
+    ctx = ToolContext(db=db_session)
+    result = execute_tool("get_procedure_code", {"code": "CPT62323"}, ctx)
+
+    assert result["exists"] is True
+    assert result["code"] == "62323"
 
 
 def test_get_procedure_code_unknown_returns_exists_false(db_session: Session) -> None:
