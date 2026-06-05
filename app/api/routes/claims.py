@@ -35,12 +35,14 @@ from app.db.models import (
     ClaimMcpCode,
     ClaimPDF,
     ClaimStatusCheck,
+    Clinic,
     DiagnosisCode,
     InsuranceCompany,
     McpCode,
     McpPaymentPrediction,
     MlPrediction,
     Patient,
+    PatientInsurancePolicy,
     PolicyLink,
     User,
 )
@@ -61,6 +63,11 @@ from app.schemas.claims import (
     ClaimPdfIngestResponse,
     ClaimPolicyLinkItem,
     ClaimResponse,
+    ClaimStediBillingProviderData,
+    ClaimStediDataResponse,
+    ClaimStediDataUpdateRequest,
+    ClaimStediInsuranceCompanyData,
+    ClaimStediPatientInsuranceData,
     ClaimStatusRefreshResponse,
     ClaimSummaryListResponse,
     ClaimUpdateRequest,
@@ -91,6 +98,23 @@ logger = logging.getLogger(__name__)
 class PdfLocalIngestRequest(BaseModel):
     file_path: str
     chat_session_id: int | None = None
+
+
+def _clean_optional_string(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _clean_required_string(value: str, *, field_name: str) -> str:
+    text = value.strip()
+    if not text:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{field_name} is required.",
+        )
+    return text
 
 
 def _get_claim_or_404(db: Session, claim_id: int, current_user: User) -> Claim:
@@ -125,6 +149,98 @@ def _require_insurance_company(db: Session, company_id: int) -> InsuranceCompany
     if company is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
     return company
+
+
+def _claim_clinic(db: Session, claim: Claim) -> Clinic:
+    clinic = db.execute(select(Clinic).where(Clinic.id == claim.clinic_id)).scalar_one_or_none()
+    if clinic is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clinic not found")
+    return clinic
+
+
+def _claim_patient_insurance_policy(
+    db: Session,
+    claim: Claim,
+) -> PatientInsurancePolicy | None:
+    return db.execute(
+        select(PatientInsurancePolicy)
+        .where(
+            PatientInsurancePolicy.clinic_id == claim.clinic_id,
+            PatientInsurancePolicy.patient_id == claim.patient_id,
+            PatientInsurancePolicy.insurance_company_id == claim.insurance_company_id,
+        )
+        .order_by(PatientInsurancePolicy.priority.asc(), PatientInsurancePolicy.created_at.desc())
+    ).scalar_one_or_none()
+
+
+def _available_policy_priority(db: Session, claim: Claim) -> str | None:
+    priorities = set(
+        db.execute(
+            select(PatientInsurancePolicy.priority).where(
+                PatientInsurancePolicy.clinic_id == claim.clinic_id,
+                PatientInsurancePolicy.patient_id == claim.patient_id,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for candidate in ("primary", "secondary"):
+        if candidate not in priorities:
+            return candidate
+    return None
+
+
+def _require_or_create_claim_patient_insurance_policy(
+    db: Session,
+    claim: Claim,
+) -> PatientInsurancePolicy:
+    existing = _claim_patient_insurance_policy(db, claim)
+    if existing is not None:
+        return existing
+    priority = _available_policy_priority(db, claim)
+    if priority is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Patient already has primary and secondary insurance policies.",
+        )
+    policy_record = PatientInsurancePolicy(
+        id=next_id(db, PatientInsurancePolicy),
+        clinic_id=claim.clinic_id,
+        patient_id=claim.patient_id,
+        insurance_company_id=claim.insurance_company_id,
+        priority=priority,
+        created_at=utcnow(),
+    )
+    db.add(policy_record)
+    db.flush()
+    return policy_record
+
+
+def _claim_stedi_data_response(db: Session, claim: Claim) -> ClaimStediDataResponse:
+    policy_record = _claim_patient_insurance_policy(db, claim)
+    clinic = _claim_clinic(db, claim)
+    return ClaimStediDataResponse(
+        claim_id=claim.id,
+        insurance_company=ClaimStediInsuranceCompanyData(
+            id=claim.insurance_company.id,
+            name=claim.insurance_company.name,
+            stedi_trading_partner_service_id=(
+                claim.insurance_company.stedi_trading_partner_service_id
+            ),
+        ),
+        patient_insurance_policy=ClaimStediPatientInsuranceData(
+            id=policy_record.id if policy_record else None,
+            member_id=policy_record.member_id if policy_record else None,
+            group_number=policy_record.group_number if policy_record else None,
+        ),
+        clinic=ClaimStediBillingProviderData(
+            billing_provider_organization_name=(
+                clinic.billing_provider_organization_name
+            ),
+            billing_provider_npi=clinic.billing_provider_npi,
+            billing_provider_tax_id=clinic.billing_provider_tax_id,
+        ),
+    )
 
 
 def _require_claim_draft(claim: Claim) -> None:
@@ -545,6 +661,97 @@ def get_claim(
 ) -> ClaimDetailResponse:
     claim = _get_claim_or_404(db, claim_id, current_user)
     return _build_claim_detail(db, claim)
+
+
+@router.get("/{claim_id}/stedi-data", response_model=ClaimStediDataResponse)
+def get_claim_stedi_data(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+) -> ClaimStediDataResponse:
+    claim = _get_claim_or_404(db, claim_id, current_user)
+    if not policy.can(current_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    return _claim_stedi_data_response(db, claim)
+
+
+@router.patch("/{claim_id}/stedi-data", response_model=ClaimStediDataResponse)
+def update_claim_stedi_data(
+    claim_id: int,
+    payload: ClaimStediDataUpdateRequest,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+) -> ClaimStediDataResponse:
+    claim = _get_claim_or_404(db, claim_id, current_user)
+    if not policy.can(current_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    fields: list[str] = []
+    if payload.insurance_company is not None:
+        claim.insurance_company.stedi_trading_partner_service_id = _clean_required_string(
+            payload.insurance_company.stedi_trading_partner_service_id,
+            field_name="insurance_company.stedi_trading_partner_service_id",
+        )
+        db.add(claim.insurance_company)
+        fields.append("insurance_company.stedi_trading_partner_service_id")
+
+    if payload.patient_insurance_policy is not None:
+        policy_record = _require_or_create_claim_patient_insurance_policy(db, claim)
+        policy_record.member_id = _clean_required_string(
+            payload.patient_insurance_policy.member_id,
+            field_name="patient_insurance_policy.member_id",
+        )
+        policy_record.group_number = _clean_optional_string(
+            payload.patient_insurance_policy.group_number
+        )
+        policy_record.updated_at = utcnow()
+        db.add(policy_record)
+        fields.extend(
+            [
+                "patient_insurance_policy.member_id",
+                "patient_insurance_policy.group_number",
+            ]
+        )
+
+    if payload.clinic is not None:
+        organization_name = _clean_required_string(
+            payload.clinic.billing_provider_organization_name,
+            field_name="clinic.billing_provider_organization_name",
+        )
+        npi = _clean_optional_string(payload.clinic.billing_provider_npi)
+        tax_id = _clean_optional_string(payload.clinic.billing_provider_tax_id)
+        if not (npi or tax_id):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="clinic.billing_provider requires NPI or Tax ID.",
+            )
+        clinic = _claim_clinic(db, claim)
+        clinic.billing_provider_organization_name = organization_name
+        clinic.billing_provider_npi = npi
+        clinic.billing_provider_tax_id = tax_id
+        clinic.updated_at = utcnow()
+        db.add(clinic)
+        fields.extend(
+            [
+                "clinic.billing_provider_organization_name",
+                "clinic.billing_provider_npi",
+                "clinic.billing_provider_tax_id",
+            ]
+        )
+
+    if fields:
+        db.commit()
+        audit.log_event(
+            action="claim.stedi_data_update",
+            entity="claim",
+            entity_id=claim.id,
+            actor=current_user,
+            clinic_id=claim.clinic_id,
+            target_clinic_id=claim.clinic_id,
+            diff={"fields": fields},
+        )
+    return _claim_stedi_data_response(db, claim)
 
 
 @router.post("/{claim_id}/refresh-status", response_model=ClaimStatusRefreshResponse)

@@ -254,6 +254,46 @@ export const claimStatusRefreshSchema = z.object({
   warnings: z.array(z.string()).default([]),
 });
 
+export const claimStediDataSchema = z.object({
+  claim_id: z.number(),
+  insurance_company: z.object({
+    id: z.number(),
+    name: z.string(),
+    stedi_trading_partner_service_id: z.string().nullable(),
+  }),
+  patient_insurance_policy: z.object({
+    id: z.number().nullable(),
+    member_id: z.string().nullable(),
+    group_number: z.string().nullable(),
+  }),
+  clinic: z.object({
+    billing_provider_organization_name: z.string().nullable(),
+    billing_provider_npi: z.string().nullable(),
+    billing_provider_tax_id: z.string().nullable(),
+  }),
+});
+
+export const claimStediDataUpdateSchema = z.object({
+  insurance_company: z
+    .object({
+      stedi_trading_partner_service_id: z.string(),
+    })
+    .optional(),
+  patient_insurance_policy: z
+    .object({
+      member_id: z.string(),
+      group_number: z.string().nullable().optional(),
+    })
+    .optional(),
+  clinic: z
+    .object({
+      billing_provider_organization_name: z.string(),
+      billing_provider_npi: z.string().nullable().optional(),
+      billing_provider_tax_id: z.string().nullable().optional(),
+    })
+    .optional(),
+});
+
 export type InsuranceCompany = z.infer<typeof insuranceCompanySchema>;
 export type InsuranceCompanyCreateInput = z.infer<typeof insuranceCompanyCreateSchema>;
 export type InsuranceCompanyUpdateInput = z.infer<typeof insuranceCompanyUpdateSchema>;
@@ -277,4 +317,6 @@ export type AdminPatient = z.infer<typeof adminPatientSchema>;
 export type AdminClaimSummary = z.infer<typeof adminClaimSummarySchema>;
 export type AdminClaimDetail = z.infer<typeof adminClaimDetailSchema>;
 export type ClaimStatusRefresh = z.infer<typeof claimStatusRefreshSchema>;
+export type ClaimStediData = z.infer<typeof claimStediDataSchema>;
+export type ClaimStediDataUpdateInput = z.infer<typeof claimStediDataUpdateSchema>;
 export type ClaimStatus = z.infer<typeof claimStatusSchema>;

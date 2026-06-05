@@ -25,6 +25,7 @@ import {
   deleteMcpCode,
   deletePolicyLink,
   getAdminClaimDetail,
+  getClaimStediData,
   listAdminClaims,
   listAdminPatients,
   listAdminUsers,
@@ -38,6 +39,7 @@ import {
   updateAdminUser,
   updateDiagnosisCode,
   updateInsuranceCompany,
+  updateClaimStediData,
   updateMcpCode,
   updatePolicyLink,
   type AdminClaimDetail,
@@ -46,6 +48,8 @@ import {
   type AdminUser,
   type AdminUserCreateInput,
   type AdminUserUpdateInput,
+  type ClaimStediData,
+  type ClaimStediDataUpdateInput,
   type DiagnosisCode,
   type DiagnosisCodeCreateInput,
   type InsuranceCompany,
@@ -115,6 +119,20 @@ type ClaimsFilters = {
   service_to: string;
 };
 
+type MissingStediField =
+  | "insurance_company.stedi_trading_partner_service_id"
+  | "patient_insurance_policy.member_id"
+  | "clinic.billing_provider";
+
+type MissingStediDataFormState = {
+  stedi_trading_partner_service_id: string;
+  member_id: string;
+  group_number: string;
+  billing_provider_organization_name: string;
+  billing_provider_npi: string;
+  billing_provider_tax_id: string;
+};
+
 const emptyCompanyForm: InsuranceCompanyFormState = {
   name: "",
   stedi_trading_partner_service_id: "",
@@ -155,6 +173,21 @@ const emptyClaimFilters: ClaimsFilters = {
   service_from: "",
   service_to: "",
 };
+
+const emptyMissingStediDataForm: MissingStediDataFormState = {
+  stedi_trading_partner_service_id: "",
+  member_id: "",
+  group_number: "",
+  billing_provider_organization_name: "",
+  billing_provider_npi: "",
+  billing_provider_tax_id: "",
+};
+
+const supportedMissingStediFields = new Set<MissingStediField>([
+  "insurance_company.stedi_trading_partner_service_id",
+  "patient_insurance_policy.member_id",
+  "clinic.billing_provider",
+]);
 
 const userRoleOptions: Array<{ value: UserRole; label: string }> = [
   { value: "doctor", label: "Doctor" },
@@ -216,6 +249,50 @@ function claimStatusErrorMessage(err: unknown): string {
   return "Could not refresh claim status.";
 }
 
+function isMissingStediDataError(err: unknown): err is ApiError {
+  return (
+    err instanceof ApiError &&
+    err.payload?.error.code === "STEDI_MISSING_REQUIRED_DATA"
+  );
+}
+
+function missingStediFieldsFromError(err: ApiError): MissingStediField[] {
+  const details = err.payload?.error.details;
+  if (!details || typeof details !== "object") {
+    return [];
+  }
+  const missing = (details as { missing?: unknown }).missing;
+  if (!Array.isArray(missing)) {
+    return [];
+  }
+  return missing
+    .map((item) =>
+      item && typeof item === "object"
+        ? (item as { field?: unknown }).field
+        : undefined
+    )
+    .filter(
+      (field): field is MissingStediField =>
+        typeof field === "string" &&
+        supportedMissingStediFields.has(field as MissingStediField)
+    );
+}
+
+function missingStediDataFormFromResponse(
+  data: ClaimStediData
+): MissingStediDataFormState {
+  return {
+    stedi_trading_partner_service_id:
+      data.insurance_company.stedi_trading_partner_service_id ?? "",
+    member_id: data.patient_insurance_policy.member_id ?? "",
+    group_number: data.patient_insurance_policy.group_number ?? "",
+    billing_provider_organization_name:
+      data.clinic.billing_provider_organization_name ?? "",
+    billing_provider_npi: data.clinic.billing_provider_npi ?? "",
+    billing_provider_tax_id: data.clinic.billing_provider_tax_id ?? "",
+  };
+}
+
 export default function AdminPage() {
   const navigate = useNavigate();
   const { me, logout, hasRole } = useAuth();
@@ -255,6 +332,16 @@ export default function AdminPage() {
   const [claimDialogOpen, setClaimDialogOpen] = useState(false);
   const [claimStatusLoadingId, setClaimStatusLoadingId] = useState<number | null>(null);
   const [claimStatusMessage, setClaimStatusMessage] = useState<string | null>(null);
+  const [missingStediDialogOpen, setMissingStediDialogOpen] = useState(false);
+  const [missingStediClaimId, setMissingStediClaimId] = useState<number | null>(null);
+  const [missingStediFields, setMissingStediFields] = useState<MissingStediField[]>([]);
+  const [missingStediDataForm, setMissingStediDataForm] =
+    useState<MissingStediDataFormState>(emptyMissingStediDataForm);
+  const [missingStediDataLoading, setMissingStediDataLoading] = useState(false);
+  const [missingStediDataSaving, setMissingStediDataSaving] = useState(false);
+  const [missingStediDataError, setMissingStediDataError] = useState<string | null>(
+    null
+  );
 
   const [editingCompany, setEditingCompany] = useState<InsuranceCompany | null>(null);
   const [editingMcp, setEditingMcp] = useState<McpCode | null>(null);
@@ -892,31 +979,15 @@ export default function AdminPage() {
     }
   };
 
-  const handleRefreshClaimStatus = async (claimId: number) => {
-    setClaimStatusLoadingId(claimId);
-    setClaimStatusMessage(null);
-    try {
-      const refreshed = await refreshClaimStatus(claimId);
-      setClaims((prev) =>
-        prev.map((claim) =>
-          claim.id === claimId
-            ? {
-                ...claim,
-                stedi_status: refreshed.status,
-                stedi_status_code: refreshed.status_code,
-                stedi_status_category: refreshed.status_category,
-                stedi_status_message: refreshed.message,
-                stedi_amount_paid: refreshed.amount_paid,
-                stedi_checked_at: refreshed.checked_at,
-                stedi_payer_claim_number: refreshed.payer_claim_number,
-              }
-            : claim
-        )
-      );
-      setClaimDetail((prev) =>
-        prev && prev.id === claimId
+  const applyClaimStatusRefresh = (
+    claimId: number,
+    refreshed: Awaited<ReturnType<typeof refreshClaimStatus>>
+  ) => {
+    setClaims((prev) =>
+      prev.map((claim) =>
+        claim.id === claimId
           ? {
-              ...prev,
+              ...claim,
               stedi_status: refreshed.status,
               stedi_status_code: refreshed.status_code,
               stedi_status_category: refreshed.status_category,
@@ -925,22 +996,133 @@ export default function AdminPage() {
               stedi_checked_at: refreshed.checked_at,
               stedi_payer_claim_number: refreshed.payer_claim_number,
             }
-          : prev
-      );
-      const baseMessage =
-        refreshed.status === "NO_MATCH"
-          ? "No matching payer claim was found."
-          : "Claim status updated.";
-      setClaimStatusMessage(
-        refreshed.warnings.length > 0
-          ? `${baseMessage} ${refreshed.warnings.join(" ")}`
-          : baseMessage
-      );
+          : claim
+      )
+    );
+    setClaimDetail((prev) =>
+      prev && prev.id === claimId
+        ? {
+            ...prev,
+            stedi_status: refreshed.status,
+            stedi_status_code: refreshed.status_code,
+            stedi_status_category: refreshed.status_category,
+            stedi_status_message: refreshed.message,
+            stedi_amount_paid: refreshed.amount_paid,
+            stedi_checked_at: refreshed.checked_at,
+            stedi_payer_claim_number: refreshed.payer_claim_number,
+          }
+        : prev
+    );
+    const baseMessage =
+      refreshed.status === "NO_MATCH"
+        ? "No matching payer claim was found."
+        : "Claim status updated.";
+    setClaimStatusMessage(
+      refreshed.warnings.length > 0
+        ? `${baseMessage} ${refreshed.warnings.join(" ")}`
+        : baseMessage
+    );
+  };
+
+  const openMissingStediDataDialog = async (claimId: number, err: ApiError) => {
+    const fields = missingStediFieldsFromError(err);
+    setMissingStediClaimId(claimId);
+    setMissingStediFields(fields);
+    setMissingStediDataForm(emptyMissingStediDataForm);
+    setMissingStediDataError(null);
+    setMissingStediDialogOpen(true);
+    setMissingStediDataLoading(true);
+    try {
+      const data = await getClaimStediData(claimId);
+      setMissingStediDataForm(missingStediDataFormFromResponse(data));
+    } catch {
+      setMissingStediDataError("Could not load current Stedi data.");
+    } finally {
+      setMissingStediDataLoading(false);
+    }
+  };
+
+  const handleRefreshClaimStatus = async (claimId: number) => {
+    setClaimStatusLoadingId(claimId);
+    setClaimStatusMessage(null);
+    setError(null);
+    try {
+      const refreshed = await refreshClaimStatus(claimId);
+      applyClaimStatusRefresh(claimId, refreshed);
     } catch (err) {
-      setClaimStatusMessage(claimStatusErrorMessage(err));
-      handleApiError(err);
+      if (isMissingStediDataError(err)) {
+        setClaimStatusMessage("Add missing Stedi data to retry this status update.");
+        await openMissingStediDataDialog(claimId, err);
+      } else {
+        setClaimStatusMessage(claimStatusErrorMessage(err));
+        handleApiError(err);
+      }
     } finally {
       setClaimStatusLoadingId(null);
+    }
+  };
+
+  const handleSaveMissingStediData = async (retry: boolean) => {
+    if (missingStediClaimId === null) {
+      return;
+    }
+    const hasPayer = missingStediFields.includes(
+      "insurance_company.stedi_trading_partner_service_id"
+    );
+    const hasMember = missingStediFields.includes("patient_insurance_policy.member_id");
+    const hasBilling = missingStediFields.includes("clinic.billing_provider");
+    const payload: ClaimStediDataUpdateInput = {};
+
+    if (hasPayer) {
+      payload.insurance_company = {
+        stedi_trading_partner_service_id:
+          missingStediDataForm.stedi_trading_partner_service_id.trim(),
+      };
+    }
+    if (hasMember) {
+      payload.patient_insurance_policy = {
+        member_id: missingStediDataForm.member_id.trim(),
+        group_number: missingStediDataForm.group_number.trim() || null,
+      };
+    }
+    if (hasBilling) {
+      payload.clinic = {
+        billing_provider_organization_name:
+          missingStediDataForm.billing_provider_organization_name.trim(),
+        billing_provider_npi: missingStediDataForm.billing_provider_npi.trim() || null,
+        billing_provider_tax_id:
+          missingStediDataForm.billing_provider_tax_id.trim() || null,
+      };
+    }
+
+    setMissingStediDataError(null);
+    setMissingStediDataSaving(true);
+    if (retry) {
+      setClaimStatusLoadingId(missingStediClaimId);
+    }
+    try {
+      const saved = await updateClaimStediData(missingStediClaimId, payload);
+      setMissingStediDataForm(missingStediDataFormFromResponse(saved));
+      if (!retry) {
+        setClaimStatusMessage("Missing Stedi data saved.");
+        setMissingStediDialogOpen(false);
+        return;
+      }
+      const refreshed = await refreshClaimStatus(missingStediClaimId);
+      applyClaimStatusRefresh(missingStediClaimId, refreshed);
+      setMissingStediDialogOpen(false);
+    } catch (err) {
+      if (retry && isMissingStediDataError(err)) {
+        setMissingStediFields(missingStediFieldsFromError(err));
+        setMissingStediDataError("Some required Stedi data is still missing.");
+      } else {
+        setMissingStediDataError(claimStatusErrorMessage(err));
+      }
+    } finally {
+      setMissingStediDataSaving(false);
+      if (retry) {
+        setClaimStatusLoadingId(null);
+      }
     }
   };
 
@@ -2026,6 +2208,174 @@ export default function AdminPage() {
           <p className="text-xs text-red-600 dark:text-red-300">{resetFormError}</p>
         ) : null}
       </EditDialog>
+
+      <Dialog
+        open={missingStediDialogOpen}
+        onOpenChange={(open) => {
+          setMissingStediDialogOpen(open);
+          if (!open) {
+            setMissingStediDataError(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Missing Stedi data</DialogTitle>
+            <DialogDescription>
+              To check this claim’s payer status, add the required payer, patient
+              insurance, and billing provider details.
+            </DialogDescription>
+          </DialogHeader>
+
+          {missingStediDataLoading ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              Loading current Stedi data...
+            </p>
+          ) : (
+            <div className="space-y-4 text-sm">
+              {missingStediFields.includes(
+                "insurance_company.stedi_trading_partner_service_id"
+              ) ? (
+                <section className="space-y-2 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                  <label className="flex flex-col gap-1">
+                    Stedi payer ID
+                    <input
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      value={missingStediDataForm.stedi_trading_partner_service_id}
+                      onChange={(event) =>
+                        setMissingStediDataForm((prev) => ({
+                          ...prev,
+                          stedi_trading_partner_service_id: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Stedi payer ID is required for payer matching.
+                  </p>
+                </section>
+              ) : null}
+
+              {missingStediFields.includes("patient_insurance_policy.member_id") ? (
+                <section className="space-y-3 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                  <label className="flex flex-col gap-1">
+                    Member ID
+                    <input
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      value={missingStediDataForm.member_id}
+                      onChange={(event) =>
+                        setMissingStediDataForm((prev) => ({
+                          ...prev,
+                          member_id: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    Group number
+                    <input
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      value={missingStediDataForm.group_number}
+                      onChange={(event) =>
+                        setMissingStediDataForm((prev) => ({
+                          ...prev,
+                          group_number: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Member ID should match the patient’s insurance card.
+                  </p>
+                </section>
+              ) : null}
+
+              {missingStediFields.includes("clinic.billing_provider") ? (
+                <section className="space-y-3 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                  <label className="flex flex-col gap-1">
+                    Billing provider organization name
+                    <input
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                      value={missingStediDataForm.billing_provider_organization_name}
+                      onChange={(event) =>
+                        setMissingStediDataForm((prev) => ({
+                          ...prev,
+                          billing_provider_organization_name: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <label className="flex flex-col gap-1">
+                      Billing provider NPI
+                      <input
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                        value={missingStediDataForm.billing_provider_npi}
+                        onChange={(event) =>
+                          setMissingStediDataForm((prev) => ({
+                            ...prev,
+                            billing_provider_npi: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1">
+                      Billing provider Tax ID
+                      <input
+                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                        value={missingStediDataForm.billing_provider_tax_id}
+                        onChange={(event) =>
+                          setMissingStediDataForm((prev) => ({
+                            ...prev,
+                            billing_provider_tax_id: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Billing provider requires organization name and NPI or Tax ID.
+                  </p>
+                </section>
+              ) : null}
+            </div>
+          )}
+
+          {missingStediDataError ? (
+            <p className="text-sm text-red-600 dark:text-red-300">
+              {missingStediDataError}
+            </p>
+          ) : null}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setMissingStediDialogOpen(false)}
+              disabled={missingStediDataSaving}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void handleSaveMissingStediData(false)}
+              disabled={missingStediDataLoading || missingStediDataSaving}
+            >
+              Save only
+            </Button>
+            <Button
+              type="button"
+              onClick={() => void handleSaveMissingStediData(true)}
+              disabled={missingStediDataLoading || missingStediDataSaving}
+            >
+              {missingStediDataSaving
+                ? "Saving..."
+                : "Save and retry status update"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={claimDialogOpen}

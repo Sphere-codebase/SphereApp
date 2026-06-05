@@ -489,3 +489,196 @@ def test_admin_can_maintain_billing_provider_profile(db_session: Session) -> Non
     assert clinic.billing_provider_npi == "1999999984"
     assert clinic.billing_provider_tax_id == "123456789"
     assert clinic.billing_provider_organization_name == "Billing Provider LLC"
+
+
+def test_claim_stedi_data_update_preserves_payer_id_leading_zeros(
+    db_session: Session,
+) -> None:
+    _, user, claim = _seed_claim(db_session)
+    client = _client(db_session)
+    token = create_access_token(str(user.id))
+    try:
+        response = client.patch(
+            f"/api/claims/{claim.id}/stedi-data",
+            json={
+                "insurance_company": {
+                    "stedi_trading_partner_service_id": "005010",
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["insurance_company"]["stedi_trading_partner_service_id"] == "005010"
+    db_session.refresh(claim.insurance_company)
+    assert claim.insurance_company.stedi_trading_partner_service_id == "005010"
+
+
+def test_claim_stedi_data_update_patient_insurance_member_id(
+    db_session: Session,
+) -> None:
+    _, user, claim = _seed_claim(db_session)
+    client = _client(db_session)
+    token = create_access_token(str(user.id))
+    try:
+        response = client.patch(
+            f"/api/claims/{claim.id}/stedi-data",
+            json={
+                "patient_insurance_policy": {
+                    "member_id": "NEW-MEMBER-123",
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["patient_insurance_policy"]["member_id"] == "NEW-MEMBER-123"
+    policy_record = db_session.execute(
+        select(PatientInsurancePolicy).where(
+            PatientInsurancePolicy.patient_id == claim.patient_id,
+            PatientInsurancePolicy.insurance_company_id == claim.insurance_company_id,
+        )
+    ).scalar_one()
+    assert policy_record.member_id == "NEW-MEMBER-123"
+
+
+def test_claim_stedi_data_update_patient_insurance_group_number(
+    db_session: Session,
+) -> None:
+    _, user, claim = _seed_claim(db_session)
+    client = _client(db_session)
+    token = create_access_token(str(user.id))
+    try:
+        response = client.patch(
+            f"/api/claims/{claim.id}/stedi-data",
+            json={
+                "patient_insurance_policy": {
+                    "member_id": "UHC123456",
+                    "group_number": "GRP-009",
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["patient_insurance_policy"]["group_number"] == "GRP-009"
+    policy_record = db_session.execute(
+        select(PatientInsurancePolicy).where(
+            PatientInsurancePolicy.patient_id == claim.patient_id,
+            PatientInsurancePolicy.insurance_company_id == claim.insurance_company_id,
+        )
+    ).scalar_one()
+    assert policy_record.group_number == "GRP-009"
+
+
+def test_claim_stedi_data_update_clinic_billing_provider(
+    db_session: Session,
+) -> None:
+    clinic, user, claim = _seed_claim(db_session)
+    client = _client(db_session)
+    token = create_access_token(str(user.id))
+    try:
+        response = client.patch(
+            f"/api/claims/{claim.id}/stedi-data",
+            json={
+                "clinic": {
+                    "billing_provider_organization_name": "Billing Provider LLC",
+                    "billing_provider_npi": "1999999984",
+                    "billing_provider_tax_id": "123456789",
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["clinic"]["billing_provider_organization_name"] == (
+        "Billing Provider LLC"
+    )
+    assert payload["clinic"]["billing_provider_npi"] == "1999999984"
+    assert payload["clinic"]["billing_provider_tax_id"] == "123456789"
+    db_session.refresh(clinic)
+    assert clinic.billing_provider_organization_name == "Billing Provider LLC"
+    assert clinic.billing_provider_npi == "1999999984"
+    assert clinic.billing_provider_tax_id == "123456789"
+
+
+def test_claim_stedi_data_update_requires_billing_provider_identifier(
+    db_session: Session,
+) -> None:
+    _, user, claim = _seed_claim(db_session)
+    client = _client(db_session)
+    token = create_access_token(str(user.id))
+    try:
+        response = client.patch(
+            f"/api/claims/{claim.id}/stedi-data",
+            json={
+                "clinic": {
+                    "billing_provider_organization_name": "Billing Provider LLC",
+                    "billing_provider_npi": "",
+                    "billing_provider_tax_id": "",
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+
+
+def test_cross_clinic_user_cannot_update_claim_stedi_data(
+    db_session: Session,
+) -> None:
+    clinic_a = Clinic(id=next_id(db_session, Clinic), name="Clinic A", created_at=utcnow())
+    db_session.add(clinic_a)
+    db_session.flush()
+    user_a = _seed_user(db_session, clinic_a, "doctor-a@example.com")
+    _, _, claim_b = _seed_claim(db_session, clinic_name="Clinic B")
+    db_session.commit()
+    client = _client(db_session)
+    token = create_access_token(str(user_a.id))
+    try:
+        response = client.patch(
+            f"/api/claims/{claim_b.id}/stedi-data",
+            json={
+                "insurance_company": {
+                    "stedi_trading_partner_service_id": "005010",
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 404
+
+
+def test_claim_stedi_data_responses_do_not_expose_api_key(
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(settings, "stedi_api_key", "super-secret-stedi-key")
+    _, user, claim = _seed_claim(db_session)
+    client = _client(db_session)
+    token = create_access_token(str(user.id))
+    try:
+        response = client.get(
+            f"/api/claims/{claim.id}/stedi-data",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert "super-secret-stedi-key" not in response.text

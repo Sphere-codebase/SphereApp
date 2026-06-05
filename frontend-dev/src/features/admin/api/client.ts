@@ -7,6 +7,7 @@ import {
   adminClaimSummarySchema,
   adminPatientSchema,
   adminUserSchema,
+  claimStediDataSchema,
   claimStatusRefreshSchema,
   diagnosisCodeSchema,
   insuranceCompanySchema,
@@ -21,6 +22,8 @@ import {
   type AdminUserCreateInput,
   type AdminUserResetInput,
   type AdminUserUpdateInput,
+  type ClaimStediData,
+  type ClaimStediDataUpdateInput,
   type ClaimStatusRefresh,
   type DiagnosisCode,
   type DiagnosisCodeCreateInput,
@@ -310,6 +313,23 @@ export async function refreshClaimStatus(id: number): Promise<ClaimStatusRefresh
   return parseWithSchema(claimStatusRefreshSchema, data, "claim status refresh");
 }
 
+export async function getClaimStediData(id: number): Promise<ClaimStediData> {
+  const data = await requestJson<unknown>(`/api/claims/${id}/stedi-data`);
+  return parseWithSchema(claimStediDataSchema, data, "claim Stedi data");
+}
+
+export async function updateClaimStediData(
+  id: number,
+  input: ClaimStediDataUpdateInput
+): Promise<ClaimStediData> {
+  const data = await requestJson<unknown>(`/api/claims/${id}/stedi-data`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return parseWithSchema(claimStediDataSchema, data, "update claim Stedi data");
+}
+
 export type {
   AdminClaimDetail,
   AdminClaimSummary,
@@ -318,6 +338,8 @@ export type {
   AdminUserCreateInput,
   AdminUserResetInput,
   AdminUserUpdateInput,
+  ClaimStediData,
+  ClaimStediDataUpdateInput,
   ClaimStatusRefresh,
   DiagnosisCode,
   DiagnosisCodeCreateInput,

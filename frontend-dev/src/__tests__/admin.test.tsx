@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type {
   AdminClaimSummary,
   AdminUser,
+  ClaimStediData,
   InsuranceCompany,
   McpCode,
   PolicyLink,
@@ -56,6 +57,55 @@ const adminUser = {
   clinic_name: "Test Clinic",
   is_active: true,
 };
+
+const buildClaimSummary = (): AdminClaimSummary => ({
+  id: 501,
+  patient_id: 301,
+  patient_name: "Jane Doe",
+  doctor_id: 202,
+  insurance_company_id: 11,
+  insurance_company_name: "Alpha Health",
+  claim_number: "CLM-501",
+  claim_status: "SUBMITTED",
+  service_date: "2025-06-30",
+  claim_date: "2025-07-01",
+  submitted_at: null,
+  billed_amount_total: 267.54,
+  allowed_amount_total: null,
+  coinsurance_amount_total: null,
+  copay_amount_total: null,
+  deductible_amount_total: null,
+  stedi_status: null,
+  stedi_status_code: null,
+  stedi_status_category: null,
+  stedi_status_message: null,
+  stedi_amount_paid: null,
+  stedi_checked_at: null,
+  stedi_payer_claim_number: null,
+  created_at: "2026-01-01T00:00:00Z",
+});
+
+const buildClaimStediData = (
+  overrides: Partial<ClaimStediData> = {}
+): ClaimStediData => ({
+  claim_id: 501,
+  insurance_company: {
+    id: 11,
+    name: "Alpha Health",
+    stedi_trading_partner_service_id: null,
+  },
+  patient_insurance_policy: {
+    id: 401,
+    member_id: null,
+    group_number: null,
+  },
+  clinic: {
+    billing_provider_organization_name: null,
+    billing_provider_npi: null,
+    billing_provider_tax_id: null,
+  },
+  ...overrides,
+});
 
 describe("admin ui", () => {
   const fetchMock = vi.fn<typeof fetch>();
@@ -465,6 +515,356 @@ describe("admin ui", () => {
 
     expect(await screen.findByText("PAID")).toBeInTheDocument();
     expect(await screen.findByText("Claim status updated.")).toBeInTheDocument();
+  });
+
+  test("missing Stedi data response opens modal with requested sections", async () => {
+    const claims: AdminClaimSummary[] = [buildClaimSummary()];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: adminUser }));
+      }
+      if (url.includes("/api/admin/mcp-codes") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      if (url.endsWith("/api/admin/patients") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      if (url.includes("/api/admin/claims") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: claims }));
+      }
+      if (url.endsWith("/api/claims/501/refresh-status") && method === "POST") {
+        return Promise.resolve(
+          buildJsonResponse({
+            status: 422,
+            body: {
+              error: {
+                code: "STEDI_MISSING_REQUIRED_DATA",
+                message: "Required claim status fields are missing.",
+                details: {
+                  missing: [
+                    {
+                      field: "insurance_company.stedi_trading_partner_service_id",
+                      message: "Set the payer Stedi trading partner service ID.",
+                    },
+                    {
+                      field: "patient_insurance_policy.member_id",
+                      message: "Set the patient's member ID for this payer.",
+                    },
+                    {
+                      field: "clinic.billing_provider",
+                      message: "Set clinic billing provider.",
+                    },
+                  ],
+                },
+              },
+            },
+          })
+        );
+      }
+      if (url.endsWith("/api/claims/501/stedi-data") && method === "GET") {
+        return Promise.resolve(
+          buildJsonResponse({ status: 200, body: buildClaimStediData() })
+        );
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    renderWithProviders(["/app/admin"]);
+    await userEvent.click(await screen.findByRole("button", { name: /dashboard/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /update status/i }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Missing Stedi data" })
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Stedi payer ID")).toBeInTheDocument();
+    expect(screen.getByLabelText("Member ID")).toBeInTheDocument();
+    expect(screen.getByLabelText("Billing provider organization name")).toBeInTheDocument();
+    expect(screen.getByText("Stedi payer ID is required for payer matching.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Member ID should match the patient’s insurance card.")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Billing provider requires organization name and NPI or Tax ID.")
+    ).toBeInTheDocument();
+  });
+
+  test("missing Stedi data modal hides sections not returned by API", async () => {
+    const claims: AdminClaimSummary[] = [buildClaimSummary()];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: adminUser }));
+      }
+      if (url.includes("/api/admin/mcp-codes") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      if (url.endsWith("/api/admin/patients") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      if (url.includes("/api/admin/claims") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: claims }));
+      }
+      if (url.endsWith("/api/claims/501/refresh-status") && method === "POST") {
+        return Promise.resolve(
+          buildJsonResponse({
+            status: 422,
+            body: {
+              error: {
+                code: "STEDI_MISSING_REQUIRED_DATA",
+                message: "Required claim status fields are missing.",
+                details: {
+                  missing: [
+                    {
+                      field: "patient_insurance_policy.member_id",
+                      message: "Set the patient's member ID for this payer.",
+                    },
+                  ],
+                },
+              },
+            },
+          })
+        );
+      }
+      if (url.endsWith("/api/claims/501/stedi-data") && method === "GET") {
+        return Promise.resolve(
+          buildJsonResponse({
+            status: 200,
+            body: buildClaimStediData({
+              insurance_company: {
+                id: 11,
+                name: "Alpha Health",
+                stedi_trading_partner_service_id: "87726",
+              },
+              clinic: {
+                billing_provider_organization_name: "Billing LLC",
+                billing_provider_npi: "1999999984",
+                billing_provider_tax_id: null,
+              },
+            }),
+          })
+        );
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    renderWithProviders(["/app/admin"]);
+    await userEvent.click(await screen.findByRole("button", { name: /dashboard/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /update status/i }));
+
+    expect(await screen.findByLabelText("Member ID")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Stedi payer ID")).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText("Billing provider organization name")
+    ).not.toBeInTheDocument();
+  });
+
+  test("save and retry updates APIs before refreshing claim status again", async () => {
+    const claims: AdminClaimSummary[] = [buildClaimSummary()];
+    let refreshCount = 0;
+    const patchBodies: unknown[] = [];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: adminUser }));
+      }
+      if (url.includes("/api/admin/mcp-codes") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      if (url.endsWith("/api/admin/patients") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      if (url.includes("/api/admin/claims") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: claims }));
+      }
+      if (url.endsWith("/api/claims/501/refresh-status") && method === "POST") {
+        refreshCount += 1;
+        if (refreshCount === 1) {
+          return Promise.resolve(
+            buildJsonResponse({
+              status: 422,
+              body: {
+                error: {
+                  code: "STEDI_MISSING_REQUIRED_DATA",
+                  message: "Required claim status fields are missing.",
+                  details: {
+                    missing: [
+                      {
+                        field: "insurance_company.stedi_trading_partner_service_id",
+                        message: "Set the payer Stedi trading partner service ID.",
+                      },
+                      {
+                        field: "patient_insurance_policy.member_id",
+                        message: "Set the patient's member ID for this payer.",
+                      },
+                    ],
+                  },
+                },
+              },
+            })
+          );
+        }
+        return Promise.resolve(
+          buildJsonResponse({
+            status: 200,
+            body: {
+              claim_id: 501,
+              status: "PAID",
+              status_code: "65",
+              status_category: "F1",
+              message: "Claim/line has been paid.",
+              amount_paid: 108.77,
+              checked_at: "2026-06-04T12:00:00Z",
+              payer_claim_number: "PAYER-501",
+            },
+          })
+        );
+      }
+      if (url.endsWith("/api/claims/501/stedi-data") && method === "GET") {
+        return Promise.resolve(
+          buildJsonResponse({ status: 200, body: buildClaimStediData() })
+        );
+      }
+      if (url.endsWith("/api/claims/501/stedi-data") && method === "PATCH") {
+        const bodyText = typeof init?.body === "string" ? init.body : "{}";
+        patchBodies.push(JSON.parse(bodyText));
+        return Promise.resolve(
+          buildJsonResponse({
+            status: 200,
+            body: buildClaimStediData({
+              insurance_company: {
+                id: 11,
+                name: "Alpha Health",
+                stedi_trading_partner_service_id: "005010",
+              },
+              patient_insurance_policy: {
+                id: 401,
+                member_id: "MEM-123",
+                group_number: "GRP-9",
+              },
+            }),
+          })
+        );
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    renderWithProviders(["/app/admin"]);
+    await userEvent.click(await screen.findByRole("button", { name: /dashboard/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /update status/i }));
+    await userEvent.type(await screen.findByLabelText("Stedi payer ID"), "005010");
+    await userEvent.type(screen.getByLabelText("Member ID"), "MEM-123");
+    await userEvent.type(screen.getByLabelText("Group number"), "GRP-9");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Save and retry status update" })
+    );
+
+    await waitFor(() => expect(refreshCount).toBe(2));
+    expect(patchBodies).toEqual([
+      {
+        insurance_company: {
+          stedi_trading_partner_service_id: "005010",
+        },
+        patient_insurance_policy: {
+          member_id: "MEM-123",
+          group_number: "GRP-9",
+        },
+      },
+    ]);
+    expect(await screen.findByText("PAID")).toBeInTheDocument();
+  });
+
+  test("missing Stedi data modal shows safe load errors", async () => {
+    const claims: AdminClaimSummary[] = [buildClaimSummary()];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: adminUser }));
+      }
+      if (url.includes("/api/admin/mcp-codes") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      if (url.endsWith("/api/admin/patients") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      if (url.includes("/api/admin/claims") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: claims }));
+      }
+      if (url.endsWith("/api/claims/501/refresh-status") && method === "POST") {
+        return Promise.resolve(
+          buildJsonResponse({
+            status: 422,
+            body: {
+              error: {
+                code: "STEDI_MISSING_REQUIRED_DATA",
+                message: "Required claim status fields are missing.",
+                details: {
+                  missing: [
+                    {
+                      field: "insurance_company.stedi_trading_partner_service_id",
+                      message: "Set the payer Stedi trading partner service ID.",
+                    },
+                  ],
+                },
+              },
+            },
+          })
+        );
+      }
+      if (url.endsWith("/api/claims/501/stedi-data") && method === "GET") {
+        return Promise.resolve(
+          buildJsonResponse({
+            status: 500,
+            body: {
+              error: {
+                code: "INTERNAL_ERROR",
+                message: "server included sensitive raw detail",
+                details: {},
+              },
+            },
+          })
+        );
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    renderWithProviders(["/app/admin"]);
+    await userEvent.click(await screen.findByRole("button", { name: /dashboard/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /update status/i }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Missing Stedi data" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Could not load current Stedi data.")).toBeInTheDocument();
+    expect(screen.queryByText("server included sensitive raw detail")).not.toBeInTheDocument();
   });
 
   test("users tab shows current account marker and allows changing another user's role", async () => {

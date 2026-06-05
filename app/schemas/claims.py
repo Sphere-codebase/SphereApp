@@ -205,3 +205,49 @@ class ClaimStatusRefreshResponse(BaseModel):
     checked_at: datetime
     payer_claim_number: str | None = None
     warnings: list[str] = Field(default_factory=list)
+
+
+class ClaimStediInsuranceCompanyData(BaseModel):
+    id: int
+    name: str
+    stedi_trading_partner_service_id: str | None = None
+
+
+class ClaimStediPatientInsuranceData(BaseModel):
+    id: int | None = None
+    member_id: str | None = None
+    group_number: str | None = None
+
+
+class ClaimStediBillingProviderData(BaseModel):
+    billing_provider_organization_name: str | None = None
+    billing_provider_npi: str | None = None
+    billing_provider_tax_id: str | None = None
+
+
+class ClaimStediDataResponse(BaseModel):
+    claim_id: int
+    insurance_company: ClaimStediInsuranceCompanyData
+    patient_insurance_policy: ClaimStediPatientInsuranceData
+    clinic: ClaimStediBillingProviderData
+
+
+class ClaimStediInsuranceCompanyUpdate(BaseModel):
+    stedi_trading_partner_service_id: str
+
+
+class ClaimStediPatientInsuranceUpdate(BaseModel):
+    member_id: str
+    group_number: str | None = None
+
+
+class ClaimStediBillingProviderUpdate(BaseModel):
+    billing_provider_organization_name: str
+    billing_provider_npi: str | None = None
+    billing_provider_tax_id: str | None = None
+
+
+class ClaimStediDataUpdateRequest(BaseModel):
+    insurance_company: ClaimStediInsuranceCompanyUpdate | None = None
+    patient_insurance_policy: ClaimStediPatientInsuranceUpdate | None = None
+    clinic: ClaimStediBillingProviderUpdate | None = None
