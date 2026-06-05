@@ -18,6 +18,9 @@ const clinicSchema = z.object({
   id: z.number(),
   name: z.string(),
   phone: z.string().nullable().optional(),
+  billing_provider_npi: z.string().nullable().optional(),
+  billing_provider_tax_id: z.string().nullable().optional(),
+  billing_provider_organization_name: z.string().nullable().optional(),
   is_blocked: z.boolean().nullable().optional(),
   created_at: z.string().nullable().optional(),
   counters: clinicCountersSchema.nullable().optional(),
@@ -112,6 +115,9 @@ export async function listPlatformClinics(params?: {
 export async function createPlatformClinic(payload: {
   name: string;
   phone?: string | null;
+  billing_provider_npi?: string | null;
+  billing_provider_tax_id?: string | null;
+  billing_provider_organization_name?: string | null;
   address?: {
     line1?: string | null;
     line2?: string | null;
@@ -131,7 +137,13 @@ export async function createPlatformClinic(payload: {
 
 export async function updatePlatformClinic(
   clinicId: number,
-  payload: { is_blocked: boolean }
+  payload: {
+    is_blocked?: boolean;
+    phone?: string | null;
+    billing_provider_npi?: string | null;
+    billing_provider_tax_id?: string | null;
+    billing_provider_organization_name?: string | null;
+  }
 ): Promise<PlatformClinicDTO> {
   const data = await requestJson<unknown>(`/api/platform/clinics/${clinicId}`, {
     method: "PATCH",

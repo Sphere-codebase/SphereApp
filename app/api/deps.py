@@ -17,6 +17,7 @@ from app.core.tenancy import (
 from app.db.models import User
 from app.db.session import get_db
 from app.services.audit import AuditContext, AuditLogger
+from app.services.stedi.client import StediClaimStatusClient
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 DbSessionDep = Annotated[Session, Depends(get_db)]
@@ -27,6 +28,22 @@ def get_audit_logger(request: Request, db: DbSessionDep) -> AuditLogger:
 
 
 AuditLoggerDep = Annotated[AuditLogger, Depends(get_audit_logger)]
+
+
+def get_stedi_claim_status_client() -> StediClaimStatusClient | None:
+    if not settings.stedi_enabled or not settings.stedi_api_key:
+        return None
+    return StediClaimStatusClient(
+        base_url=settings.stedi_base_url,
+        api_key=settings.stedi_api_key,
+        timeout_seconds=settings.stedi_timeout_seconds,
+    )
+
+
+StediClaimStatusClientDep = Annotated[
+    StediClaimStatusClient | None,
+    Depends(get_stedi_claim_status_client),
+]
 
 
 def require_platform_staff_admin(

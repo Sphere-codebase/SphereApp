@@ -22,8 +22,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import AuditLoggerDep, require_platform_staff_admin
+from app.api.deps import AuditLoggerDep, StediClaimStatusClientDep, require_platform_staff_admin
 from app.core import policy
+from app.core.config import settings
 from app.core.logging import error_payload
 from app.core.security import get_current_user
 from app.db.id_utils import next_id
@@ -33,6 +34,7 @@ from app.db.models import (
     ClaimDiagnosisCode,
     ClaimMcpCode,
     ClaimPDF,
+    ClaimStatusCheck,
     DiagnosisCode,
     InsuranceCompany,
     McpCode,
@@ -59,6 +61,7 @@ from app.schemas.claims import (
     ClaimPdfIngestResponse,
     ClaimPolicyLinkItem,
     ClaimResponse,
+    ClaimStatusRefreshResponse,
     ClaimSummaryListResponse,
     ClaimUpdateRequest,
     DiagnosisCodeSummary,
@@ -70,6 +73,11 @@ from app.services.claims.ingestion import ingest_pdf_from_path, ingest_pdf_from_
 from app.services.claims.pdf import build_claim_pdf_data
 from app.services.claims.requirements import build_claim_requirements
 from app.services.claims.summary import ClaimsService, MyClaimsFilters
+from app.services.stedi.claim_status import (
+    StediClaimStatusPayload,
+    build_claim_status_payload,
+)
+from app.services.stedi.client import StediClaimStatusError, StediClaimStatusSuccess
 from app.utils.time import utcnow
 
 router = APIRouter(prefix="/api/claims", tags=["claims"])
@@ -165,6 +173,7 @@ def _build_claim_detail(db: Session, claim: Claim) -> ClaimDetailResponse:
         ),
         insurance_company_id=claim.insurance_company_id,
         service_date=claim.service_date,
+        submitted_at=claim.submitted_at,
         mcp_codes=mcp_codes,
         diagnosis_codes=diagnosis_codes,
     )
@@ -324,6 +333,67 @@ def _build_claim_financial_summary(db: Session, claim: Claim) -> ClaimFinancialS
     )
 
 
+def _persist_claim_status_check(
+    db: Session,
+    *,
+    claim: Claim,
+    current_user: User,
+    checked_at: datetime,
+    outcome: str,
+    request_summary: dict | None,
+    response_summary: dict | None = None,
+    status_value: str | None = None,
+    status_code: str | None = None,
+    status_category: str | None = None,
+    message: str | None = None,
+    amount_paid: object | None = None,
+    payer_claim_number: str | None = None,
+    stedi_trace_id: str | None = None,
+    error_code: str | None = None,
+    error_message: str | None = None,
+) -> ClaimStatusCheck:
+    check = ClaimStatusCheck(
+        id=next_id(db, ClaimStatusCheck),
+        clinic_id=claim.clinic_id,
+        claim_id=claim.id,
+        checked_by_user_id=current_user.id,
+        checked_at=checked_at,
+        outcome=outcome,
+        status=status_value,
+        status_code=status_code,
+        status_category=status_category,
+        message=message,
+        amount_paid=amount_paid,
+        payer_claim_number=payer_claim_number,
+        stedi_trace_id=stedi_trace_id,
+        error_code=error_code,
+        error_message=error_message,
+        request_summary_json=request_summary,
+        response_summary_json=response_summary,
+    )
+    db.add(check)
+    return check
+
+
+def _claim_status_response(claim: Claim) -> ClaimStatusRefreshResponse:
+    warnings = []
+    if claim.submitted_at is None:
+        warnings.append(
+            "Claim has no submitted timestamp; status was refreshed without using submitted_at."
+        )
+    return ClaimStatusRefreshResponse(
+        claim_id=claim.id,
+        status=claim.stedi_status or "UNKNOWN",
+        status_code=claim.stedi_status_code,
+        status_category=claim.stedi_status_category,
+        message=claim.stedi_status_message or "Claim status was refreshed.",
+        amount_paid=float(claim.stedi_amount_paid) if claim.stedi_amount_paid is not None else None,
+        checked_at=claim.stedi_checked_at or utcnow(),
+        payer_claim_number=claim.stedi_payer_claim_number,
+        warnings=warnings,
+    )
+
+
 @router.get("", response_model=list[ClaimResponse])
 def list_claims(
     db: DbSessionDep,
@@ -435,6 +505,7 @@ def create_claim(
         claim_status=payload.claim_status or "DRAFT",
         service_date=payload.service_date,
         claim_date=payload.claim_date,
+        submitted_at=payload.submitted_at,
         billed_amount_total=payload.billed_amount_total,
         allowed_amount_total=payload.allowed_amount_total,
         coinsurance_amount_total=payload.coinsurance_amount_total,
@@ -474,6 +545,155 @@ def get_claim(
 ) -> ClaimDetailResponse:
     claim = _get_claim_or_404(db, claim_id, current_user)
     return _build_claim_detail(db, claim)
+
+
+@router.post("/{claim_id}/refresh-status", response_model=ClaimStatusRefreshResponse)
+def refresh_claim_status(
+    claim_id: int,
+    db: DbSessionDep,
+    current_user: CurrentUserDep,
+    audit: AuditLoggerDep,
+    stedi_client: StediClaimStatusClientDep,
+) -> ClaimStatusRefreshResponse | JSONResponse:
+    claim = _get_claim_or_404(db, claim_id, current_user)
+    if not policy.can(current_user, policy.Action.UPDATE, policy.Resource.CLAIM, claim):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    checked_at = utcnow()
+    if not settings.stedi_enabled:
+        _persist_claim_status_check(
+            db,
+            claim=claim,
+            current_user=current_user,
+            checked_at=checked_at,
+            outcome="disabled",
+            request_summary=None,
+            error_code="STEDI_DISABLED",
+            error_message="Stedi claim status integration is disabled.",
+        )
+        db.commit()
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=error_payload(
+                code="STEDI_DISABLED",
+                message="Stedi integration is disabled.",
+                details={},
+            ),
+        )
+    if stedi_client is None:
+        _persist_claim_status_check(
+            db,
+            claim=claim,
+            current_user=current_user,
+            checked_at=checked_at,
+            outcome="configuration_error",
+            request_summary=None,
+            error_code="STEDI_API_KEY_MISSING",
+            error_message="Stedi API key is not configured.",
+        )
+        db.commit()
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=error_payload(
+                code="STEDI_CONFIGURATION_ERROR",
+                message="Stedi integration is not configured.",
+                details={},
+            ),
+        )
+
+    payload_result = build_claim_status_payload(db, claim, settings)
+    if isinstance(payload_result, list):
+        details = {"missing": [item.__dict__ for item in payload_result]}
+        _persist_claim_status_check(
+            db,
+            claim=claim,
+            current_user=current_user,
+            checked_at=checked_at,
+            outcome="validation_error",
+            request_summary=None,
+            error_code="STEDI_MISSING_REQUIRED_DATA",
+            error_message="Required claim status fields are missing.",
+            response_summary=details,
+        )
+        db.commit()
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=error_payload(
+                code="STEDI_MISSING_REQUIRED_DATA",
+                message="Required claim status fields are missing.",
+                details=details,
+            ),
+        )
+
+    assert isinstance(payload_result, StediClaimStatusPayload)
+    result = stedi_client.check_claim_status(payload_result.payload)
+    if isinstance(result, StediClaimStatusError):
+        _persist_claim_status_check(
+            db,
+            claim=claim,
+            current_user=current_user,
+            checked_at=checked_at,
+            outcome="stedi_error",
+            request_summary=payload_result.request_summary,
+            response_summary=result.response_summary,
+            stedi_trace_id=result.trace_id,
+            error_code=result.error_code,
+            error_message=result.message,
+        )
+        db.commit()
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content=error_payload(
+                code=result.error_code,
+                message=result.message,
+                details={"http_status_code": result.http_status_code},
+            ),
+        )
+
+    assert isinstance(result, StediClaimStatusSuccess)
+    normalized = result.status
+    claim.stedi_status = normalized.status
+    claim.stedi_status_code = normalized.status_code
+    claim.stedi_status_category = normalized.status_category
+    claim.stedi_status_message = normalized.message
+    claim.stedi_amount_paid = normalized.amount_paid
+    claim.stedi_checked_at = checked_at
+    claim.stedi_payer_claim_number = normalized.payer_claim_number
+    claim.updated_at = checked_at
+    _persist_claim_status_check(
+        db,
+        claim=claim,
+        current_user=current_user,
+        checked_at=checked_at,
+        outcome="success" if normalized.claim_count else "no_match",
+        request_summary=payload_result.request_summary,
+        response_summary=result.response_summary,
+        status_value=normalized.status,
+        status_code=normalized.status_code,
+        status_category=normalized.status_category,
+        message=normalized.message,
+        amount_paid=normalized.amount_paid,
+        payer_claim_number=normalized.payer_claim_number,
+        stedi_trace_id=normalized.trace_id,
+    )
+    db.add(claim)
+    db.commit()
+    db.refresh(claim)
+    audit.log_event(
+        action="claim.status_refresh",
+        entity="claim",
+        entity_id=claim.id,
+        actor=current_user,
+        clinic_id=claim.clinic_id,
+        target_clinic_id=claim.clinic_id,
+        diff={
+            "stedi_status": claim.stedi_status,
+            "stedi_status_code": claim.stedi_status_code,
+            "stedi_status_category": claim.stedi_status_category,
+            "has_payer_claim_number": bool(claim.stedi_payer_claim_number),
+            "outcome": "success" if normalized.claim_count else "no_match",
+        },
+    )
+    return _claim_status_response(claim)
 
 
 @router.post("/{claim_id}/requirements", response_model=ClaimRequirementsResponse)

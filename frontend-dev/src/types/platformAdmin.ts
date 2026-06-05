@@ -2,6 +2,9 @@ export type PlatformClinicDTO = {
   id: number;
   name: string;
   phone?: string | null;
+  billing_provider_npi?: string | null;
+  billing_provider_tax_id?: string | null;
+  billing_provider_organization_name?: string | null;
   is_blocked?: boolean | null;
   created_at?: string | null;
   counters?: {

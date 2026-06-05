@@ -11,6 +11,7 @@ from app.db.models.claim_mcp_code import ClaimMcpCode
 from app.db.models.claim_pdf import ClaimPDF
 from app.db.models.claim_procedure_diagnosis import ClaimProcedureDiagnosis
 from app.db.models.claim_procedure_fact import ClaimProcedureFact
+from app.db.models.claim_status_check import ClaimStatusCheck
 from app.db.models.clinic import Clinic
 from app.db.models.diagnosis_code import DiagnosisCode
 from app.db.models.enums import ClaimStatus
@@ -42,6 +43,7 @@ __all__ = [
     "ClaimPDF",
     "ClaimProcedureDiagnosis",
     "ClaimProcedureFact",
+    "ClaimStatusCheck",
     "Address",
     "Clinic",
     "ClaimStatus",

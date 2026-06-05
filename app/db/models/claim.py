@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Index, Numeric, String, text
+from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Index, Numeric, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.models.base import Base, TimestampMixin
@@ -42,11 +42,21 @@ class Claim(TimestampMixin, Base):
     claim_number: Mapped[str | None] = mapped_column(String, nullable=True)
     claim_status: Mapped[str | None] = mapped_column(String, nullable=True)
     claim_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
     billed_amount_total: Mapped[float | None] = mapped_column(Numeric, nullable=True)
     allowed_amount_total: Mapped[float | None] = mapped_column(Numeric, nullable=True)
     coinsurance_amount_total: Mapped[float | None] = mapped_column(Numeric, nullable=True)
     copay_amount_total: Mapped[float | None] = mapped_column(Numeric, nullable=True)
     deductible_amount_total: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+    stedi_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    stedi_status_code: Mapped[str | None] = mapped_column(String, nullable=True)
+    stedi_status_category: Mapped[str | None] = mapped_column(String, nullable=True)
+    stedi_status_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stedi_amount_paid: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+    stedi_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=False), nullable=True
+    )
+    stedi_payer_claim_number: Mapped[str | None] = mapped_column(String, nullable=True)
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=False),
         nullable=True,

@@ -10,10 +10,12 @@ from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 
 class InsuranceCompanyCreateRequest(BaseModel):
     name: str = Field(..., min_length=1)
+    stedi_trading_partner_service_id: str | None = None
 
 
 class InsuranceCompanyUpdateRequest(BaseModel):
     name: str | None = Field(None, min_length=1)
+    stedi_trading_partner_service_id: str | None = None
 
 
 class InsuranceCompanyResponse(BaseModel):
@@ -21,6 +23,7 @@ class InsuranceCompanyResponse(BaseModel):
 
     id: int
     name: str
+    stedi_trading_partner_service_id: str | None
     created_at: datetime | None
 
 

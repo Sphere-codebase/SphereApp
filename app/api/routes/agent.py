@@ -129,6 +129,7 @@ def _build_claim_detail(db: Session, claim: Claim) -> ClaimDetailResponse:
         },
         insurance_company_id=claim.insurance_company_id,
         service_date=claim.service_date,
+        submitted_at=claim.submitted_at,
         mcp_codes=mcp_codes,
         diagnosis_codes=diagnosis_codes,
     )

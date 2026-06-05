@@ -44,11 +44,19 @@ class AdminClaimSummary(BaseModel):
     claim_status: str | None
     service_date: date | None
     claim_date: date | None
+    submitted_at: datetime | None
     billed_amount_total: float | None
     allowed_amount_total: float | None
     coinsurance_amount_total: float | None
     copay_amount_total: float | None
     deductible_amount_total: float | None
+    stedi_status: str | None
+    stedi_status_code: str | None
+    stedi_status_category: str | None
+    stedi_status_message: str | None
+    stedi_amount_paid: float | None
+    stedi_checked_at: datetime | None
+    stedi_payer_claim_number: str | None
     created_at: datetime | None
 
 
@@ -81,11 +89,19 @@ class AdminClaimDetailResponse(BaseModel):
     claim_status: str | None
     service_date: date | None
     claim_date: date | None
+    submitted_at: datetime | None
     billed_amount_total: float | None
     allowed_amount_total: float | None
     coinsurance_amount_total: float | None
     copay_amount_total: float | None
     deductible_amount_total: float | None
+    stedi_status: str | None
+    stedi_status_code: str | None
+    stedi_status_category: str | None
+    stedi_status_message: str | None
+    stedi_amount_paid: float | None
+    stedi_checked_at: datetime | None
+    stedi_payer_claim_number: str | None
     created_at: datetime | None
     procedures: list[AdminClaimProcedureFactResponse]
     diagnoses: list[AdminDiagnosisCodeSummary]

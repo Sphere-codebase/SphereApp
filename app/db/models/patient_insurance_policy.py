@@ -38,6 +38,7 @@ class PatientInsurancePolicy(TimestampMixin, Base):
     )
     priority: Mapped[str] = mapped_column(String, nullable=False)
     member_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    group_number: Mapped[str | None] = mapped_column(String, nullable=True)
     policy_type: Mapped[str | None] = mapped_column(String, nullable=True)
     copay_amount: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     deductible_amount: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)

@@ -33,6 +33,7 @@ import {
   listMcpCodes,
   listPolicyLinks,
   parsePolicyLinkRules,
+  refreshClaimStatus,
   resetAdminUserPassword,
   updateAdminUser,
   updateDiagnosisCode,
@@ -75,6 +76,7 @@ type ReferenceTab = "mcp-codes" | "diagnosis-codes";
 
 type InsuranceCompanyFormState = {
   name: string;
+  stedi_trading_partner_service_id: string;
 };
 
 type McpCodeFormState = {
@@ -115,6 +117,7 @@ type ClaimsFilters = {
 
 const emptyCompanyForm: InsuranceCompanyFormState = {
   name: "",
+  stedi_trading_partner_service_id: "",
 };
 
 const emptyMcpForm: McpCodeFormState = {
@@ -179,6 +182,40 @@ function formatDateOnly(value?: string | null): string {
   return date.toLocaleDateString();
 }
 
+function formatDateTime(value?: string | null): string {
+  if (!value) {
+    return "—";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
+  return date.toLocaleString();
+}
+
+function claimStatusErrorMessage(err: unknown): string {
+  if (!(err instanceof ApiError)) {
+    return "Could not refresh claim status.";
+  }
+  const code = err.payload?.error.code;
+  if (code === "STEDI_DISABLED") {
+    return "Stedi status checks are disabled.";
+  }
+  if (code === "STEDI_CONFIGURATION_ERROR") {
+    return "Stedi status checks are not configured.";
+  }
+  if (code === "STEDI_MISSING_REQUIRED_DATA") {
+    return "Missing claim, payer, subscriber, or billing provider data.";
+  }
+  if (code === "STEDI_HTTP_ERROR") {
+    return "Stedi returned an error for this status check.";
+  }
+  if (code === "STEDI_TIMEOUT") {
+    return "Stedi did not respond before the timeout.";
+  }
+  return "Could not refresh claim status.";
+}
+
 export default function AdminPage() {
   const navigate = useNavigate();
   const { me, logout, hasRole } = useAuth();
@@ -216,6 +253,8 @@ export default function AdminPage() {
   const [userDialogOpen, setUserDialogOpen] = useState(false);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [claimDialogOpen, setClaimDialogOpen] = useState(false);
+  const [claimStatusLoadingId, setClaimStatusLoadingId] = useState<number | null>(null);
+  const [claimStatusMessage, setClaimStatusMessage] = useState<string | null>(null);
 
   const [editingCompany, setEditingCompany] = useState<InsuranceCompany | null>(null);
   const [editingMcp, setEditingMcp] = useState<McpCode | null>(null);
@@ -460,6 +499,8 @@ export default function AdminPage() {
       company
         ? {
             name: company.name,
+            stedi_trading_partner_service_id:
+              company.stedi_trading_partner_service_id ?? "",
           }
         : emptyCompanyForm
     );
@@ -537,6 +578,8 @@ export default function AdminPage() {
     setError(null);
     const payload: InsuranceCompanyCreateInput = {
       name: companyForm.name.trim(),
+      stedi_trading_partner_service_id:
+        companyForm.stedi_trading_partner_service_id.trim() || null,
     };
     if (!payload.name) {
       return;
@@ -836,6 +879,7 @@ export default function AdminPage() {
 
   const openClaimDetail = async (claimId: number) => {
     setError(null);
+    setClaimStatusMessage(null);
     setIsLoading(true);
     try {
       const detail = await getAdminClaimDetail(claimId);
@@ -845,6 +889,58 @@ export default function AdminPage() {
       handleApiError(err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleRefreshClaimStatus = async (claimId: number) => {
+    setClaimStatusLoadingId(claimId);
+    setClaimStatusMessage(null);
+    try {
+      const refreshed = await refreshClaimStatus(claimId);
+      setClaims((prev) =>
+        prev.map((claim) =>
+          claim.id === claimId
+            ? {
+                ...claim,
+                stedi_status: refreshed.status,
+                stedi_status_code: refreshed.status_code,
+                stedi_status_category: refreshed.status_category,
+                stedi_status_message: refreshed.message,
+                stedi_amount_paid: refreshed.amount_paid,
+                stedi_checked_at: refreshed.checked_at,
+                stedi_payer_claim_number: refreshed.payer_claim_number,
+              }
+            : claim
+        )
+      );
+      setClaimDetail((prev) =>
+        prev && prev.id === claimId
+          ? {
+              ...prev,
+              stedi_status: refreshed.status,
+              stedi_status_code: refreshed.status_code,
+              stedi_status_category: refreshed.status_category,
+              stedi_status_message: refreshed.message,
+              stedi_amount_paid: refreshed.amount_paid,
+              stedi_checked_at: refreshed.checked_at,
+              stedi_payer_claim_number: refreshed.payer_claim_number,
+            }
+          : prev
+      );
+      const baseMessage =
+        refreshed.status === "NO_MATCH"
+          ? "No matching payer claim was found."
+          : "Claim status updated.";
+      setClaimStatusMessage(
+        refreshed.warnings.length > 0
+          ? `${baseMessage} ${refreshed.warnings.join(" ")}`
+          : baseMessage
+      );
+    } catch (err) {
+      setClaimStatusMessage(claimStatusErrorMessage(err));
+      handleApiError(err);
+    } finally {
+      setClaimStatusLoadingId(null);
     }
   };
 
@@ -1069,6 +1165,10 @@ export default function AdminPage() {
                         <span className="text-xs">
                           {formatDateOnly(company.created_at)}
                         </span>
+                      </div>
+                      <div className="text-xs opacity-80">
+                        Stedi payer ID:{" "}
+                        {company.stedi_trading_partner_service_id || "—"}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <Button
@@ -1305,6 +1405,11 @@ export default function AdminPage() {
                   Refresh
                 </Button>
               </div>
+              {claimStatusMessage ? (
+                <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">
+                  {claimStatusMessage}
+                </p>
+              ) : null}
               <div className="mt-4 grid gap-2 md:grid-cols-5">
                 <input
                   className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
@@ -1389,6 +1494,18 @@ export default function AdminPage() {
                       cell: (row) => row.claim_status ?? "—",
                     },
                     {
+                      key: "payer_status",
+                      header: "Payer status",
+                      cell: (row) => (
+                        <div className="min-w-36">
+                          <div>{row.stedi_status ?? "—"}</div>
+                          <div className="text-xs text-slate-500">
+                            {formatDateTime(row.stedi_checked_at)}
+                          </div>
+                        </div>
+                      ),
+                    },
+                    {
                       key: "service",
                       header: "Service",
                       cell: (row) =>
@@ -1398,14 +1515,25 @@ export default function AdminPage() {
                       key: "actions",
                       header: "",
                       cell: (row) => (
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => void openClaimDetail(row.id)}
-                        >
-                          View
-                        </Button>
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={claimStatusLoadingId === row.id}
+                            onClick={() => void handleRefreshClaimStatus(row.id)}
+                          >
+                            {claimStatusLoadingId === row.id ? "Updating..." : "Update status"}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => void openClaimDetail(row.id)}
+                          >
+                            View
+                          </Button>
+                        </div>
                       ),
                       cellClassName: "text-right",
                       headerClassName: "text-right",
@@ -1588,6 +1716,19 @@ export default function AdminPage() {
             value={companyForm.name}
             onChange={(event) =>
               setCompanyForm((prev) => ({ ...prev, name: event.target.value }))
+            }
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Stedi payer ID
+          <input
+            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            value={companyForm.stedi_trading_partner_service_id}
+            onChange={(event) =>
+              setCompanyForm((prev) => ({
+                ...prev,
+                stedi_trading_partner_service_id: event.target.value,
+              }))
             }
           />
         </label>
@@ -1908,6 +2049,45 @@ export default function AdminPage() {
           </DialogHeader>
           {claimDetail ? (
             <div className="space-y-4 text-sm">
+              <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h4 className="font-semibold">Payer status</h4>
+                    <div className="mt-2 grid gap-2 md:grid-cols-2">
+                      <div>Status: {claimDetail.stedi_status ?? "—"}</div>
+                      <div>Code: {claimDetail.stedi_status_code ?? "—"}</div>
+                      <div>Category: {claimDetail.stedi_status_category ?? "—"}</div>
+                      <div>Last checked: {formatDateTime(claimDetail.stedi_checked_at)}</div>
+                      <div>Amount paid: {claimDetail.stedi_amount_paid ?? "—"}</div>
+                      <div>
+                        Payer claim: {claimDetail.stedi_payer_claim_number ?? "—"}
+                      </div>
+                    </div>
+                    {claimDetail.stedi_status_message ? (
+                      <p className="mt-2 text-xs text-slate-500">
+                        {claimDetail.stedi_status_message}
+                      </p>
+                    ) : null}
+                    {claimStatusMessage ? (
+                      <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
+                        {claimStatusMessage}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={claimStatusLoadingId === claimDetail.id}
+                    onClick={() => void handleRefreshClaimStatus(claimDetail.id)}
+                  >
+                    {claimStatusLoadingId === claimDetail.id
+                      ? "Updating..."
+                      : "Update status"}
+                  </Button>
+                </div>
+              </div>
+
               <div className="rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
                 <h4 className="font-semibold">Totals</h4>
                 <div className="mt-2 grid gap-2 md:grid-cols-2">

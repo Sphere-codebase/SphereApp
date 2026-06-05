@@ -82,6 +82,7 @@ def list_claims(
                 claim_status=claim.claim_status,
                 service_date=claim.service_date,
                 claim_date=claim.claim_date,
+                submitted_at=claim.submitted_at,
                 billed_amount_total=float(claim.billed_amount_total)
                 if claim.billed_amount_total is not None
                 else None,
@@ -97,6 +98,15 @@ def list_claims(
                 deductible_amount_total=float(claim.deductible_amount_total)
                 if claim.deductible_amount_total is not None
                 else None,
+                stedi_status=claim.stedi_status,
+                stedi_status_code=claim.stedi_status_code,
+                stedi_status_category=claim.stedi_status_category,
+                stedi_status_message=claim.stedi_status_message,
+                stedi_amount_paid=float(claim.stedi_amount_paid)
+                if claim.stedi_amount_paid is not None
+                else None,
+                stedi_checked_at=claim.stedi_checked_at,
+                stedi_payer_claim_number=claim.stedi_payer_claim_number,
                 created_at=claim.created_at,
             )
         )
@@ -181,6 +191,7 @@ def get_claim(
         claim_status=claim.claim_status,
         service_date=claim.service_date,
         claim_date=claim.claim_date,
+        submitted_at=claim.submitted_at,
         billed_amount_total=float(claim.billed_amount_total)
         if claim.billed_amount_total is not None
         else None,
@@ -196,6 +207,15 @@ def get_claim(
         deductible_amount_total=float(claim.deductible_amount_total)
         if claim.deductible_amount_total is not None
         else None,
+        stedi_status=claim.stedi_status,
+        stedi_status_code=claim.stedi_status_code,
+        stedi_status_category=claim.stedi_status_category,
+        stedi_status_message=claim.stedi_status_message,
+        stedi_amount_paid=float(claim.stedi_amount_paid)
+        if claim.stedi_amount_paid is not None
+        else None,
+        stedi_checked_at=claim.stedi_checked_at,
+        stedi_payer_claim_number=claim.stedi_payer_claim_number,
         created_at=claim.created_at,
         procedures=procedures,
         diagnoses=[AdminDiagnosisCodeSummary.model_validate(item) for item in diagnoses],

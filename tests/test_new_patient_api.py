@@ -87,6 +87,7 @@ def test_create_patient_creates_patient_address_and_policies(db_session: Session
     token = create_access_token(str(doctor.id))
     payload = {
         "patient_name": "John Smith",
+        "date_of_birth": "1980-03-14",
         "chart_number": "CH-100",
         "provider_name": "Dr. House",
         "gender": "male",
@@ -104,6 +105,7 @@ def test_create_patient_creates_patient_address_and_policies(db_session: Session
                 "priority": "primary",
                 "insurance_company_id": company_one.id,
                 "member_id": "MEM-1",
+                "group_number": "GRP-1",
                 "policy_type": "PPO",
                 "copay_amount": 20.0,
                 "deductible_amount": 100.0,
@@ -143,7 +145,9 @@ def test_create_patient_creates_patient_address_and_policies(db_session: Session
         assert patient is not None
         assert patient.chart_number == "CH-100"
         assert patient.provider_name == "Dr. House"
+        assert patient.date_of_birth.isoformat() == "1980-03-14"
         assert patient.clinic_id == clinic.id
+        assert created["date_of_birth"] == "1980-03-14"
 
         assert patient.address_id is not None
         address = db_session.get(Address, patient.address_id)
@@ -162,6 +166,7 @@ def test_create_patient_creates_patient_address_and_policies(db_session: Session
         assert len(policies) == 2
         by_priority = {policy.priority: policy for policy in policies}
         assert by_priority["primary"].insurance_company_id == company_one.id
+        assert by_priority["primary"].group_number == "GRP-1"
         assert by_priority["secondary"].insurance_company_id == company_two.id
 
         cards = (
@@ -173,6 +178,34 @@ def test_create_patient_creates_patient_address_and_policies(db_session: Session
         )
         assert len(cards) == 1
         assert cards[0].storage_key == "cards/primary-front.png"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_create_patient_simple_payload_persists_dob(db_session: Session) -> None:
+    clinic = _seed_clinic(db_session, "Clinic A")
+    doctor = _seed_doctor(db_session, "doctor@example.com", clinic_id=clinic.id)
+    token = create_access_token(str(doctor.id))
+
+    _override_db(db_session)
+    client = TestClient(app)
+    try:
+        response = client.post(
+            "/api/patients",
+            json={
+                "first_name": "Alice",
+                "last_name": "Jones",
+                "date_of_birth": "1979-09-21",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 201
+        payload = response.json()
+        assert payload["date_of_birth"] == "1979-09-21"
+
+        patient = db_session.get(Patient, payload["id"])
+        assert patient is not None
+        assert patient.date_of_birth.isoformat() == "1979-09-21"
     finally:
         app.dependency_overrides.clear()
 

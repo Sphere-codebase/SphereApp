@@ -7,6 +7,7 @@ import {
   adminClaimSummarySchema,
   adminPatientSchema,
   adminUserSchema,
+  claimStatusRefreshSchema,
   diagnosisCodeSchema,
   insuranceCompanySchema,
   mcpCodeSchema,
@@ -20,6 +21,7 @@ import {
   type AdminUserCreateInput,
   type AdminUserResetInput,
   type AdminUserUpdateInput,
+  type ClaimStatusRefresh,
   type DiagnosisCode,
   type DiagnosisCodeCreateInput,
   type DiagnosisCodeUpdateInput,
@@ -301,6 +303,13 @@ export async function getAdminClaimDetail(id: number): Promise<AdminClaimDetail>
   return parseWithSchema(adminClaimDetailSchema, data, "claim detail");
 }
 
+export async function refreshClaimStatus(id: number): Promise<ClaimStatusRefresh> {
+  const data = await requestJson<unknown>(`/api/claims/${id}/refresh-status`, {
+    method: "POST",
+  });
+  return parseWithSchema(claimStatusRefreshSchema, data, "claim status refresh");
+}
+
 export type {
   AdminClaimDetail,
   AdminClaimSummary,
@@ -309,6 +318,7 @@ export type {
   AdminUserCreateInput,
   AdminUserResetInput,
   AdminUserUpdateInput,
+  ClaimStatusRefresh,
   DiagnosisCode,
   DiagnosisCodeCreateInput,
   DiagnosisCodeUpdateInput,

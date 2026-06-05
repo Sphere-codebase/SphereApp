@@ -33,6 +33,7 @@ class PatientInsuranceInput(BaseModel):
     priority: str = Field(..., pattern="^(primary|secondary)$")
     insurance_company_id: int
     member_id: str | None = None
+    group_number: str | None = None
     policy_type: str | None = None
     copay_amount: float | None = None
     deductible_amount: float | None = None
@@ -42,6 +43,7 @@ class PatientInsuranceInput(BaseModel):
 
 class NewPatientCreateRequest(BaseModel):
     patient_name: str = Field(..., min_length=1)
+    date_of_birth: date | None = None
     chart_number: str | None = None
     provider_name: str | None = None
     gender: str | None = None
@@ -62,6 +64,7 @@ class PatientInsuranceResponse(BaseModel):
     priority: str
     insurance_company_id: int
     member_id: str | None
+    group_number: str | None
     policy_type: str | None
     copay_amount: float | None
     deductible_amount: float | None
@@ -83,6 +86,7 @@ class NewPatientCreateResponse(BaseModel):
     clinic_id: int
     first_name: str | None
     last_name: str | None
+    date_of_birth: date | None
     chart_number: str | None
     provider_name: str | None
     gender: str | None

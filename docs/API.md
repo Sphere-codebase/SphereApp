@@ -96,6 +96,9 @@
 - `GET /api/claims/{claim_id}`
   - Response: `{ id, claim_status, updated_at, patient, insurance_company_id, service_date, mcp_codes, diagnosis_codes }`
 - `POST /api/claims/{claim_id}/requirements`
+- `POST /api/claims/{claim_id}/refresh-status`
+  - Refreshes the latest payer status through Stedi when enabled/configured.
+  - Response: `{ claim_id, status, status_code, status_category, message, amount_paid, checked_at, payer_claim_number }`
 - `PATCH /api/claims/{claim_id}`
 - `POST /api/claims/{claim_id}/mcp-codes`
   - Request: `{ "code"?, "mcp_codes": [] }`

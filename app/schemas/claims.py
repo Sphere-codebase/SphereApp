@@ -23,6 +23,7 @@ class ClaimCreateRequest(BaseModel):
     claim_status: str | None = None
     service_date: date | None = None
     claim_date: date | None = None
+    submitted_at: datetime | None = None
     billed_amount_total: float | None = None
     allowed_amount_total: float | None = None
     coinsurance_amount_total: float | None = None
@@ -37,6 +38,7 @@ class ClaimUpdateRequest(BaseModel):
     claim_status: str | None = None
     service_date: date | None = None
     claim_date: date | None = None
+    submitted_at: datetime | None = None
     billed_amount_total: float | None = None
     allowed_amount_total: float | None = None
     coinsurance_amount_total: float | None = None
@@ -56,6 +58,7 @@ class ClaimResponse(BaseModel):
     claim_number: str | None
     claim_status: str | None
     claim_date: date | None
+    submitted_at: datetime | None
     billed_amount_total: float | None
     allowed_amount_total: float | None
     coinsurance_amount_total: float | None
@@ -109,6 +112,7 @@ class ClaimDetailResponse(BaseModel):
     patient: PatientSummary
     insurance_company_id: int
     service_date: date | None
+    submitted_at: datetime | None = None
     mcp_codes: list[McpCodeSummary] = Field(default_factory=list)
     diagnosis_codes: list[DiagnosisCodeSummary] = Field(default_factory=list)
 
@@ -189,3 +193,15 @@ class ClaimFinancialSummary(BaseModel):
     predicted_per_mcp: list[ClaimFinancialPrediction] = Field(default_factory=list)
     flags: list[ClaimFinancialFlag] = Field(default_factory=list)
     updated_at: datetime
+
+
+class ClaimStatusRefreshResponse(BaseModel):
+    claim_id: int
+    status: str
+    status_code: str | None = None
+    status_category: str | None = None
+    message: str
+    amount_paid: float | None = None
+    checked_at: datetime
+    payer_claim_number: str | None = None
+    warnings: list[str] = Field(default_factory=list)

@@ -12,11 +12,13 @@ export const userRoleSchema = z.enum([
 export const insuranceCompanySchema = z.object({
   id: z.number(),
   name: z.string(),
+  stedi_trading_partner_service_id: z.string().nullable().optional(),
   created_at: dateString.nullable(),
 });
 
 export const insuranceCompanyCreateSchema = z.object({
   name: z.string(),
+  stedi_trading_partner_service_id: z.string().nullable().optional(),
 });
 
 export const insuranceCompanyUpdateSchema = insuranceCompanyCreateSchema.partial();
@@ -172,11 +174,19 @@ export const adminClaimSummarySchema = z.object({
   claim_status: claimStatusNullableSchema,
   service_date: z.string().nullable(),
   claim_date: z.string().nullable(),
+  submitted_at: dateString.nullable().optional(),
   billed_amount_total: z.number().nullable(),
   allowed_amount_total: z.number().nullable(),
   coinsurance_amount_total: z.number().nullable(),
   copay_amount_total: z.number().nullable(),
   deductible_amount_total: z.number().nullable(),
+  stedi_status: z.string().nullable(),
+  stedi_status_code: z.string().nullable(),
+  stedi_status_category: z.string().nullable(),
+  stedi_status_message: z.string().nullable(),
+  stedi_amount_paid: z.number().nullable(),
+  stedi_checked_at: dateString.nullable(),
+  stedi_payer_claim_number: z.string().nullable(),
   created_at: dateString.nullable(),
 });
 
@@ -214,14 +224,34 @@ export const adminClaimDetailSchema = z.object({
   claim_status: claimStatusNullableSchema,
   service_date: z.string().nullable(),
   claim_date: z.string().nullable(),
+  submitted_at: dateString.nullable().optional(),
   billed_amount_total: z.number().nullable(),
   allowed_amount_total: z.number().nullable(),
   coinsurance_amount_total: z.number().nullable(),
   copay_amount_total: z.number().nullable(),
   deductible_amount_total: z.number().nullable(),
+  stedi_status: z.string().nullable(),
+  stedi_status_code: z.string().nullable(),
+  stedi_status_category: z.string().nullable(),
+  stedi_status_message: z.string().nullable(),
+  stedi_amount_paid: z.number().nullable(),
+  stedi_checked_at: dateString.nullable(),
+  stedi_payer_claim_number: z.string().nullable(),
   created_at: dateString.nullable(),
   procedures: z.array(adminClaimProcedureFactSchema),
   diagnoses: z.array(diagnosisCodeSummarySchema),
+});
+
+export const claimStatusRefreshSchema = z.object({
+  claim_id: z.number(),
+  status: z.string(),
+  status_code: z.string().nullable(),
+  status_category: z.string().nullable(),
+  message: z.string(),
+  amount_paid: z.number().nullable(),
+  checked_at: dateString,
+  payer_claim_number: z.string().nullable(),
+  warnings: z.array(z.string()).default([]),
 });
 
 export type InsuranceCompany = z.infer<typeof insuranceCompanySchema>;
@@ -246,4 +276,5 @@ export type AdminUserResetInput = z.infer<typeof adminUserResetSchema>;
 export type AdminPatient = z.infer<typeof adminPatientSchema>;
 export type AdminClaimSummary = z.infer<typeof adminClaimSummarySchema>;
 export type AdminClaimDetail = z.infer<typeof adminClaimDetailSchema>;
+export type ClaimStatusRefresh = z.infer<typeof claimStatusRefreshSchema>;
 export type ClaimStatus = z.infer<typeof claimStatusSchema>;

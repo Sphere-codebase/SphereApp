@@ -42,11 +42,17 @@ export default function Clinics() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [billingModalOpen, setBillingModalOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [savingId, setSavingId] = useState<number | null>(null);
+  const [editingClinic, setEditingClinic] = useState<PlatformClinicDTO | null>(null);
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [billingProviderNpi, setBillingProviderNpi] = useState("");
+  const [billingProviderTaxId, setBillingProviderTaxId] = useState("");
+  const [billingProviderOrganizationName, setBillingProviderOrganizationName] =
+    useState("");
   const [line1, setLine1] = useState("");
   const [line2, setLine2] = useState("");
   const [city, setCity] = useState("");
@@ -127,6 +133,10 @@ export default function Clinics() {
       await createPlatformClinic({
         name: name.trim(),
         phone: phone.trim() || null,
+        billing_provider_npi: billingProviderNpi.trim() || null,
+        billing_provider_tax_id: billingProviderTaxId.trim() || null,
+        billing_provider_organization_name:
+          billingProviderOrganizationName.trim() || null,
         address:
           line1 || city || state || zip || country || line2
             ? {
@@ -142,6 +152,9 @@ export default function Clinics() {
       setModalOpen(false);
       setName("");
       setPhone("");
+      setBillingProviderNpi("");
+      setBillingProviderTaxId("");
+      setBillingProviderOrganizationName("");
       setLine1("");
       setLine2("");
       setCity("");
@@ -158,6 +171,45 @@ export default function Clinics() {
       setFormError("Unable to create clinic.");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const openBillingDialog = (clinic: PlatformClinicDTO) => {
+    setEditingClinic(clinic);
+    setBillingProviderNpi(clinic.billing_provider_npi ?? "");
+    setBillingProviderTaxId(clinic.billing_provider_tax_id ?? "");
+    setBillingProviderOrganizationName(
+      clinic.billing_provider_organization_name ?? ""
+    );
+    setFormError(null);
+    setBillingModalOpen(true);
+  };
+
+  const handleBillingProfileSave = async () => {
+    if (!editingClinic?.id) return;
+    setSavingId(editingClinic.id);
+    setFormError(null);
+    try {
+      const updated = await updatePlatformClinic(editingClinic.id, {
+        billing_provider_npi: billingProviderNpi.trim() || null,
+        billing_provider_tax_id: billingProviderTaxId.trim() || null,
+        billing_provider_organization_name:
+          billingProviderOrganizationName.trim() || null,
+      });
+      setItems((prev) =>
+        prev.map((item) => (item.id === editingClinic.id ? updated : item))
+      );
+      cacheRef.current.clear();
+      setBillingModalOpen(false);
+      setEditingClinic(null);
+    } catch (err) {
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        handleUnauthorized();
+        return;
+      }
+      setFormError("Unable to update billing provider profile.");
+    } finally {
+      setSavingId(null);
     }
   };
 
@@ -276,6 +328,12 @@ export default function Clinics() {
                           {clinic.counters?.patients_count ?? 0} · Claims (30d):{" "}
                           {clinic.counters?.claims_30d ?? 0}
                         </div>
+                        <div className="text-xs text-slate-500">
+                          Billing provider:{" "}
+                          {clinic.billing_provider_organization_name ?? "—"} · NPI:{" "}
+                          {clinic.billing_provider_npi ?? "—"} · Tax ID:{" "}
+                          {clinic.billing_provider_tax_id ?? "—"}
+                        </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span
@@ -299,6 +357,15 @@ export default function Clinics() {
                             : clinic.is_blocked
                               ? "Unblock"
                               : "Block"}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openBillingDialog(clinic)}
+                          disabled={savingId === clinic.id}
+                        >
+                          Billing
                         </Button>
                       </div>
                     </div>
@@ -368,6 +435,37 @@ export default function Clinics() {
                 onChange={(event) => setPhone(event.target.value)}
               />
             </label>
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              Billing provider organization
+              <input
+                type="text"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                value={billingProviderOrganizationName}
+                onChange={(event) =>
+                  setBillingProviderOrganizationName(event.target.value)
+                }
+              />
+            </label>
+            <div className="grid gap-2 md:grid-cols-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                Billing provider NPI
+                <input
+                  type="text"
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  value={billingProviderNpi}
+                  onChange={(event) => setBillingProviderNpi(event.target.value)}
+                />
+              </label>
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                Billing provider tax ID
+                <input
+                  type="text"
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                  value={billingProviderTaxId}
+                  onChange={(event) => setBillingProviderTaxId(event.target.value)}
+                />
+              </label>
+            </div>
             <div className="grid gap-2 md:grid-cols-2">
               <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
                 Address line 1
@@ -436,6 +534,69 @@ export default function Clinics() {
             </Button>
             <Button type="button" onClick={handleCreateClinic} disabled={creating}>
               {creating ? "Creating..." : "Create Clinic"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={billingModalOpen} onOpenChange={setBillingModalOpen}>
+        <DialogContent className="max-w-lg dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100">
+          <DialogHeader>
+            <DialogTitle>Billing Provider</DialogTitle>
+            <DialogDescription className="dark:text-slate-300">
+              Maintain the clinic billing profile used for payer status checks.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              Organization name
+              <input
+                type="text"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                value={billingProviderOrganizationName}
+                onChange={(event) =>
+                  setBillingProviderOrganizationName(event.target.value)
+                }
+              />
+            </label>
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              NPI
+              <input
+                type="text"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                value={billingProviderNpi}
+                onChange={(event) => setBillingProviderNpi(event.target.value)}
+              />
+            </label>
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-200">
+              Tax ID
+              <input
+                type="text"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                value={billingProviderTaxId}
+                onChange={(event) => setBillingProviderTaxId(event.target.value)}
+              />
+            </label>
+            {formError ? (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
+                {formError}
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setBillingModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleBillingProfileSave}
+              disabled={savingId === editingClinic?.id}
+            >
+              {savingId === editingClinic?.id ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

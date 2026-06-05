@@ -88,7 +88,10 @@ def create_patient(
         patient_name = " ".join(
             part for part in [payload.first_name.strip(), payload.last_name.strip()] if part
         ).strip()
-        payload = NewPatientCreateRequest(patient_name=patient_name)
+        payload = NewPatientCreateRequest(
+            patient_name=patient_name,
+            date_of_birth=payload.date_of_birth,
+        )
     service = PatientService(db)
     response = service.create_new_patient(current_user=current_user, payload=payload)
     audit.log_event(

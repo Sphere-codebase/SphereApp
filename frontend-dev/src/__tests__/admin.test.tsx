@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type {
+  AdminClaimSummary,
   AdminUser,
   InsuranceCompany,
   McpCode,
@@ -385,6 +386,85 @@ describe("admin ui", () => {
     renderWithProviders(["/app/admin"]);
 
     expect(await screen.findByText(/Dashboard/i)).toBeInTheDocument();
+  });
+
+  test("dashboard claim status refresh updates payer status", async () => {
+    const claims: AdminClaimSummary[] = [
+      {
+        id: 501,
+        patient_id: 301,
+        patient_name: "Jane Doe",
+        doctor_id: 202,
+        insurance_company_id: 11,
+        insurance_company_name: "Alpha Health",
+        claim_number: "CLM-501",
+        claim_status: "SUBMITTED",
+        service_date: "2025-06-30",
+        claim_date: "2025-07-01",
+        billed_amount_total: 267.54,
+        allowed_amount_total: null,
+        coinsurance_amount_total: null,
+        copay_amount_total: null,
+        deductible_amount_total: null,
+        stedi_status: null,
+        stedi_status_code: null,
+        stedi_status_category: null,
+        stedi_status_message: null,
+        stedi_amount_paid: null,
+        stedi_checked_at: null,
+        stedi_payer_claim_number: null,
+        created_at: "2026-01-01T00:00:00Z",
+      },
+    ];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/auth/me")) {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: adminUser }));
+      }
+      if (url.includes("/api/admin/mcp-codes") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      if (url.endsWith("/api/admin/patients") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: [] }));
+      }
+      if (url.includes("/api/admin/claims") && method === "GET") {
+        return Promise.resolve(buildJsonResponse({ status: 200, body: claims }));
+      }
+      if (url.endsWith("/api/claims/501/refresh-status") && method === "POST") {
+        return Promise.resolve(
+          buildJsonResponse({
+            status: 200,
+            body: {
+              claim_id: 501,
+              status: "PAID",
+              status_code: "65",
+              status_category: "F1",
+              message: "Claim/line has been paid.",
+              amount_paid: 108.77,
+              checked_at: "2026-06-04T12:00:00Z",
+              payer_claim_number: "PAYER-501",
+            },
+          })
+        );
+      }
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    renderWithProviders(["/app/admin"]);
+    await userEvent.click(await screen.findByRole("button", { name: /dashboard/i }));
+    expect(await screen.findByText("Jane Doe")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /update status/i }));
+
+    expect(await screen.findByText("PAID")).toBeInTheDocument();
+    expect(await screen.findByText("Claim status updated.")).toBeInTheDocument();
   });
 
   test("users tab shows current account marker and allows changing another user's role", async () => {

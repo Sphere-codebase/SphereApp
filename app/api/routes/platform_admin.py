@@ -37,6 +37,27 @@ DbSessionDep = Annotated[Session, Depends(get_db)]
 AdminUserDep = Annotated[User, Depends(require_platform_staff_admin)]
 
 
+def _clean_optional(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _clinic_dto(clinic: Clinic, counters: ClinicCounters | None = None) -> ClinicDTO:
+    return ClinicDTO(
+        id=clinic.id,
+        name=clinic.name,
+        phone=clinic.phone,
+        billing_provider_npi=clinic.billing_provider_npi,
+        billing_provider_tax_id=clinic.billing_provider_tax_id,
+        billing_provider_organization_name=clinic.billing_provider_organization_name,
+        is_blocked=clinic.is_blocked,
+        created_at=clinic.created_at,
+        counters=counters,
+    )
+
+
 @router.get("/clinics", response_model=ClinicListResponse)
 def list_clinics(
     db: DbSessionDep,
@@ -90,12 +111,8 @@ def list_clinics(
     items = []
     for clinic, doctors_count, patients_count, claims_30d in rows:
         items.append(
-            ClinicDTO(
-                id=clinic.id,
-                name=clinic.name,
-                phone=clinic.phone,
-                is_blocked=clinic.is_blocked,
-                created_at=clinic.created_at,
+            _clinic_dto(
+                clinic,
                 counters=ClinicCounters(
                     doctors_count=doctors_count or 0,
                     patients_count=patients_count or 0,
@@ -138,8 +155,13 @@ def create_clinic(
     clinic = Clinic(
         id=next_id(db, Clinic),
         name=payload.name,
-        phone=payload.phone,
+        phone=_clean_optional(payload.phone),
         address_id=address_id,
+        billing_provider_npi=_clean_optional(payload.billing_provider_npi),
+        billing_provider_tax_id=_clean_optional(payload.billing_provider_tax_id),
+        billing_provider_organization_name=_clean_optional(
+            payload.billing_provider_organization_name
+        ),
         is_blocked=False,
         created_at=utcnow(),
     )
@@ -158,12 +180,8 @@ def create_clinic(
         actor_role=current_user.role,
     )
 
-    return ClinicDTO(
-        id=clinic.id,
-        name=clinic.name,
-        phone=clinic.phone,
-        is_blocked=clinic.is_blocked,
-        created_at=clinic.created_at,
+    return _clinic_dto(
+        clinic,
         counters=ClinicCounters(doctors_count=0, patients_count=0, claims_30d=0),
     )
 
@@ -186,6 +204,16 @@ def update_clinic(
         clinic.is_blocked = payload.is_blocked
         clinic.updated_at = utcnow()
         updated = True
+    for field in (
+        "phone",
+        "billing_provider_npi",
+        "billing_provider_tax_id",
+        "billing_provider_organization_name",
+    ):
+        if field in payload.model_fields_set:
+            setattr(clinic, field, _clean_optional(getattr(payload, field)))
+            clinic.updated_at = utcnow()
+            updated = True
 
     if updated:
         db.add(clinic)
@@ -197,19 +225,23 @@ def update_clinic(
             entity_id=clinic.id,
             actor=current_user,
             clinic_id=clinic.id,
-            diff={"before": before, "after": {"is_blocked": clinic.is_blocked}},
+            diff={
+                "before": before,
+                "after": {
+                    "is_blocked": clinic.is_blocked,
+                    "phone": clinic.phone,
+                    "billing_provider_npi": clinic.billing_provider_npi,
+                    "billing_provider_tax_id": clinic.billing_provider_tax_id,
+                    "billing_provider_organization_name": (
+                        clinic.billing_provider_organization_name
+                    ),
+                },
+            },
             scope="platform",
             actor_role=current_user.role,
         )
 
-    return ClinicDTO(
-        id=clinic.id,
-        name=clinic.name,
-        phone=clinic.phone,
-        is_blocked=clinic.is_blocked,
-        created_at=clinic.created_at,
-        counters=None,
-    )
+    return _clinic_dto(clinic, counters=None)
 
 
 @router.get("/audit", response_model=PlatformAuditResponse)

@@ -21,6 +21,9 @@ class ClinicCreateRequest(BaseModel):
     name: str
     phone: str | None = None
     address: ClinicAddressInput | None = None
+    billing_provider_npi: str | None = None
+    billing_provider_tax_id: str | None = None
+    billing_provider_organization_name: str | None = None
 
 
 class ClinicCounters(BaseModel):
@@ -33,6 +36,9 @@ class ClinicDTO(BaseModel):
     id: int
     name: str
     phone: str | None = None
+    billing_provider_npi: str | None = None
+    billing_provider_tax_id: str | None = None
+    billing_provider_organization_name: str | None = None
     is_blocked: bool | None = None
     created_at: datetime | None = None
     counters: ClinicCounters | None = None
@@ -47,6 +53,10 @@ class ClinicListResponse(BaseModel):
 
 class ClinicUpdateRequest(BaseModel):
     is_blocked: bool | None = None
+    phone: str | None = None
+    billing_provider_npi: str | None = None
+    billing_provider_tax_id: str | None = None
+    billing_provider_organization_name: str | None = None
 
 
 class PlatformAuditItem(BaseModel):

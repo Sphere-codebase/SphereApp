@@ -102,6 +102,7 @@ class PatientService:
                     clinic_id=current_user.clinic_id,
                     first_name=first_name,
                     last_name=last_name,
+                    date_of_birth=payload.date_of_birth,
                     chart_number=chart_number,
                     provider_name=payload.provider_name,
                     gender=payload.gender,
@@ -119,6 +120,7 @@ class PatientService:
                         insurance_company_id=insurance.insurance_company_id,
                         priority=insurance.priority,
                         member_id=insurance.member_id,
+                        group_number=insurance.group_number,
                         policy_type=insurance.policy_type,
                         copay_amount=insurance.copay_amount,
                         deductible_amount=insurance.deductible_amount,
@@ -150,6 +152,7 @@ class PatientService:
                             priority=policy.priority,
                             insurance_company_id=policy.insurance_company_id,
                             member_id=policy.member_id,
+                            group_number=policy.group_number,
                             policy_type=policy.policy_type,
                             copay_amount=float(policy.copay_amount)
                             if policy.copay_amount is not None
@@ -172,6 +175,7 @@ class PatientService:
             clinic_id=patient.clinic_id,
             first_name=patient.first_name,
             last_name=patient.last_name,
+            date_of_birth=patient.date_of_birth,
             chart_number=patient.chart_number,
             provider_name=patient.provider_name,
             gender=patient.gender,

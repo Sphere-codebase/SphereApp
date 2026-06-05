@@ -13,6 +13,7 @@ class InsuranceCompany(TimestampMixin, Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
     name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    stedi_trading_partner_service_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     policy_links = relationship("PolicyLink", back_populates="insurance_company")
     patient_policies = relationship("PatientInsurancePolicy", back_populates="insurance_company")

@@ -89,7 +89,17 @@ def create_insurance_company(
                 details={"name": name},
             ),
         )
-    company = InsuranceCompany(id=next_id(db, InsuranceCompany), name=name, created_at=utcnow())
+    stedi_id = (
+        payload.stedi_trading_partner_service_id.strip()
+        if payload.stedi_trading_partner_service_id
+        else None
+    )
+    company = InsuranceCompany(
+        id=next_id(db, InsuranceCompany),
+        name=name,
+        stedi_trading_partner_service_id=stedi_id,
+        created_at=utcnow(),
+    )
     db.add(company)
     db.commit()
     db.refresh(company)
@@ -100,7 +110,7 @@ def create_insurance_company(
         entity_id=company.id,
         actor=current_user,
         clinic_id=current_user.clinic_id,
-        diff={"fields": ["name"]},
+        diff={"fields": ["name", "stedi_trading_partner_service_id"]},
         scope="platform",
     )
     return InsuranceCompanyResponse.model_validate(company)
@@ -163,6 +173,9 @@ def update_insurance_company(
                 ),
             )
         company.name = name
+    if "stedi_trading_partner_service_id" in updates:
+        stedi_id = updates["stedi_trading_partner_service_id"]
+        company.stedi_trading_partner_service_id = stedi_id.strip() if stedi_id else None
     db.add(company)
     db.commit()
     db.refresh(company)

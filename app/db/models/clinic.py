@@ -19,6 +19,9 @@ class Clinic(TimestampMixin, Base):
         BigInteger, ForeignKey("addresses.id"), nullable=True
     )
     phone: Mapped[str | None] = mapped_column(String, nullable=True)
+    billing_provider_npi: Mapped[str | None] = mapped_column(String, nullable=True)
+    billing_provider_tax_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    billing_provider_organization_name: Mapped[str | None] = mapped_column(String, nullable=True)
     is_blocked: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
 

@@ -112,6 +112,20 @@ class Settings(BaseSettings):
     pdf_parser_timeout_seconds: float = Field(60.0, alias="PDF_PARSER_TIMEOUT_SECONDS")
     pdf_parser_retries: int = Field(3, alias="PDF_PARSER_RETRIES")
 
+    stedi_api_key: str | None = Field(None, alias="STEDI_API_KEY")
+    stedi_base_url: str = Field(
+        "https://healthcare.us.stedi.com/2024-04-01",
+        alias="STEDI_BASE_URL",
+    )
+    stedi_timeout_seconds: float = Field(60.0, alias="STEDI_TIMEOUT_SECONDS")
+    stedi_enabled: bool = Field(False, alias="STEDI_ENABLED")
+    stedi_provider_npi: str | None = Field(None, alias="STEDI_PROVIDER_NPI")
+    stedi_provider_tax_id: str | None = Field(None, alias="STEDI_PROVIDER_TAX_ID")
+    stedi_provider_organization_name: str | None = Field(
+        None,
+        alias="STEDI_PROVIDER_ORGANIZATION_NAME",
+    )
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
